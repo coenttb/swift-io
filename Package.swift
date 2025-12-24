@@ -17,7 +17,7 @@ let package = Package(
         .library(name: "IO Blocking Threads", targets: ["IO Blocking Threads"]),
     ],
     dependencies: [
-        .package(path: "../../swift-standards/swift-time-standard"),
+        .package(url: "https://github.com/swift-standards/swift-time-standard.git", from: "0.2.0"),
     ],
     targets: [
         .target(
