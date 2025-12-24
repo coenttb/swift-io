@@ -29,6 +29,18 @@ extension IO.Blocking.Threads {
     /// - Proper move() semantics for deallocation
     /// - Type erasure via closure (one closure allocation per box)
     ///
+    /// ## Why Closure (Future: Replace with Thin Function Pointer)
+    /// The closure captures `T` and `E` type information needed for proper
+    /// deinitialization. Ideally we'd use `@convention(thin)` function pointers
+    /// with `unsafeBitCast` to erase the generic signature, eliminating the
+    /// closure allocation. However:
+    /// - Swift 6.2.3 crashes when `unsafeBitCast`ing generic thin function pointers
+    /// - Static witness-per-specialization patterns are blocked by Swift restrictions
+    ///   (no nested types in generic functions, no static properties in generic types)
+    ///
+    /// Revisit when the compiler bug is fixed or Swift adds better support for
+    /// generic function pointer erasure.
+    ///
     /// ## Ownership Rules
     /// **Invariant:** Exactly one party allocates, exactly one party frees.
     ///
@@ -68,6 +80,9 @@ extension IO.Blocking.Threads {
             let headerPtr = UnsafeMutablePointer<Header>.allocate(capacity: 1)
             headerPtr.initialize(
                 to: Header(
+                    // FUTURE: Replace closure with @convention(thin) function pointer
+                    // when Swift compiler bug is fixed (crashes on unsafeBitCast of
+                    // generic thin function pointers in Swift 6.2.3).
                     destroyPayload: { payloadRaw in
                         let payload = payloadRaw.assumingMemoryBound(to: Result<T, E>.self)
                         payload.deinitialize(count: 1)
