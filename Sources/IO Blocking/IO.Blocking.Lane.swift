@@ -5,7 +5,6 @@
 //  Created by Coen ten Thije Boonkkamp on 24/12/2025.
 //
 
-
 extension IO.Blocking {
     /// Protocol witness struct for blocking I/O lanes.
     ///

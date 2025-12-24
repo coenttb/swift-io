@@ -19,7 +19,6 @@
     import WinSDK
 #endif
 
-
 extension IO.Blocking.Threads {
     /// A mutex + condition variable pair for thread coordination.
     ///

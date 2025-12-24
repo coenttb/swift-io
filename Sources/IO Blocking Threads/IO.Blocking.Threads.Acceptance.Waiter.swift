@@ -46,7 +46,7 @@ extension IO.Blocking.Threads.Acceptance {
         /// - Precondition: Must not have been resumed before.
         mutating func resumeReturning(_ ticket: IO.Blocking.Threads.Ticket) {
             #if DEBUG
-            precondition(!resumed, "Acceptance waiter resumed more than once")
+                precondition(!resumed, "Acceptance waiter resumed more than once")
             #endif
             resumed = true
             continuation.resume(returning: ticket)
@@ -57,7 +57,7 @@ extension IO.Blocking.Threads.Acceptance {
         /// - Precondition: Must not have been resumed before.
         mutating func resumeThrowing(_ error: IO.Blocking.Failure) {
             #if DEBUG
-            precondition(!resumed, "Acceptance waiter resumed more than once")
+                precondition(!resumed, "Acceptance waiter resumed more than once")
             #endif
             resumed = true
             continuation.resume(throwing: error)

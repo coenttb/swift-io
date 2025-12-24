@@ -5,7 +5,6 @@
 //  Created by Coen ten Thije Boonkkamp on 24/12/2025.
 //
 
-
 extension IO.Blocking.Threads.Thread.Worker {
     /// Shared mutable state for all workers in the lane.
     ///
@@ -126,7 +125,7 @@ extension IO.Blocking.Threads.Thread.Worker {
 
             if var waiter = completionWaiters.removeValue(forKey: ticket) {
                 #if DEBUG
-                precondition(!waiter.resumed, "Completion waiter already resumed")
+                    precondition(!waiter.resumed, "Completion waiter already resumed")
                 #endif
 
                 if waiter.abandoned {

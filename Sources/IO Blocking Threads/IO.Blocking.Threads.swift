@@ -5,7 +5,6 @@
 //  Created by Coen ten Thije Boonkkamp on 24/12/2025.
 //
 
-
 extension IO.Blocking {
     /// A lane implementation backed by dedicated OS threads.
     ///

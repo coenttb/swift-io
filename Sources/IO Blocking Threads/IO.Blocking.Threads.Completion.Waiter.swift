@@ -38,8 +38,8 @@ extension IO.Blocking.Threads.Completion {
         /// - Precondition: Must not be abandoned.
         mutating func resumeReturning(_ box: sending UnsafeMutableRawPointer) {
             #if DEBUG
-            precondition(!resumed, "Completion waiter resumed more than once")
-            precondition(!abandoned, "Completion waiter resumed after abandonment")
+                precondition(!resumed, "Completion waiter resumed more than once")
+                precondition(!abandoned, "Completion waiter resumed after abandonment")
             #endif
             resumed = true
             continuation.resume(returning: box)

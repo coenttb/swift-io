@@ -5,7 +5,6 @@
 //  Created by Coen ten Thije Boonkkamp on 24/12/2025.
 //
 
-
 extension IO.Blocking.Threads {
     /// Backpressure policy when the queue is full.
     public enum Backpressure: Sendable {
