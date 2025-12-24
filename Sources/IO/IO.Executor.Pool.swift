@@ -33,6 +33,9 @@ extension IO.Executor {
         /// Unique scope identifier for this executor instance.
         public nonisolated let scope: UInt64
 
+        /// Maximum waiters per handle (from backpressure policy).
+        private let handleWaitersLimit: Int
+
         /// Counter for generating unique handle IDs.
         private var nextRawID: UInt64 = 0
 
@@ -45,14 +48,17 @@ extension IO.Executor {
 
         // MARK: - Initializers
 
-        /// Creates an executor with the given lane.
+        /// Creates an executor with the given lane and backpressure policy.
         ///
         /// Executors created with this initializer **must** be shut down
         /// when no longer needed using `shutdown()`.
         ///
-        /// - Parameter lane: The lane for executing blocking operations.
-        public init(lane: IO.Blocking.Lane) {
+        /// - Parameters:
+        ///   - lane: The lane for executing blocking operations.
+        ///   - policy: Backpressure policy (default: `.default`).
+        public init(lane: IO.Blocking.Lane, policy: IO.Backpressure.Policy = .default) {
             self.lane = lane
+            self.handleWaitersLimit = policy.handleWaitersLimit
             self.scope = IO.Executor.scopeCounter.next()
         }
 
@@ -60,12 +66,13 @@ extension IO.Executor {
         ///
         /// This is a convenience initializer equivalent to:
         /// ```swift
-        /// Executor(lane: .threads(options))
+        /// Executor(lane: .threads(options), policy: options.policy)
         /// ```
         ///
         /// - Parameter options: Options for the Threads lane.
         public init(_ options: IO.Blocking.Threads.Options = .init()) {
             self.lane = .threads(options)
+            self.handleWaitersLimit = options.policy.handleWaitersLimit
             self.scope = IO.Executor.scopeCounter.next()
         }
 
@@ -164,7 +171,10 @@ extension IO.Executor {
                 throw .shutdownInProgress
             }
             let id = generateHandleID()
-            handles[id] = IO.Executor.Handle.Entry(handle: resource)
+            handles[id] = IO.Executor.Handle.Entry(
+                handle: resource,
+                waitersCapacity: handleWaitersLimit
+            )
             return id
         }
 

@@ -133,12 +133,12 @@ extension IO.Blocking.Threads {
                     }
 
                     // Queue is full - handle based on backpressure policy
-                    switch options.backpressure {
-                    case .throw:
+                    switch options.strategy {
+                    case .failFast:
                         state.lock.unlock()
                         continuation.resume(throwing: IO.Blocking.Failure.queueFull)
 
-                    case .suspend:
+                    case .wait:
                         // Register acceptance waiter
                         let waiter = Acceptance.Waiter(
                             ticket: ticket,

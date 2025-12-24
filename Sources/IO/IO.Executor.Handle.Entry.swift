@@ -22,9 +22,14 @@ extension IO.Executor.Handle {
         /// Current lifecycle state.
         public var state: State
 
-        public init(handle: consuming Resource) {
+        /// Creates an entry with the given resource and waiter capacity.
+        ///
+        /// - Parameters:
+        ///   - handle: The resource to store (ownership transferred).
+        ///   - waitersCapacity: Maximum waiters for this handle (default: 64).
+        public init(handle: consuming Resource, waitersCapacity: Int = IO.Handle.Waiters.defaultCapacity) {
             self.handle = consume handle
-            self.waiters = IO.Handle.Waiters()
+            self.waiters = IO.Handle.Waiters(capacity: waitersCapacity)
             self.state = .present
         }
 

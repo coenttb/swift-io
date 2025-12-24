@@ -11,28 +11,54 @@ extension IO.Blocking.Threads {
         /// Number of worker threads.
         public var workers: Int
 
+        /// Unified backpressure policy.
+        ///
+        /// Configures queue limits and backpressure strategy.
+        /// See `IO.Backpressure.Policy` for details.
+        public var policy: IO.Backpressure.Policy
+
+        // MARK: - Convenience Accessors
+
         /// Maximum number of jobs in the queue.
-        public var queueLimit: Int
+        public var queueLimit: Int {
+            get { policy.laneQueueLimit }
+            set { policy.laneQueueLimit = newValue }
+        }
 
         /// Maximum number of acceptance waiters (tasks waiting for queue capacity).
-        ///
-        /// When this limit is reached, new operations fail immediately with
-        /// `.overloaded` instead of suspending. This provides bounded memory
-        /// usage under load.
-        ///
-        /// Default: 4 × queueLimit
-        public var acceptanceWaitersLimit: Int
+        public var acceptanceWaitersLimit: Int {
+            get { policy.laneAcceptanceWaitersLimit }
+            set { policy.laneAcceptanceWaitersLimit = newValue }
+        }
 
-        /// Backpressure policy when queue is full.
-        public var backpressure: Backpressure
+        /// Backpressure strategy when queue is full.
+        public var strategy: IO.Backpressure.Strategy {
+            get { policy.strategy }
+            set { policy.strategy = newValue }
+        }
 
-        /// Creates options with the given values.
+        // MARK: - Initializers
+
+        /// Creates options with a unified backpressure policy.
+        ///
+        /// - Parameters:
+        ///   - workers: Number of workers (default: processor count).
+        ///   - policy: Backpressure policy (default: `.default`).
+        public init(
+            workers: Int? = nil,
+            policy: IO.Backpressure.Policy = .default
+        ) {
+            self.workers = max(1, workers ?? IO.Blocking.Threads.processorCount)
+            self.policy = policy
+        }
+
+        /// Creates options with individual parameters.
         ///
         /// - Parameters:
         ///   - workers: Number of workers (default: processor count).
         ///   - queueLimit: Maximum queue size (default: 256).
         ///   - acceptanceWaitersLimit: Maximum waiters (default: 4 × queueLimit).
-        ///   - backpressure: Backpressure policy (default: `.suspend`).
+        ///   - backpressure: Backpressure strategy (default: `.suspend`).
         public init(
             workers: Int? = nil,
             queueLimit: Int = 256,
@@ -40,9 +66,11 @@ extension IO.Blocking.Threads {
             backpressure: Backpressure = .suspend
         ) {
             self.workers = max(1, workers ?? IO.Blocking.Threads.processorCount)
-            self.queueLimit = max(1, queueLimit)
-            self.acceptanceWaitersLimit = max(1, acceptanceWaitersLimit ?? (4 * self.queueLimit))
-            self.backpressure = backpressure
+            self.policy = IO.Backpressure.Policy(
+                strategy: backpressure.strategy,
+                laneQueueLimit: queueLimit,
+                laneAcceptanceWaitersLimit: acceptanceWaitersLimit
+            )
         }
     }
 }
