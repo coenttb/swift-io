@@ -169,18 +169,14 @@ extension IO.Blocking.Threads {
         // Check cancellation - but we still need to handle draining
         if Task.isCancelled {
             state.lock.lock()
-            // Mark as abandoned if waiter not yet registered, or drain if completed
+            // Check if completion already arrived - if so, destroy it
             if let box = state.completions.removeValue(forKey: ticket) {
                 state.lock.unlock()
-                box.deallocate()
+                Box.destroy(box)
             } else {
-                // No completion yet - register abandoned waiter placeholder
-                // The completion will be freed when it arrives
-                state.completionWaiters[ticket] = Completion.Waiter(
-                    continuation: unsafeBitCast(0, to: CheckedContinuation<UnsafeMutableRawPointer, Never>.self),
-                    abandoned: true,
-                    resumed: false
-                )
+                // No completion yet - mark ticket as abandoned
+                // The completion will be destroyed when it arrives
+                state.abandonedTickets.insert(ticket)
                 state.lock.unlock()
             }
             throw .cancelled
@@ -207,14 +203,14 @@ extension IO.Blocking.Threads {
             }
         } onCancel: {
             state.lock.lock()
-            // Check if completion arrived
+            // Check if completion arrived while we were waiting
             if let box = state.completions.removeValue(forKey: ticket) {
                 state.lock.unlock()
-                box.deallocate()
+                Box.destroy(box)
                 return
             }
 
-            // Mark waiter as abandoned
+            // Mark waiter as abandoned (waiter was registered)
             if var waiter = state.completionWaiters[ticket] {
                 waiter.abandoned = true
                 state.completionWaiters[ticket] = waiter

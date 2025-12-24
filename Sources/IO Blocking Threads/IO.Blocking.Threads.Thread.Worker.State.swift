@@ -38,6 +38,9 @@ extension IO.Blocking.Threads.Thread.Worker {
         var completions: [IO.Blocking.Threads.Ticket: UnsafeMutableRawPointer]
         var completionWaiters: [IO.Blocking.Threads.Ticket: IO.Blocking.Threads.Completion.Waiter]
 
+        // Tickets abandoned before waiter registration (early cancellation)
+        var abandonedTickets: Set<IO.Blocking.Threads.Ticket>
+
         init(queueLimit: Int) {
             self.lock = IO.Blocking.Threads.Lock()
             self.queue = IO.Blocking.Threads.Job.Queue(capacity: queueLimit)
@@ -47,6 +50,7 @@ extension IO.Blocking.Threads.Thread.Worker {
             self.acceptanceWaiters = []
             self.completions = [:]
             self.completionWaiters = [:]
+            self.abandonedTickets = []
         }
 
         /// Generate a unique ticket. Must be called under lock.
@@ -107,10 +111,18 @@ extension IO.Blocking.Threads.Thread.Worker {
             return toResume
         }
 
-        /// Store or deliver a job completion. Must be called under lock.
+        /// Store or deliver a job completion.
+        ///
+        /// Takes the lock internally - callers must not hold the lock.
         func complete(ticket: IO.Blocking.Threads.Ticket, box: sending UnsafeMutableRawPointer) {
             lock.lock()
             defer { lock.unlock() }
+
+            // Check if ticket was abandoned before waiter registration
+            if abandonedTickets.remove(ticket) != nil {
+                IO.Blocking.Threads.Box.destroy(box)
+                return
+            }
 
             if var waiter = completionWaiters.removeValue(forKey: ticket) {
                 #if DEBUG
@@ -118,10 +130,8 @@ extension IO.Blocking.Threads.Thread.Worker {
                 #endif
 
                 if waiter.abandoned {
-                    // Waiter cancelled - free the box
-                    // Note: We don't know the exact Result type here, so we just deallocate.
-                    // The operation closure already ran, we're just freeing memory.
-                    box.deallocate()
+                    // Waiter cancelled after registration - destroy the box
+                    IO.Blocking.Threads.Box.destroy(box)
                     waiter.resumed = true
                     return
                 }
