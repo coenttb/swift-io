@@ -38,7 +38,7 @@ extension IO.Blocking {
                 runtime.state.lock.withLock {
                     runtime.state.isShutdown = true
                 }
-                runtime.state.lock.broadcast()
+                runtime.state.lock.broadcastAll()
                 runtime.joinAllThreads()
             }
         }
@@ -126,7 +126,7 @@ extension IO.Blocking.Threads {
 
                     // Try to enqueue directly
                     if state.tryEnqueue(job) {
-                        state.lock.broadcast()
+                        state.lock.signalWorker()
                         state.lock.unlock()
                         continuation.resume(returning: ticket)
                         return
@@ -155,7 +155,7 @@ extension IO.Blocking.Threads {
                         }
                         // Signal deadline manager if waiter has a deadline
                         if deadline != nil {
-                            state.lock.broadcast()
+                            state.lock.signalDeadline()
                         }
                         state.lock.unlock()
                     }
@@ -183,8 +183,8 @@ extension IO.Blocking.Threads {
             state.lock.lock()
             // Check if completion already arrived - if so, destroy it
             if let box = state.completions.removeValue(forKey: ticket) {
+                state.destroyBox(ticket: ticket, box: box)
                 state.lock.unlock()
-                Box.destroy(box)
             } else {
                 // No completion yet - mark ticket as abandoned
                 // The completion will be destroyed when it arrives
@@ -217,8 +217,8 @@ extension IO.Blocking.Threads {
             state.lock.lock()
             // Check if completion arrived while we were waiting
             if let box = state.completions.removeValue(forKey: ticket) {
+                state.destroyBox(ticket: ticket, box: box)
                 state.lock.unlock()
-                Box.destroy(box)
                 return
             }
 
@@ -259,8 +259,8 @@ extension IO.Blocking.Threads {
 
         state.lock.unlock()
 
-        // Wake all workers
-        state.lock.broadcast()
+        // Wake all workers and deadline manager
+        state.lock.broadcastAll()
 
         // Resume acceptance waiters with shutdown (outside lock)
         for var waiter in waitersToResume {
@@ -281,7 +281,7 @@ extension IO.Blocking.Threads {
                 // Use condvar wait instead of polling
                 state.lock.lock()
                 while !(state.inFlightCount == 0 && state.queue.isEmpty) {
-                    state.lock.wait()
+                    state.lock.waitWorker()
                 }
                 state.lock.unlock()
                 continuation.resume()

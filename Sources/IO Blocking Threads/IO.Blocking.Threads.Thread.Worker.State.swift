@@ -41,6 +41,11 @@ extension IO.Blocking.Threads.Thread.Worker {
         // Tickets abandoned before waiter registration (early cancellation)
         var abandonedTickets: Set<IO.Blocking.Threads.Ticket>
 
+        #if DEBUG
+        // Tracking for exactly-once Box destruction invariant
+        var destroyedTickets: Set<IO.Blocking.Threads.Ticket> = []
+        #endif
+
         init(queueLimit: Int, acceptanceWaitersLimit: Int) {
             self.lock = IO.Blocking.Threads.Lock()
             self.queue = IO.Blocking.Threads.Job.Queue(capacity: queueLimit)
@@ -104,7 +109,7 @@ extension IO.Blocking.Threads.Thread.Worker {
                 if tryEnqueue(job) {
                     waiter.resumed = true
                     toResume.append((waiter, .success(ticket)))
-                    lock.broadcast()
+                    lock.signalWorker()
                 } else {
                     // Couldn't enqueue - can't put back in ring buffer easily
                     // This shouldn't happen since we checked !queue.isFull
@@ -127,6 +132,10 @@ extension IO.Blocking.Threads.Thread.Worker {
 
             // Check if ticket was abandoned before waiter registration
             if abandonedTickets.remove(ticket) != nil {
+                #if DEBUG
+                precondition(!destroyedTickets.contains(ticket), "Box already destroyed for ticket \(ticket)")
+                destroyedTickets.insert(ticket)
+                #endif
                 IO.Blocking.Threads.Box.destroy(box)
                 return
             }
@@ -138,6 +147,10 @@ extension IO.Blocking.Threads.Thread.Worker {
 
                 if waiter.abandoned {
                     // Waiter cancelled after registration - destroy the box
+                    #if DEBUG
+                    precondition(!destroyedTickets.contains(ticket), "Box already destroyed for ticket \(ticket)")
+                    destroyedTickets.insert(ticket)
+                    #endif
                     IO.Blocking.Threads.Box.destroy(box)
                     waiter.resumed = true
                     return
@@ -159,6 +172,19 @@ extension IO.Blocking.Threads.Thread.Worker {
         /// Must be called under lock.
         func removeAcceptanceWaiter(ticket: IO.Blocking.Threads.Ticket) -> IO.Blocking.Threads.Acceptance.Waiter? {
             return acceptanceWaiters.markResumed(ticket: ticket)
+        }
+
+        /// Destroy a box and track the destruction (debug builds only).
+        ///
+        /// Used by external callers (Threads.swift) that already hold the lock
+        /// and have removed the completion from the dictionary.
+        /// Must be called under lock.
+        func destroyBox(ticket: IO.Blocking.Threads.Ticket, box: UnsafeMutableRawPointer) {
+            #if DEBUG
+            precondition(!destroyedTickets.contains(ticket), "Box already destroyed for ticket \(ticket)")
+            destroyedTickets.insert(ticket)
+            #endif
+            IO.Blocking.Threads.Box.destroy(box)
         }
     }
 }

@@ -65,6 +65,21 @@ extension IO.Blocking.Threads {
             let payload: UnsafeMutableRawPointer
         }
 
+        // MARK: - Closure-as-Witness Invariant
+        //
+        // The `destroyPayload` closure must:
+        // - Be a pure destructor for the payload pointer
+        // - Capture only type information (T, E), never external state
+        // - Be logically equivalent to a witness call:
+        //   { raw in raw.assumingMemoryBound(to: Result<T,E>.self).deinitialize(count: 1).deallocate() }
+        //
+        // This enables future replacement with:
+        // - @convention(thin) function pointers when Swift supports safe generic erasure
+        // - Language-level typed destructors
+        // - Compiler intrinsics
+        //
+        // The Header layout remains stable across these replacements.
+
         /// Allocate and initialize a boxed Result.
         ///
         /// Returns a pointer to the erased header. Use `take<T,E>` to unbox

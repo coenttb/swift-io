@@ -55,8 +55,8 @@ extension IO.Blocking.Threads.Deadline {
                 if let deadline = earliestDeadline {
                     let remaining = deadline.remainingNanoseconds
                     if remaining > 0 {
-                        // Wait until deadline (or signal)
-                        _ = state.lock.wait(timeoutNanoseconds: UInt64(remaining))
+                        // Wait until deadline (or signal) on deadline condvar
+                        _ = state.lock.waitDeadline(timeoutNanoseconds: UInt64(remaining))
                     }
                     // After wait, expire any past-due waiters
                     let expired = expireDeadlines()
@@ -67,8 +67,8 @@ extension IO.Blocking.Threads.Deadline {
                         waiter.resumeThrowing(.deadlineExceeded)
                     }
                 } else {
-                    // No deadlines - wait indefinitely for signal
-                    state.lock.wait()
+                    // No deadlines - wait indefinitely for signal on deadline condvar
+                    state.lock.waitDeadline()
                     state.lock.unlock()
                 }
             }

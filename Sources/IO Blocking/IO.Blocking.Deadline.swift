@@ -8,6 +8,12 @@
 public import Clocks
 public import StandardTime
 
+// MARK: - Dependency Decision
+//
+// swift-io depends on swift-time-standard (Clocks/StandardTime) for monotonic time.
+// This is a deliberate choice for ecosystem coherence across swift-standards packages.
+// Deadline is a thin wrapper providing lane-specific convenience methods.
+
 extension IO.Blocking {
     /// A deadline for lane acceptance.
     ///

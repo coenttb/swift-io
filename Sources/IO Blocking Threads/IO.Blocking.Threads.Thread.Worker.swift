@@ -31,7 +31,7 @@ extension IO.Blocking.Threads.Thread.Worker {
 
             // Wait for job or shutdown
             while state.queue.isEmpty && !state.isShutdown {
-                state.lock.wait()
+                state.lock.waitWorker()
             }
 
             // Check for exit condition: shutdown + empty queue
@@ -69,9 +69,9 @@ extension IO.Blocking.Threads.Thread.Worker {
             // Mark completion
             state.lock.lock()
             state.inFlightCount -= 1
-            // If shutdown and queue empty and no in-flight, signal (for shutdown wait)
+            // If shutdown and queue empty and no in-flight, signal shutdown waiter
             if state.isShutdown && state.queue.isEmpty && state.inFlightCount == 0 {
-                state.lock.broadcast()
+                state.lock.broadcastWorker()
             }
             state.lock.unlock()
         }
