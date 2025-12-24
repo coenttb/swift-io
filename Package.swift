@@ -18,6 +18,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/swift-standards/swift-time-standard.git", from: "0.2.0"),
+        .package(url: "https://github.com/swift-standards/swift-standards", from: "0.19.4"),
     ],
     targets: [
         .target(
@@ -39,8 +40,32 @@ let package = Package(
             dependencies: ["IO Blocking", "IO Blocking Threads"]
         ),
         .testTarget(
+            name: "IO Primitives Tests",
+            dependencies: [
+                "IO Primitives",
+                .product(name: "StandardsTestSupport", package: "swift-standards"),
+            ]
+        ),
+        .testTarget(
+            name: "IO Blocking Tests",
+            dependencies: [
+                "IO Blocking",
+                .product(name: "StandardsTestSupport", package: "swift-standards"),
+            ]
+        ),
+        .testTarget(
+            name: "IO Blocking Threads Tests",
+            dependencies: [
+                "IO Blocking Threads",
+                .product(name: "StandardsTestSupport", package: "swift-standards"),
+            ]
+        ),
+        .testTarget(
             name: "IO Tests",
-            dependencies: ["IO"]
+            dependencies: [
+                "IO",
+                .product(name: "StandardsTestSupport", package: "swift-standards"),
+            ]
         ),
     ]
 )
