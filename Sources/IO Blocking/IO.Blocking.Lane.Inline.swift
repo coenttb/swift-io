@@ -50,7 +50,7 @@ extension IO.Blocking.Lane {
                 // Execute immediately on caller's context
                 return operation()
             },
-            shutdown: { }
+            shutdown: {}
         )
     }
 }

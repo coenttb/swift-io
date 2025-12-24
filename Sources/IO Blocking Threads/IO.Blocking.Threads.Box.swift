@@ -10,7 +10,7 @@ extension IO.Blocking.Threads {
     ///
     /// ## Design
     /// Each box consists of two allocations:
-    /// - A header struct containing a destroy closure and payload pointer
+    /// - A header struct containing a destroy function and payload pointer
     /// - A payload containing the actual `Result<T, E>`
     ///
     /// This enables:
@@ -20,14 +20,14 @@ extension IO.Blocking.Threads {
     ///
     /// ## Memory Layout
     /// The returned pointer points to the Header struct, which contains:
-    /// - `destroyPayload`: closure to destroy payload (captures type info)
+    /// - `destroyPayload`: function to destroy payload (captures type info)
     /// - `payload`: pointer to the `Result<T, E>` storage
     ///
-    /// ## Improvements over Class-based Approach
+    /// ## Performance
     /// - No class = no ARC on the container
     /// - No Unmanaged overhead
     /// - Proper move() semantics for deallocation
-    /// - Closure is still needed for generic type erasure (Swift limitation)
+    /// - Type erasure via closure (one closure allocation per box)
     ///
     /// ## Ownership Rules
     /// **Invariant:** Exactly one party allocates, exactly one party frees.
@@ -40,14 +40,14 @@ extension IO.Blocking.Threads {
         /// Header for type-erased box.
         ///
         /// Struct-based (not class) to avoid ARC on the container.
-        /// Uses `@unchecked Sendable` because:
-        /// - It is purely internal to lane machinery
-        /// - All access occurs within lock-protected regions
-        /// - The destroy closure is inherently safe (only deinitializes/deallocates)
-        private struct Header: @unchecked Sendable {
-            /// Closure to destroy the payload.
-            /// Captures type information (T, E) - unavoidable in Swift for generic type erasure.
-            let destroyPayload: @Sendable (UnsafeMutableRawPointer) -> Void
+        /// The destroy function captures type information for proper deinitialization.
+        ///
+        /// No Sendable conformance: Header is internal and only accessed
+        /// behind lock-protected regions. The Box pointer itself is the capability.
+        private struct Header {
+            /// Function to destroy the payload.
+            /// Captures type information (T, E) for proper deinitialization.
+            let destroyPayload: (UnsafeMutableRawPointer) -> Void
 
             /// Pointer to the payload (Result<T, E>).
             let payload: UnsafeMutableRawPointer
@@ -66,14 +66,16 @@ extension IO.Blocking.Threads {
 
             // Allocate header (struct, not class - no ARC on container)
             let headerPtr = UnsafeMutablePointer<Header>.allocate(capacity: 1)
-            headerPtr.initialize(to: Header(
-                destroyPayload: { payloadRaw in
-                    let payload = payloadRaw.assumingMemoryBound(to: Result<T, E>.self)
-                    payload.deinitialize(count: 1)
-                    payload.deallocate()
-                },
-                payload: UnsafeMutableRawPointer(payloadPtr)
-            ))
+            headerPtr.initialize(
+                to: Header(
+                    destroyPayload: { payloadRaw in
+                        let payload = payloadRaw.assumingMemoryBound(to: Result<T, E>.self)
+                        payload.deinitialize(count: 1)
+                        payload.deallocate()
+                    },
+                    payload: UnsafeMutableRawPointer(payloadPtr)
+                )
+            )
 
             return UnsafeMutableRawPointer(headerPtr)
         }
