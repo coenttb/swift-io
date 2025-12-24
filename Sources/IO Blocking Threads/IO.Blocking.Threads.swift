@@ -5,6 +5,10 @@
 //  Created by Coen ten Thije Boonkkamp on 24/12/2025.
 //
 
+// MARK: - Future: Platform Executor Adaptation
+// This lane may be backed by a platform executor in the future.
+// Do not assume Threads is the only Lane implementation.
+
 extension IO.Blocking {
     /// A lane implementation backed by dedicated OS threads.
     ///

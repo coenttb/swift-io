@@ -194,6 +194,12 @@ extension IO.Executor {
 
         /// Execute a transaction with exclusive handle access and typed errors.
         ///
+        /// ## Semantics
+        /// Transaction does not imply database-style atomicity or rollback:
+        /// - Exclusive access to the resource (mutual exclusion)
+        /// - Guaranteed check-in after body completes (including errors/cancellation)
+        /// - No rollback or atomic commit semantics are implied
+        ///
         /// ## Algorithm
         /// 1. Validate scope and existence
         /// 2. If handle available: move out (entry.handle = nil)

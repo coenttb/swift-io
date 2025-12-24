@@ -5,6 +5,10 @@
 //  Created by Coen ten Thije Boonkkamp on 24/12/2025.
 //
 
+// NOTE: Lane is an execution backend abstraction.
+// Do not assume Threads is the only implementation.
+// Future: may be backed by platform executors (swift-platform-executors).
+
 extension IO.Blocking {
     /// Protocol witness struct for blocking I/O lanes.
     ///
@@ -25,6 +29,12 @@ extension IO.Blocking {
     ///   to completion. The caller may observe `.cancelled` upon return,
     ///   but the operation's side effects occur.
     ///
+    /// ## Cancellation Law
+    /// Once a lane accepts an operation, it will execute exactly once.
+    /// Cancellation may prevent waiting, but never execution.
+    /// Cancellation may cause the caller to stop waiting and not observe the result,
+    /// but the lane will still drain and destroy the completion.
+    ///
     /// ## Deadline Contract
     /// - Deadlines bound acceptance time (waiting to enqueue), not execution time.
     /// - Lanes are not required to interrupt syscalls once executing.
@@ -37,21 +47,21 @@ extension IO.Blocking {
         /// - Operation closure returns boxed value (never throws)
         /// - Lane throws only Failure for infrastructure failures
         private let _run:
-            @Sendable (
+            @Sendable @concurrent (
                 Deadline?,
                 @Sendable @escaping () -> UnsafeMutableRawPointer  // Returns boxed value
             ) async throws(Failure) -> UnsafeMutableRawPointer
 
-        private let _shutdown: @Sendable () async -> Void
+        private let _shutdown: @Sendable @concurrent () async -> Void
 
         public init(
             capabilities: Capabilities,
             run:
-                @escaping @Sendable (
+                @escaping @Sendable @concurrent (
                     Deadline?,
                     @Sendable @escaping () -> UnsafeMutableRawPointer
                 ) async throws(Failure) -> UnsafeMutableRawPointer,
-            shutdown: @escaping @Sendable () async -> Void
+            shutdown: @escaping @Sendable @concurrent () async -> Void
         ) {
             self.capabilities = capabilities
             self._run = run
@@ -67,6 +77,7 @@ extension IO.Blocking {
         ///
         /// Internal to force callers through the typed-throws `run` wrapper.
         /// Lane only throws `Failure` for infrastructure failures.
+        @concurrent
         internal func runResult<T: Sendable, E: Swift.Error & Sendable>(
             deadline: Deadline?,
             _ operation: @Sendable @escaping () -> Result<T, E>
@@ -89,6 +100,7 @@ extension IO.Blocking {
         /// We use a single, localized `as?` cast to recover E without introducing
         /// existentials into storage or API boundaries. This is the ONLY cast in the
         /// module and is acceptable for Embedded compatibility.
+        @concurrent
         public func run<T: Sendable, E: Swift.Error & Sendable>(
             deadline: Deadline?,
             _ operation: @Sendable @escaping () throws(E) -> T
@@ -114,6 +126,7 @@ extension IO.Blocking {
         // MARK: - Convenience (Non-throwing)
 
         /// Execute a non-throwing operation, returning value directly.
+        @concurrent
         public func run<T: Sendable>(
             deadline: Deadline?,
             _ operation: @Sendable @escaping () -> T
@@ -125,6 +138,7 @@ extension IO.Blocking {
             return Self.unboxValue(ptr)
         }
 
+        @concurrent
         public func shutdown() async {
             await _shutdown()
         }
