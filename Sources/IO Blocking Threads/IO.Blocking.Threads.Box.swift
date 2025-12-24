@@ -22,6 +22,12 @@ extension IO.Blocking.Threads {
     /// The returned pointer points to the Header, which contains:
     /// - `destroy`: function pointer to destroy payload and header
     /// - `payload`: pointer to the `Result<T, E>` storage
+    ///
+    /// ## Safety Note
+    /// `Header` uses `@unchecked Sendable` because:
+    /// - It is purely internal to lane machinery
+    /// - All access occurs within lock-protected regions
+    /// - The destroy closure is inherently safe (only deinitializes/deallocates)
     enum Box {
         /// Header for type-erased box.
         ///
