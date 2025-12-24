@@ -15,6 +15,7 @@ extension IO.Blocking.Threads {
     final class Runtime: @unchecked Sendable {
         let state: Thread.Worker.State
         private(set) var threads: [Thread.Handle] = []
+        private(set) var deadlineManagerThread: Thread.Handle?
         private(set) var isStarted: Bool = false
         let options: Options
 
@@ -30,6 +31,7 @@ extension IO.Blocking.Threads {
             guard !isStarted else { return }
             isStarted = true
 
+            // Start worker threads
             for i in 0..<options.workers {
                 let worker = Thread.Worker(id: i, state: state)
                 let handle = Thread.spawn {
@@ -37,13 +39,26 @@ extension IO.Blocking.Threads {
                 }
                 threads.append(handle)
             }
+
+            // Start deadline manager thread
+            let deadlineManager = Deadline.Manager(state: state)
+            deadlineManagerThread = Thread.spawn {
+                deadlineManager.run()
+            }
         }
 
         func joinAllThreads() {
+            // Join worker threads
             for thread in threads {
                 thread.join()
             }
             threads.removeAll()
+
+            // Join deadline manager
+            if let managerThread = deadlineManagerThread {
+                managerThread.join()
+                deadlineManagerThread = nil
+            }
         }
     }
 }

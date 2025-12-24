@@ -144,6 +144,10 @@ extension IO.Blocking.Threads {
                             resumed: false
                         )
                         state.acceptanceWaiters.append(waiter)
+                        // Signal deadline manager if waiter has a deadline
+                        if deadline != nil {
+                            state.lock.signal()
+                        }
                         state.lock.unlock()
                     }
                 }
