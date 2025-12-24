@@ -19,6 +19,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/swift-standards/swift-time-standard.git", from: "0.2.0"),
         .package(url: "https://github.com/swift-standards/swift-standards", from: "0.19.4"),
+        .package(url: "https://github.com/apple/swift-nio", from: "2.70.0"),
     ],
     targets: [
         .target(
@@ -66,6 +67,16 @@ let package = Package(
                 "IO",
                 .product(name: "StandardsTestSupport", package: "swift-standards"),
             ]
+        ),
+        .testTarget(
+            name: "IO Benchmarks",
+            dependencies: [
+                "IO",
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "StandardsTestSupport", package: "swift-standards"),
+            ],
+            path: "Tests/IO Benchmarks"
         ),
     ]
 )
