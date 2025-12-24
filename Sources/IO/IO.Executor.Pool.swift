@@ -105,6 +105,8 @@ extension IO.Executor {
                     throw .lane(.deadlineExceeded)
                 case .cancelled:
                     throw .cancelled
+                case .overloaded:
+                    throw .lane(.overloaded)
                 }
             }
             switch result {
@@ -237,15 +239,30 @@ extension IO.Executor {
                 checkedOutHandle = h
             } else {
                 // Step 3: Handle is checked out - wait for it
+                // Check if waiter queue has capacity
+                if entry.waiters.isFull {
+                    throw .handle(.waitersFull)
+                }
+
                 let token = entry.waiters.generateToken()
+                var enqueueFailed = false
 
                 await withTaskCancellationHandler {
                     await withCheckedContinuation {
                         (continuation: CheckedContinuation<Void, Never>) in
-                        entry.waiters.enqueue(token: token, continuation: continuation)
+                        if !entry.waiters.enqueue(token: token, continuation: continuation) {
+                            // Queue filled between check and enqueue (rare race)
+                            enqueueFailed = true
+                            continuation.resume()  // Resume immediately
+                        }
                     }
                 } onCancel: {
                     Task { await self._cancelWaiter(token: token, for: id) }
+                }
+
+                // Handle enqueue failure
+                if enqueueFailed {
+                    throw .handle(.waitersFull)
                 }
 
                 // Check cancellation after waking
@@ -282,14 +299,11 @@ extension IO.Executor {
                         try body(&resource)
                     }
                 }
-            } catch let error as IO.Blocking.Failure {
+            } catch {
+                // error is statically IO.Blocking.Failure due to typed throws
                 _checkInHandle(slot.take(), for: id, entry: entry)
                 slot.deallocateRawOnly()
                 throw .lane(error)
-            } catch {
-                _checkInHandle(slot.take(), for: id, entry: entry)
-                slot.deallocateRawOnly()
-                throw .lane(.cancelled)
             }
 
             // Check if task was cancelled during execution
@@ -364,6 +378,8 @@ extension IO.Executor {
                         throw .lane(.deadlineExceeded)
                     case .cancelled:
                         throw .cancelled
+                    case .overloaded:
+                        throw .lane(.overloaded)
                     }
                 case .handle(let handleError):
                     throw .handle(handleError)

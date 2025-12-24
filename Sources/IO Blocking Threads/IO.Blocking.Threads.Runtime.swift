@@ -21,7 +21,10 @@ extension IO.Blocking.Threads {
 
         init(options: Options) {
             self.options = options
-            self.state = Thread.Worker.State(queueLimit: options.queueLimit)
+            self.state = Thread.Worker.State(
+                queueLimit: options.queueLimit,
+                acceptanceWaitersLimit: options.acceptanceWaitersLimit
+            )
         }
 
         func startIfNeeded() {

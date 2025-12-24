@@ -20,6 +20,13 @@ extension IO.Blocking.Threads.Deadline {
     ///    - Compute next earliest deadline
     /// 3. Repeat until shutdown
     ///
+    /// ## Lazy Expiry Strategy
+    /// Expired waiters are marked as resumed but left in the ring buffer.
+    /// Their slots are reclaimed when `promoteAcceptanceWaiters()` dequeues them.
+    /// This ensures:
+    /// - Non-expired waiters behind expired ones are not starved
+    /// - Capacity is recovered as expired entries are drained
+    ///
     /// ## Invariants
     /// - Single manager thread per Threads instance
     /// - Manager only touches acceptance waiters (not completion waiters)
@@ -69,9 +76,12 @@ extension IO.Blocking.Threads.Deadline {
 
         /// Find the earliest deadline among acceptance waiters.
         /// Must be called under lock.
+        ///
+        /// Iterates the ring buffer using subscript access.
         private func findEarliestDeadline() -> IO.Blocking.Deadline? {
             var earliest: IO.Blocking.Deadline?
-            for waiter in state.acceptanceWaiters where !waiter.resumed {
+            for i in 0..<state.acceptanceWaiters.count {
+                guard let waiter = state.acceptanceWaiters[i], !waiter.resumed else { continue }
                 if let deadline = waiter.deadline {
                     if earliest == nil || deadline < earliest! {
                         earliest = deadline
@@ -81,26 +91,25 @@ extension IO.Blocking.Threads.Deadline {
             return earliest
         }
 
-        /// Remove and return waiters whose deadlines have expired.
+        /// Mark expired waiters as resumed and collect them for resumption.
         /// Must be called under lock.
+        ///
+        /// ## Lazy Expiry
+        /// Expired waiters remain in the ring buffer (marked resumed) until
+        /// dequeue reclaims their slots. This avoids complex compaction while
+        /// ensuring capacity recovery.
         private func expireDeadlines() -> [IO.Blocking.Threads.Acceptance.Waiter] {
             var expired: [IO.Blocking.Threads.Acceptance.Waiter] = []
-            var remaining: [IO.Blocking.Threads.Acceptance.Waiter] = []
 
-            for var waiter in state.acceptanceWaiters {
-                if waiter.resumed {
-                    // Already handled, skip
-                    continue
-                }
+            for i in 0..<state.acceptanceWaiters.count {
+                guard var waiter = state.acceptanceWaiters[i], !waiter.resumed else { continue }
                 if let deadline = waiter.deadline, deadline.hasExpired {
                     waiter.resumed = true
+                    state.acceptanceWaiters[i] = waiter  // Update in ring buffer
                     expired.append(waiter)
-                } else {
-                    remaining.append(waiter)
                 }
             }
 
-            state.acceptanceWaiters = remaining
             return expired
         }
     }

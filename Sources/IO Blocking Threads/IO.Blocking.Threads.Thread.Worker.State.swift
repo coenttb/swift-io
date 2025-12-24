@@ -31,7 +31,8 @@ extension IO.Blocking.Threads.Thread.Worker {
         var nextTicketRaw: UInt64
 
         // Acceptance waiters (queue full, backpressure .suspend)
-        var acceptanceWaiters: [IO.Blocking.Threads.Acceptance.Waiter]
+        // Bounded ring buffer - fails with .overloaded when full
+        var acceptanceWaiters: IO.Blocking.Threads.Acceptance.Queue
 
         // Completion storage and waiters
         var completions: [IO.Blocking.Threads.Ticket: UnsafeMutableRawPointer]
@@ -40,13 +41,13 @@ extension IO.Blocking.Threads.Thread.Worker {
         // Tickets abandoned before waiter registration (early cancellation)
         var abandonedTickets: Set<IO.Blocking.Threads.Ticket>
 
-        init(queueLimit: Int) {
+        init(queueLimit: Int, acceptanceWaitersLimit: Int) {
             self.lock = IO.Blocking.Threads.Lock()
             self.queue = IO.Blocking.Threads.Job.Queue(capacity: queueLimit)
             self.isShutdown = false
             self.inFlightCount = 0
             self.nextTicketRaw = 1
-            self.acceptanceWaiters = []
+            self.acceptanceWaiters = IO.Blocking.Threads.Acceptance.Queue(capacity: acceptanceWaitersLimit)
             self.completions = [:]
             self.completionWaiters = [:]
             self.abandonedTickets = []
@@ -71,16 +72,20 @@ extension IO.Blocking.Threads.Thread.Worker {
         /// Promote acceptance waiters when capacity becomes available.
         /// Must be called under lock. Resumes continuations outside lock if needed.
         /// Returns waiters that should be resumed.
+        ///
+        /// ## Lazy Expiry
+        /// Expired waiters are resumed with `.deadlineExceeded` and their slots reclaimed.
+        /// This ensures non-expired waiters behind expired ones are not starved.
         func promoteAcceptanceWaiters() -> [(IO.Blocking.Threads.Acceptance.Waiter, Result<IO.Blocking.Threads.Ticket, IO.Blocking.Failure>)] {
             var toResume: [(IO.Blocking.Threads.Acceptance.Waiter, Result<IO.Blocking.Threads.Ticket, IO.Blocking.Failure>)] = []
 
             while !queue.isFull, !acceptanceWaiters.isEmpty {
                 if isShutdown { break }
 
-                var waiter = acceptanceWaiters.removeFirst()
-                if waiter.resumed { continue }
+                // Dequeue skips already-resumed entries
+                guard var waiter = acceptanceWaiters.dequeue() else { break }
 
-                // Check deadline
+                // Check deadline (lazy expiry)
                 if let deadline = waiter.deadline, deadline.hasExpired {
                     waiter.resumed = true
                     toResume.append((waiter, .failure(.deadlineExceeded)))
@@ -101,8 +106,11 @@ extension IO.Blocking.Threads.Thread.Worker {
                     toResume.append((waiter, .success(ticket)))
                     lock.signal()
                 } else {
-                    // Couldn't enqueue - put back and stop
-                    acceptanceWaiters.insert(waiter, at: 0)
+                    // Couldn't enqueue - can't put back in ring buffer easily
+                    // This shouldn't happen since we checked !queue.isFull
+                    // If it does, resume with failure
+                    waiter.resumed = true
+                    toResume.append((waiter, .failure(.queueFull)))
                     break
                 }
             }
@@ -144,14 +152,13 @@ extension IO.Blocking.Threads.Thread.Worker {
             completions[ticket] = box
         }
 
-        /// Remove an acceptance waiter by ticket. Returns true if found and removed.
+        /// Mark an acceptance waiter as resumed by ticket. Returns the waiter if found.
+        ///
+        /// O(n) scan - acceptable with bounded capacity.
+        /// The waiter stays in storage until dequeue reclaims its slot.
         /// Must be called under lock.
-        func removeAcceptanceWaiter(ticket: IO.Blocking.Threads.Ticket) -> Bool {
-            if let index = acceptanceWaiters.firstIndex(where: { $0.ticket == ticket && !$0.resumed }) {
-                acceptanceWaiters.remove(at: index)
-                return true
-            }
-            return false
+        func removeAcceptanceWaiter(ticket: IO.Blocking.Threads.Ticket) -> IO.Blocking.Threads.Acceptance.Waiter? {
+            return acceptanceWaiters.markResumed(ticket: ticket)
         }
     }
 }

@@ -147,7 +147,12 @@ extension IO.Blocking.Threads {
                             continuation: continuation,
                             resumed: false
                         )
-                        state.acceptanceWaiters.append(waiter)
+                        // Bounded queue - fail fast if full
+                        guard state.acceptanceWaiters.enqueue(waiter) else {
+                            state.lock.unlock()
+                            continuation.resume(throwing: IO.Blocking.Failure.overloaded)
+                            return
+                        }
                         // Signal deadline manager if waiter has a deadline
                         if deadline != nil {
                             state.lock.signal()
@@ -250,8 +255,7 @@ extension IO.Blocking.Threads {
         state.isShutdown = true
 
         // Drain acceptance waiters
-        waitersToResume = state.acceptanceWaiters
-        state.acceptanceWaiters.removeAll()
+        waitersToResume = state.acceptanceWaiters.drainAll()
 
         state.lock.unlock()
 

@@ -13,5 +13,16 @@ extension IO.Blocking {
         case queueFull
         case deadlineExceeded
         case cancelled
+
+        /// Lane infrastructure waiter capacity exhausted (bounded memory protection).
+        ///
+        /// This is a LANE-LEVEL failure, not a resource/handle overload.
+        /// It means the lane's internal acceptance queue is full, preventing
+        /// new operations from being enqueued.
+        ///
+        /// - Note: Distinct from `queueFull` which refers to the job queue.
+        ///   This refers to the waiter queue for tasks awaiting acceptance.
+        /// - Callers may retry with backoff.
+        case overloaded
     }
 }
