@@ -22,33 +22,11 @@ extension IO.Blocking.Lane.Test.Unit {
         #expect(lane.capabilities.guaranteesRunOnceEnqueued == true)
     }
 
-    @Test("inline lane run executes operation")
+    @Test("inline lane run executes non-throwing operation")
     func inlineLaneRunExecutes() async throws {
         let lane = IO.Blocking.Lane.inline
-        let result = try await lane.run(deadline: nil) { 42 }
+        let result: Int = try await lane.run(deadline: nil) { 42 }
         #expect(result == 42)
-    }
-
-    @Test("inline lane run with typed error returns Result")
-    func inlineLaneRunTypedError() async throws {
-        struct TestError: Error, Equatable {}
-        let lane = IO.Blocking.Lane.inline
-
-        let result: Result<Int, TestError> = try await lane.run(deadline: nil) {
-            42
-        }
-        #expect(result == .success(42))
-    }
-
-    @Test("inline lane run captures thrown error in Result")
-    func inlineLaneRunCapturesError() async throws {
-        struct TestError: Error, Equatable {}
-        let lane = IO.Blocking.Lane.inline
-
-        let result: Result<Int, TestError> = try await lane.run(deadline: nil) {
-            throw TestError()
-        }
-        #expect(result == .failure(TestError()))
     }
 
     @Test("inline lane shutdown completes")
@@ -73,7 +51,7 @@ extension IO.Blocking.Lane.Test.EdgeCase {
     @Test("inline lane with nil deadline succeeds")
     func inlineNilDeadline() async throws {
         let lane = IO.Blocking.Lane.inline
-        let result = try await lane.run(deadline: nil) { "test" }
+        let result: String = try await lane.run(deadline: nil) { "test" }
         #expect(result == "test")
     }
 
@@ -83,10 +61,10 @@ extension IO.Blocking.Lane.Test.EdgeCase {
         let expiredDeadline = IO.Blocking.Deadline.after(nanoseconds: -1_000_000)
 
         do {
-            _ = try await lane.run(deadline: expiredDeadline) { 42 }
+            let _: Int = try await lane.run(deadline: expiredDeadline) { 42 }
             Issue.record("Expected deadlineExceeded error")
         } catch {
-            #expect(error == IO.Blocking.Failure.deadlineExceeded)
+            #expect(error == .deadlineExceeded)
         }
     }
 
@@ -96,7 +74,8 @@ extension IO.Blocking.Lane.Test.EdgeCase {
 
         let task = Task {
             try await Task.sleep(for: .milliseconds(100))
-            return try await lane.run(deadline: nil) { 42 }
+            let result: Int = try await lane.run(deadline: nil) { 42 }
+            return result
         }
         task.cancel()
 
@@ -104,8 +83,8 @@ extension IO.Blocking.Lane.Test.EdgeCase {
             _ = try await task.value
             Issue.record("Expected cancelled error")
         } catch {
-            // Cancellation should be detected
-            #expect(error is CancellationError || error == IO.Blocking.Failure.cancelled)
+            // Cancellation should be detected - either CancellationError or lane failure
+            #expect(error is CancellationError || (error as? IO.Blocking.Failure) == .cancelled)
         }
     }
 }

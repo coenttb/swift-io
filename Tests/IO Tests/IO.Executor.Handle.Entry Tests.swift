@@ -8,16 +8,17 @@ import Testing
 
 @testable import IO
 
-extension IO.Executor.Handle.Entry {
+// IO.Executor.Handle.Entry is generic, so we use a standalone test namespace
+enum IOExecutorHandleEntryTests {
     #TestSuites
 }
 
 // MARK: - Unit Tests
 
-extension IO.Executor.Handle.Entry.Test.Unit {
+extension IOExecutorHandleEntryTests.Test.Unit {
     @Test("type exists")
     func typeExists() {
-        // IO.Executor.Handle.Entry is an internal type
+        // IO.Executor.Handle.Entry<Resource> is an internal generic type
         // This test verifies compilation
     }
 }

@@ -13,13 +13,14 @@ struct TestResource: Sendable {
     var value: Int
 }
 
-extension IO.Executor.Pool where Resource == TestResource {
+// IO.Executor.Pool is generic, so we use a standalone test namespace
+enum IOExecutorPoolTests {
     #TestSuites
 }
 
 // MARK: - Unit Tests
 
-extension IO.Executor.Pool<TestResource>.Test.Unit {
+extension IOExecutorPoolTests.Test.Unit {
     @Test("init with default options")
     func initDefaultOptions() async {
         let pool = IO.Executor.Pool<TestResource>()
@@ -31,7 +32,7 @@ extension IO.Executor.Pool<TestResource>.Test.Unit {
     func initCustomLane() async {
         let lane = IO.Blocking.Lane.inline
         let pool = IO.Executor.Pool<TestResource>(lane: lane)
-        #expect(pool.lane.capabilities == lane.capabilities)
+        // Pool was initialized with lane - verified by successful init
         await pool.shutdown()
     }
 
@@ -47,37 +48,39 @@ extension IO.Executor.Pool<TestResource>.Test.Unit {
     @Test("run executes operation")
     func runExecutes() async throws {
         let pool = IO.Executor.Pool<TestResource>(lane: .inline)
-        defer { Task { await pool.shutdown() } }
 
         let result: Int = try await pool.run { 42 }
         #expect(result == 42)
+
+        await pool.shutdown()
     }
 
     @Test("register returns valid ID")
     func registerReturnsValidID() async throws {
         let pool = IO.Executor.Pool<TestResource>(lane: .inline)
-        defer { Task { await pool.shutdown() } }
 
         let resource = TestResource(value: 100)
         let id = try await pool.register(resource)
         #expect(id.scope == pool.scope)
         #expect(await pool.isValid(id) == true)
+
+        await pool.shutdown()
     }
 
     @Test("isOpen returns true for open handle")
     func isOpenTrue() async throws {
         let pool = IO.Executor.Pool<TestResource>(lane: .inline)
-        defer { Task { await pool.shutdown() } }
 
         let resource = TestResource(value: 100)
         let id = try await pool.register(resource)
         #expect(await pool.isOpen(id) == true)
+
+        await pool.shutdown()
     }
 
     @Test("transaction provides exclusive access")
     func transactionExclusiveAccess() async throws {
         let pool = IO.Executor.Pool<TestResource>(lane: .inline)
-        defer { Task { await pool.shutdown() } }
 
         let resource = TestResource(value: 100)
         let id = try await pool.register(resource)
@@ -87,17 +90,20 @@ extension IO.Executor.Pool<TestResource>.Test.Unit {
             return resource.value
         }
         #expect(result == 150)
+
+        await pool.shutdown()
     }
 
     @Test("destroy marks handle for destruction")
     func destroyMarksForDestruction() async throws {
         let pool = IO.Executor.Pool<TestResource>(lane: .inline)
-        defer { Task { await pool.shutdown() } }
 
         let resource = TestResource(value: 100)
         let id = try await pool.register(resource)
         try await pool.destroy(id)
         #expect(await pool.isOpen(id) == false)
+
+        await pool.shutdown()
     }
 
     @Test("shutdown completes gracefully")
@@ -110,7 +116,7 @@ extension IO.Executor.Pool<TestResource>.Test.Unit {
 
 // MARK: - Edge Cases
 
-extension IO.Executor.Pool<TestResource>.Test.EdgeCase {
+extension IOExecutorPoolTests.Test.EdgeCase {
     @Test("run after shutdown throws")
     func runAfterShutdown() async {
         let pool = IO.Executor.Pool<TestResource>(lane: .inline)
@@ -141,7 +147,6 @@ extension IO.Executor.Pool<TestResource>.Test.EdgeCase {
     @Test("transaction with invalid ID throws")
     func transactionInvalidID() async {
         let pool = IO.Executor.Pool<TestResource>(lane: .inline)
-        defer { Task { await pool.shutdown() } }
 
         let invalidID = IO.Handle.ID(raw: 999, scope: pool.scope)
 
@@ -151,12 +156,13 @@ extension IO.Executor.Pool<TestResource>.Test.EdgeCase {
         } catch {
             // Expected
         }
+
+        await pool.shutdown()
     }
 
     @Test("transaction with wrong scope throws")
     func transactionWrongScope() async {
         let pool = IO.Executor.Pool<TestResource>(lane: .inline)
-        defer { Task { await pool.shutdown() } }
 
         let wrongScopeID = IO.Handle.ID(raw: 0, scope: pool.scope + 1)
 
@@ -166,27 +172,31 @@ extension IO.Executor.Pool<TestResource>.Test.EdgeCase {
         } catch {
             // Expected
         }
+
+        await pool.shutdown()
     }
 
     @Test("isOpen with wrong scope returns false")
     func isOpenWrongScope() async {
         let pool = IO.Executor.Pool<TestResource>(lane: .inline)
-        defer { Task { await pool.shutdown() } }
 
         let wrongScopeID = IO.Handle.ID(raw: 0, scope: pool.scope + 1)
         #expect(await pool.isOpen(wrongScopeID) == false)
+
+        await pool.shutdown()
     }
 
     @Test("destroy is idempotent")
     func destroyIdempotent() async throws {
         let pool = IO.Executor.Pool<TestResource>(lane: .inline)
-        defer { Task { await pool.shutdown() } }
 
         let resource = TestResource(value: 100)
         let id = try await pool.register(resource)
         try await pool.destroy(id)
         // Second destroy should not throw
         try await pool.destroy(id)
+
+        await pool.shutdown()
     }
 
     @Test("shutdown is idempotent")

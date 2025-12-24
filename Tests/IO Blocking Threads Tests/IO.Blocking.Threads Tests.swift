@@ -16,30 +16,32 @@ extension IO.Blocking.Threads {
 
 extension IO.Blocking.Threads.Test.Unit {
     @Test("init with default options")
-    func initDefaultOptions() {
+    func initDefaultOptions() async {
         let threads = IO.Blocking.Threads()
         #expect(threads.capabilities.executesOnDedicatedThreads == true)
         #expect(threads.capabilities.guaranteesRunOnceEnqueued == true)
+        await threads.shutdown()
     }
 
     @Test("init with custom options")
-    func initCustomOptions() {
+    func initCustomOptions() async {
         let options = IO.Blocking.Threads.Options(workers: 2, queueLimit: 64)
         let threads = IO.Blocking.Threads(options)
         #expect(threads.capabilities.executesOnDedicatedThreads == true)
+        await threads.shutdown()
     }
 
     @Test("capabilities are correct")
-    func capabilitiesCorrect() {
+    func capabilitiesCorrect() async {
         let threads = IO.Blocking.Threads()
         #expect(threads.capabilities.executesOnDedicatedThreads == true)
         #expect(threads.capabilities.guaranteesRunOnceEnqueued == true)
+        await threads.shutdown()
     }
 
     @Test("runBoxed executes operation")
     func runBoxedExecutes() async throws {
         let threads = IO.Blocking.Threads()
-        defer { Task { await threads.shutdown() } }
 
         let ptr = try await threads.runBoxed(deadline: nil) {
             let value = 42
@@ -50,6 +52,8 @@ extension IO.Blocking.Threads.Test.Unit {
         let result = ptr.assumingMemoryBound(to: Int.self).pointee
         ptr.deallocate()
         #expect(result == 42)
+
+        await threads.shutdown()
     }
 
     @Test("shutdown completes gracefully")
@@ -75,7 +79,6 @@ extension IO.Blocking.Threads.Test.EdgeCase {
     @Test("multiple sequential operations")
     func multipleSequentialOperations() async throws {
         let threads = IO.Blocking.Threads()
-        defer { Task { await threads.shutdown() } }
 
         for i in 0..<10 {
             let ptr = try await threads.runBoxed(deadline: nil) {
@@ -87,6 +90,8 @@ extension IO.Blocking.Threads.Test.EdgeCase {
             ptr.deallocate()
             #expect(result == i)
         }
+
+        await threads.shutdown()
     }
 
     @Test("shutdown before any operations")

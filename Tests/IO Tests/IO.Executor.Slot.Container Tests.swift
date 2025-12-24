@@ -8,16 +8,17 @@ import Testing
 
 @testable import IO
 
-extension IO.Executor.Slot.Container {
+// IO.Executor.Slot.Container is generic, so we use a standalone test namespace
+enum IOExecutorSlotContainerTests {
     #TestSuites
 }
 
 // MARK: - Unit Tests
 
-extension IO.Executor.Slot.Container.Test.Unit {
+extension IOExecutorSlotContainerTests.Test.Unit {
     @Test("type exists")
     func typeExists() {
-        // IO.Executor.Slot.Container is an internal type
+        // IO.Executor.Slot.Container<Resource> is an internal generic type
         // This test verifies compilation
     }
 }

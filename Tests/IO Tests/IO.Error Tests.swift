@@ -110,26 +110,35 @@ extension IO.Error<TestOperationError>.Test.EdgeCase {
         let lane: IO.Error<TestOperationError> = .lane(.cancelled)
         let cancelled: IO.Error<TestOperationError> = .cancelled
 
-        // Verify distinct via switch pattern
-        switch operation {
-        case .operation: #expect(true)
-        default: Issue.record("Wrong case")
+        // Verify each case matches expected pattern
+        if case .operation = operation {
+            #expect(true)
+        } else {
+            Issue.record("operation should be .operation case")
         }
-        switch handle {
-        case .handle: #expect(true)
-        default: Issue.record("Wrong case")
+
+        if case .handle = handle {
+            #expect(true)
+        } else {
+            Issue.record("handle should be .handle case")
         }
-        switch executor {
-        case .executor: #expect(true)
-        default: Issue.record("Wrong case")
+
+        if case .executor = executor {
+            #expect(true)
+        } else {
+            Issue.record("executor should be .executor case")
         }
-        switch lane {
-        case .lane: #expect(true)
-        default: Issue.record("Wrong case")
+
+        if case .lane = lane {
+            #expect(true)
+        } else {
+            Issue.record("lane should be .lane case")
         }
-        switch cancelled {
-        case .cancelled: #expect(true)
-        default: Issue.record("Wrong case")
+
+        if case .cancelled = cancelled {
+            #expect(true)
+        } else {
+            Issue.record("cancelled should be .cancelled case")
         }
     }
 }

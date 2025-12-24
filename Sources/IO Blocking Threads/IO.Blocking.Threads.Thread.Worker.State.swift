@@ -104,7 +104,7 @@ extension IO.Blocking.Threads.Thread.Worker {
                 if tryEnqueue(job) {
                     waiter.resumed = true
                     toResume.append((waiter, .success(ticket)))
-                    lock.signal()
+                    lock.broadcast()
                 } else {
                     // Couldn't enqueue - can't put back in ring buffer easily
                     // This shouldn't happen since we checked !queue.isFull

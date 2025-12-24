@@ -126,7 +126,7 @@ extension IO.Blocking.Threads {
 
                     // Try to enqueue directly
                     if state.tryEnqueue(job) {
-                        state.lock.signal()
+                        state.lock.broadcast()
                         state.lock.unlock()
                         continuation.resume(returning: ticket)
                         return
@@ -155,7 +155,7 @@ extension IO.Blocking.Threads {
                         }
                         // Signal deadline manager if waiter has a deadline
                         if deadline != nil {
-                            state.lock.signal()
+                            state.lock.broadcast()
                         }
                         state.lock.unlock()
                     }

@@ -72,18 +72,23 @@ extension IO.Executor.Transaction.Error<TestTransactionError>.Test.EdgeCase {
         let handle: IO.Executor.Transaction.Error<TestTransactionError> = .handle(.invalidID)
         let body: IO.Executor.Transaction.Error<TestTransactionError> = .body(TestTransactionError(code: 1))
 
-        // Verify distinct via switch pattern
-        switch lane {
-        case .lane: #expect(true)
-        default: Issue.record("Wrong case")
+        // Verify each case matches expected pattern
+        if case .lane = lane {
+            #expect(true)
+        } else {
+            Issue.record("lane should be .lane case")
         }
-        switch handle {
-        case .handle: #expect(true)
-        default: Issue.record("Wrong case")
+
+        if case .handle = handle {
+            #expect(true)
+        } else {
+            Issue.record("handle should be .handle case")
         }
-        switch body {
-        case .body: #expect(true)
-        default: Issue.record("Wrong case")
+
+        if case .body = body {
+            #expect(true)
+        } else {
+            Issue.record("body should be .body case")
         }
     }
 }

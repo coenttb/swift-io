@@ -32,26 +32,23 @@ extension IO.Blocking.Threads.Backpressure.Test.Unit {
         #expect(IO.Blocking.Threads.Backpressure.suspend != .throw)
     }
 
+    @Test("suspend converts to wait strategy")
+    func suspendToWait() {
+        let backpressure = IO.Blocking.Threads.Backpressure.suspend
+        #expect(backpressure.strategy == .wait)
+    }
+
+    @Test("throw converts to failFast strategy")
+    func throwToFailFast() {
+        let backpressure = IO.Blocking.Threads.Backpressure.throw
+        #expect(backpressure.strategy == .failFast)
+    }
+
     @Test("Sendable conformance")
     func sendableConformance() async {
         let backpressure = IO.Blocking.Threads.Backpressure.suspend
         await Task {
             #expect(backpressure == .suspend)
         }.value
-    }
-}
-
-// MARK: - Edge Cases
-
-extension IO.Blocking.Threads.Backpressure.Test.EdgeCase {
-    @Test("switch exhaustiveness")
-    func switchExhaustiveness() {
-        let backpressure = IO.Blocking.Threads.Backpressure.suspend
-        switch backpressure {
-        case .suspend:
-            #expect(true)
-        case .throw:
-            Issue.record("Unexpected case")
-        }
     }
 }

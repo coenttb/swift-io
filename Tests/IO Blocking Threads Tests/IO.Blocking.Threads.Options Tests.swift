@@ -21,7 +21,7 @@ extension IO.Blocking.Threads.Options.Test.Unit {
         #expect(options.workers >= 1)
         #expect(options.queueLimit == 256)
         #expect(options.acceptanceWaitersLimit == 4 * 256)
-        #expect(options.backpressure == .suspend)
+        #expect(options.strategy == .wait)
     }
 
     @Test("init with custom workers")
@@ -49,7 +49,7 @@ extension IO.Blocking.Threads.Options.Test.Unit {
     @Test("init with throw backpressure")
     func initWithThrowBackpressure() {
         let options = IO.Blocking.Threads.Options(backpressure: .throw)
-        #expect(options.backpressure == .throw)
+        #expect(options.strategy == .failFast)
     }
 
     @Test("Sendable conformance")
