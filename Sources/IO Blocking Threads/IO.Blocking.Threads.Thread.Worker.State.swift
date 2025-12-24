@@ -88,11 +88,10 @@ extension IO.Blocking.Threads.Thread.Worker {
                 if isShutdown { break }
 
                 // Dequeue skips already-resumed entries
-                guard var waiter = acceptanceWaiters.dequeue() else { break }
+                guard let waiter = acceptanceWaiters.dequeue() else { break }
 
                 // Check deadline (lazy expiry)
                 if let deadline = waiter.deadline, deadline.hasExpired {
-                    waiter.resumed = true
                     toResume.append((waiter, .failure(.deadlineExceeded)))
                     continue
                 }
@@ -107,14 +106,12 @@ extension IO.Blocking.Threads.Thread.Worker {
                 }
 
                 if tryEnqueue(job) {
-                    waiter.resumed = true
                     toResume.append((waiter, .success(ticket)))
                     lock.signalWorker()
                 } else {
                     // Couldn't enqueue - can't put back in ring buffer easily
                     // This shouldn't happen since we checked !queue.isFull
                     // If it does, resume with failure
-                    waiter.resumed = true
                     toResume.append((waiter, .failure(.queueFull)))
                     break
                 }
