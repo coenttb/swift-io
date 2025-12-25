@@ -107,14 +107,53 @@ extension IO.Blocking.Threads {
             #endif
         }
 
-        // MARK: - Worker Condition Operations
+        // MARK: - Shutdown Helper
+
+        /// Broadcast to both worker and deadline condition variables.
+        /// Used during shutdown to wake all waiting threads.
+        func broadcastAll() {
+            worker.broadcast()
+            deadline.broadcast()
+        }
+
+        // MARK: - Nested Accessors
+
+        /// Accessor for worker condition variable operations.
+        ///
+        /// Provides a cleaner API: `lock.worker.wait()` instead of `lock.waitWorker()`.
+        var worker: Worker { Worker(self) }
+
+        /// Accessor for deadline condition variable operations.
+        ///
+        /// Provides a cleaner API: `lock.deadline.wait()` instead of `lock.waitDeadline()`.
+        var deadline: Deadline { Deadline(self) }
+    }
+}
+
+// MARK: - Lock.Worker
+
+extension IO.Blocking.Threads.Lock {
+    /// Accessor for worker condition variable operations.
+    ///
+    /// ## Usage
+    /// ```swift
+    /// lock.worker.wait()
+    /// lock.worker.signal()
+    /// lock.worker.broadcast()
+    /// ```
+    struct Worker {
+        private let _lock: IO.Blocking.Threads.Lock
+
+        fileprivate init(_ lock: IO.Blocking.Threads.Lock) {
+            self._lock = lock
+        }
 
         /// Wait on the worker condition. Must be called while holding the lock.
-        func waitWorker() {
+        func wait() {
             #if os(Windows)
-                _ = SleepConditionVariableSRW(&workerCondvar, &srwlock, INFINITE, 0)
+                _ = SleepConditionVariableSRW(&_lock.workerCondvar, &_lock.srwlock, INFINITE, 0)
             #else
-                pthread_cond_wait(&workerCond, &mutex)
+                pthread_cond_wait(&_lock.workerCond, &_lock.mutex)
             #endif
         }
 
@@ -122,13 +161,13 @@ extension IO.Blocking.Threads {
         ///
         /// - Parameter nanoseconds: Maximum wait time in nanoseconds.
         /// - Returns: `true` if signaled, `false` if timed out.
-        func waitWorker(timeoutNanoseconds nanoseconds: UInt64) -> Bool {
+        func wait(timeoutNanoseconds nanoseconds: UInt64) -> Bool {
             #if os(Windows)
                 // Ceiling division to avoid under-waiting; clamp to DWORD.max
                 let milliseconds = (nanoseconds + 999_999) / 1_000_000
                 let result = SleepConditionVariableSRW(
-                    &workerCondvar,
-                    &srwlock,
+                    &_lock.workerCondvar,
+                    &_lock.srwlock,
                     DWORD(min(milliseconds, UInt64(DWORD.max))),
                     0
                 )
@@ -138,7 +177,7 @@ extension IO.Blocking.Threads {
                 var ts = timespec()
                 ts.tv_sec = Int(nanoseconds / 1_000_000_000)
                 ts.tv_nsec = Int(nanoseconds % 1_000_000_000)
-                let result = pthread_cond_timedwait_relative_np(&workerCond, &mutex, &ts)
+                let result = pthread_cond_timedwait_relative_np(&_lock.workerCond, &_lock.mutex, &ts)
                 return result == 0
             #else
                 // Linux: condvar configured with CLOCK_MONOTONIC
@@ -152,37 +191,55 @@ extension IO.Blocking.Threads {
                     ts.tv_sec += 1
                     ts.tv_nsec -= 1_000_000_000
                 }
-                let result = pthread_cond_timedwait(&workerCond, &mutex, &ts)
+                let result = pthread_cond_timedwait(&_lock.workerCond, &_lock.mutex, &ts)
                 return result == 0
             #endif
         }
 
         /// Signal one worker thread.
-        func signalWorker() {
+        func signal() {
             #if os(Windows)
-                WakeConditionVariable(&workerCondvar)
+                WakeConditionVariable(&_lock.workerCondvar)
             #else
-                pthread_cond_signal(&workerCond)
+                pthread_cond_signal(&_lock.workerCond)
             #endif
         }
 
         /// Signal all worker threads.
-        func broadcastWorker() {
+        func broadcast() {
             #if os(Windows)
-                WakeAllConditionVariable(&workerCondvar)
+                WakeAllConditionVariable(&_lock.workerCondvar)
             #else
-                pthread_cond_broadcast(&workerCond)
+                pthread_cond_broadcast(&_lock.workerCond)
             #endif
         }
+    }
+}
 
-        // MARK: - Deadline Condition Operations
+// MARK: - Lock.Deadline
+
+extension IO.Blocking.Threads.Lock {
+    /// Accessor for deadline condition variable operations.
+    ///
+    /// ## Usage
+    /// ```swift
+    /// lock.deadline.wait()
+    /// lock.deadline.signal()
+    /// lock.deadline.broadcast()
+    /// ```
+    struct Deadline {
+        private let _lock: IO.Blocking.Threads.Lock
+
+        fileprivate init(_ lock: IO.Blocking.Threads.Lock) {
+            self._lock = lock
+        }
 
         /// Wait on the deadline condition. Must be called while holding the lock.
-        func waitDeadline() {
+        func wait() {
             #if os(Windows)
-                _ = SleepConditionVariableSRW(&deadlineCondvar, &srwlock, INFINITE, 0)
+                _ = SleepConditionVariableSRW(&_lock.deadlineCondvar, &_lock.srwlock, INFINITE, 0)
             #else
-                pthread_cond_wait(&deadlineCond, &mutex)
+                pthread_cond_wait(&_lock.deadlineCond, &_lock.mutex)
             #endif
         }
 
@@ -190,13 +247,13 @@ extension IO.Blocking.Threads {
         ///
         /// - Parameter nanoseconds: Maximum wait time in nanoseconds.
         /// - Returns: `true` if signaled, `false` if timed out.
-        func waitDeadline(timeoutNanoseconds nanoseconds: UInt64) -> Bool {
+        func wait(timeoutNanoseconds nanoseconds: UInt64) -> Bool {
             #if os(Windows)
                 // Ceiling division to avoid under-waiting; clamp to DWORD.max
                 let milliseconds = (nanoseconds + 999_999) / 1_000_000
                 let result = SleepConditionVariableSRW(
-                    &deadlineCondvar,
-                    &srwlock,
+                    &_lock.deadlineCondvar,
+                    &_lock.srwlock,
                     DWORD(min(milliseconds, UInt64(DWORD.max))),
                     0
                 )
@@ -206,7 +263,7 @@ extension IO.Blocking.Threads {
                 var ts = timespec()
                 ts.tv_sec = Int(nanoseconds / 1_000_000_000)
                 ts.tv_nsec = Int(nanoseconds % 1_000_000_000)
-                let result = pthread_cond_timedwait_relative_np(&deadlineCond, &mutex, &ts)
+                let result = pthread_cond_timedwait_relative_np(&_lock.deadlineCond, &_lock.mutex, &ts)
                 return result == 0
             #else
                 // Linux: condvar configured with CLOCK_MONOTONIC
@@ -220,36 +277,27 @@ extension IO.Blocking.Threads {
                     ts.tv_sec += 1
                     ts.tv_nsec -= 1_000_000_000
                 }
-                let result = pthread_cond_timedwait(&deadlineCond, &mutex, &ts)
+                let result = pthread_cond_timedwait(&_lock.deadlineCond, &_lock.mutex, &ts)
                 return result == 0
             #endif
         }
 
         /// Signal the deadline manager thread.
-        func signalDeadline() {
+        func signal() {
             #if os(Windows)
-                WakeConditionVariable(&deadlineCondvar)
+                WakeConditionVariable(&_lock.deadlineCondvar)
             #else
-                pthread_cond_signal(&deadlineCond)
+                pthread_cond_signal(&_lock.deadlineCond)
             #endif
         }
 
         /// Signal all deadline waiters (used for shutdown).
-        func broadcastDeadline() {
+        func broadcast() {
             #if os(Windows)
-                WakeAllConditionVariable(&deadlineCondvar)
+                WakeAllConditionVariable(&_lock.deadlineCondvar)
             #else
-                pthread_cond_broadcast(&deadlineCond)
+                pthread_cond_broadcast(&_lock.deadlineCond)
             #endif
-        }
-
-        // MARK: - Shutdown Helper
-
-        /// Broadcast to both worker and deadline condition variables.
-        /// Used during shutdown to wake all waiting threads.
-        func broadcastAll() {
-            broadcastWorker()
-            broadcastDeadline()
         }
     }
 }

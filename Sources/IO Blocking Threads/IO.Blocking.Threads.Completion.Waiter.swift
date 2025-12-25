@@ -44,22 +44,15 @@ extension IO.Blocking.Threads.Completion {
             self.resumed = resumed
         }
 
-        /// Resume this waiter exactly once with the result.
-        mutating func resumeReturning(_ box: IO.Blocking.Box.Pointer) {
+        /// Resume this waiter exactly once with the given outcome.
+        ///
+        /// - Precondition: Must not have been resumed before.
+        mutating func resume(with outcome: Outcome) {
             #if DEBUG
             precondition(!resumed, "Completion waiter resumed more than once")
             #endif
             resumed = true
-            continuation.resume(returning: .success(box))
-        }
-
-        /// Resume this waiter exactly once with a failure.
-        mutating func resumeThrowing(_ error: IO.Blocking.Failure) {
-            #if DEBUG
-            precondition(!resumed, "Completion waiter resumed more than once")
-            #endif
-            resumed = true
-            continuation.resume(returning: .failure(error))
+            continuation.resume(returning: outcome)
         }
     }
 }

@@ -107,7 +107,7 @@ extension IO.Blocking.Threads.Thread.Worker {
 
                 if tryEnqueue(job) {
                     toResume.append((waiter, .success(ticket)))
-                    lock.signalWorker()
+                    lock.worker.signal()
                 } else {
                     // Couldn't enqueue - can't put back in ring buffer easily
                     // This shouldn't happen since we checked !queue.isFull
@@ -145,7 +145,7 @@ extension IO.Blocking.Threads.Thread.Worker {
 
             // If waiter exists, we own resumption - remove and resume
             if var waiter = completionWaiters.removeValue(forKey: ticket) {
-                waiter.resumeReturning(IO.Blocking.Box.Pointer(box))
+                waiter.resume(with: .success(IO.Blocking.Box.Pointer(box)))
                 return
             }
 

@@ -56,36 +56,63 @@ extension IO.Blocking.Threads {
     }
 }
 
-// MARK: - runBoxed (Two-Stage Acceptance/Completion)
+// MARK: - Run Accessor
 
 extension IO.Blocking.Threads {
-    /// Execute a boxed operation using two-stage acceptance/completion.
+    /// Accessor for running operations on this lane.
     ///
-    /// ## Design
-    /// 1. **Acceptance stage**: Enqueue job and get a ticket
-    /// 2. **Completion stage**: Wait for job completion using the ticket
-    ///
-    /// ## Cancellation Semantics
-    /// - Cancellation before acceptance: throw `.cancelled`, no job runs
-    /// - Cancellation while waiting for acceptance: throw `.cancelled`, no job runs
-    /// - Cancellation after acceptance: job runs to completion, result is drained, throw `.cancelled`
-    ///
-    /// ## Invariants
-    /// - No helper `Task {}` spawned inside lane machinery
-    /// - Exactly-once resume for all continuations
-    /// - Cancel-wait-but-drain-completion: cancelled callers don't leak boxes
-    public func runBoxed(
-        deadline: IO.Blocking.Deadline?,
-        _ operation: @Sendable @escaping () -> UnsafeMutableRawPointer
-    ) async throws(IO.Blocking.Failure) -> UnsafeMutableRawPointer {
-        // Stage 1: Acceptance
-        let ticket = try await awaitAcceptance(deadline: deadline, operation: operation)
+    /// Provides a cleaner API: `impl.run.boxed()` instead of `impl.runBoxed()`.
+    public var run: Run { Run(self) }
+}
 
-        // Stage 2: Completion
-        let boxPointer = try await awaitCompletion(ticket: ticket)
-        return boxPointer.raw
+// MARK: - Threads.Run
+
+extension IO.Blocking.Threads {
+    /// Accessor for running operations on this lane.
+    ///
+    /// ## Usage
+    /// ```swift
+    /// let result = try await threads.run.boxed(deadline: nil) { ... }
+    /// ```
+    public struct Run {
+        private let threads: IO.Blocking.Threads
+
+        fileprivate init(_ threads: IO.Blocking.Threads) {
+            self.threads = threads
+        }
+
+        /// Execute a boxed operation using two-stage acceptance/completion.
+        ///
+        /// ## Design
+        /// 1. **Acceptance stage**: Enqueue job and get a ticket
+        /// 2. **Completion stage**: Wait for job completion using the ticket
+        ///
+        /// ## Cancellation Semantics
+        /// - Cancellation before acceptance: throw `.cancelled`, no job runs
+        /// - Cancellation while waiting for acceptance: throw `.cancelled`, no job runs
+        /// - Cancellation after acceptance: job runs to completion, result is drained, throw `.cancelled`
+        ///
+        /// ## Invariants
+        /// - No helper `Task {}` spawned inside lane machinery
+        /// - Exactly-once resume for all continuations
+        /// - Cancel-wait-but-drain-completion: cancelled callers don't leak boxes
+        public func boxed(
+            deadline: IO.Blocking.Deadline?,
+            _ operation: @Sendable @escaping () -> UnsafeMutableRawPointer
+        ) async throws(IO.Blocking.Failure) -> UnsafeMutableRawPointer {
+            // Stage 1: Acceptance
+            let ticket = try await threads.awaitAcceptance(deadline: deadline, operation: operation)
+
+            // Stage 2: Completion
+            let boxPointer = try await threads.awaitCompletion(ticket: ticket)
+            return boxPointer.raw
+        }
     }
+}
 
+// MARK: - Internal Acceptance/Completion
+
+extension IO.Blocking.Threads {
     /// Stage 1: Wait for acceptance (may suspend if queue is full).
     ///
     /// ## Typed Throws via Result
@@ -131,7 +158,7 @@ extension IO.Blocking.Threads {
 
                 // Try to enqueue directly
                 if state.tryEnqueue(job) {
-                    state.lock.signalWorker()
+                    state.lock.worker.signal()
                     state.lock.unlock()
                     continuation.resume(returning: .success(ticket))
                     return
@@ -160,7 +187,7 @@ extension IO.Blocking.Threads {
                     }
                     // Signal deadline manager if waiter has a deadline
                     if deadline != nil {
-                        state.lock.signalDeadline()
+                        state.lock.deadline.signal()
                     }
                     state.lock.unlock()
                 }
@@ -233,7 +260,7 @@ extension IO.Blocking.Threads {
             // If waiter registered, we own resumption - remove and resume with error
             if var waiter = state.completionWaiters.removeValue(forKey: ticket) {
                 state.abandonedTickets.insert(ticket)
-                waiter.resumeThrowing(.cancelled)
+                waiter.resume(with: .failure(.cancelled))
                 return
             }
 
@@ -284,7 +311,7 @@ extension IO.Blocking.Threads {
         // Resume acceptance waiters with shutdown (outside lock)
         for var waiter in waitersToResume {
             if !waiter.resumed {
-                waiter.resumeThrowing(.shutdown)
+                waiter.resume(with: .failure(.shutdown))
             }
         }
 
@@ -300,7 +327,7 @@ extension IO.Blocking.Threads {
                 // Use condvar wait instead of polling
                 state.lock.lock()
                 while !(state.inFlightCount == 0 && state.queue.isEmpty) {
-                    state.lock.waitWorker()
+                    state.lock.worker.wait()
                 }
                 state.lock.unlock()
                 continuation.resume()
@@ -325,7 +352,7 @@ extension IO.Blocking.Lane {
                     deadline: IO.Blocking.Deadline?,
                     operation: @Sendable @escaping () -> UnsafeMutableRawPointer
                 ) async throws(IO.Blocking.Failure) -> UnsafeMutableRawPointer in
-                try await impl.runBoxed(deadline: deadline, operation)
+                try await impl.run.boxed(deadline: deadline, operation)
             },
             shutdown: { await impl.shutdown() }
         )
