@@ -114,6 +114,8 @@ extension IO.Executor {
                     throw .cancelled
                 case .overloaded:
                     throw .lane(.overloaded)
+                case .internalInvariantViolation:
+                    throw .lane(.internalInvariantViolation)
                 }
             }
             switch result {
@@ -390,6 +392,8 @@ extension IO.Executor {
                         throw .cancelled
                     case .overloaded:
                         throw .lane(.overloaded)
+                    case .internalInvariantViolation:
+                        throw .lane(.internalInvariantViolation)
                     }
                 case .handle(let handleError):
                     throw .handle(handleError)

@@ -84,9 +84,9 @@ extension IO.Blocking {
         ) async throws(Failure) -> Result<T, E> {
             let ptr = try await _run(deadline) {
                 let result = operation()
-                return Self.box(result)
+                return IO.Blocking.Box.make(result)
             }
-            return Self.unbox(ptr)
+            return IO.Blocking.Box.take(ptr)
         }
 
         // MARK: - Convenience (Typed-Throws)
@@ -133,9 +133,9 @@ extension IO.Blocking {
         ) async throws(Failure) -> T {
             let ptr = try await _run(deadline) {
                 let result = operation()
-                return Self.boxValue(result)
+                return IO.Blocking.Box.makeValue(result)
             }
-            return Self.unboxValue(ptr)
+            return IO.Blocking.Box.takeValue(ptr)
         }
 
         @concurrent
@@ -143,49 +143,5 @@ extension IO.Blocking {
             await _shutdown()
         }
 
-        // MARK: - Boxing Helpers
-
-        /// ## Boxing Ownership Rules
-        ///
-        /// **Invariant:** Exactly one party allocates, exactly one party frees.
-        ///
-        /// - **Allocation:** The operation closure allocates via `box()` inside the lane worker
-        /// - **Deallocation:** The caller deallocates via `unbox()` after receiving pointer
-        ///
-        /// **Cancellation/Shutdown Safety:**
-        /// - If a job is enqueued but never executed (shutdown), the job is dropped
-        ///   but no pointer was allocated yet (allocation happens inside job execution)
-        /// - If a job is executed, the pointer is always returned to the continuation
-        /// - If continuation is resumed with failure, no pointer was allocated
-        ///
-        /// **Never allocate before enqueue.** Allocation happens inside the job body.
-
-        private static func box<T, E: Swift.Error>(
-            _ result: Result<T, E>
-        ) -> UnsafeMutableRawPointer {
-            let ptr = UnsafeMutablePointer<Result<T, E>>.allocate(capacity: 1)
-            ptr.initialize(to: result)
-            return UnsafeMutableRawPointer(ptr)
-        }
-
-        private static func unbox<T, E: Swift.Error>(_ ptr: UnsafeMutableRawPointer) -> Result<T, E> {
-            let typed = ptr.assumingMemoryBound(to: Result<T, E>.self)
-            let result = typed.move()
-            typed.deallocate()
-            return result
-        }
-
-        private static func boxValue<T>(_ value: T) -> UnsafeMutableRawPointer {
-            let ptr = UnsafeMutablePointer<T>.allocate(capacity: 1)
-            ptr.initialize(to: value)
-            return UnsafeMutableRawPointer(ptr)
-        }
-
-        private static func unboxValue<T>(_ ptr: UnsafeMutableRawPointer) -> T {
-            let typed = ptr.assumingMemoryBound(to: T.self)
-            let result = typed.move()
-            typed.deallocate()
-            return result
-        }
     }
 }

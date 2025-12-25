@@ -122,39 +122,30 @@ extension IO.Blocking.Threads.Thread.Worker {
 
         /// Store or deliver a job completion.
         ///
+        /// ## Single-Resumer Authority
+        /// Only one path can resume a waiter:
+        /// - If ticket is abandoned: cancellation already resumed (or will resume), destroy box
+        /// - If waiter exists: remove and resume with box (cancellation can't see it now)
+        /// - Otherwise: store for later waiter pickup
+        ///
         /// Takes the lock internally - callers must not hold the lock.
-        func complete(ticket: IO.Blocking.Threads.Ticket, box: sending UnsafeMutableRawPointer) {
+        func complete(ticket: IO.Blocking.Threads.Ticket, box: UnsafeMutableRawPointer) {
             lock.lock()
             defer { lock.unlock() }
 
-            // Check if ticket was abandoned before waiter registration
+            // If abandoned, cancellation already handled resumption - just destroy box
             if abandonedTickets.remove(ticket) != nil {
                 #if DEBUG
                 precondition(!destroyedTickets.contains(ticket), "Box already destroyed for ticket \(ticket)")
                 destroyedTickets.insert(ticket)
                 #endif
-                IO.Blocking.Threads.Box.destroy(box)
+                IO.Blocking.Box.destroy(box)
                 return
             }
 
+            // If waiter exists, we own resumption - remove and resume
             if var waiter = completionWaiters.removeValue(forKey: ticket) {
-                #if DEBUG
-                    precondition(!waiter.resumed, "Completion waiter already resumed")
-                #endif
-
-                if waiter.abandoned {
-                    // Waiter cancelled after registration - destroy the box
-                    #if DEBUG
-                    precondition(!destroyedTickets.contains(ticket), "Box already destroyed for ticket \(ticket)")
-                    destroyedTickets.insert(ticket)
-                    #endif
-                    IO.Blocking.Threads.Box.destroy(box)
-                    waiter.resumed = true
-                    return
-                }
-
-                waiter.resumed = true
-                waiter.continuation.resume(returning: box)
+                waiter.resumeReturning(IO.Blocking.Box.Pointer(box))
                 return
             }
 
@@ -181,7 +172,7 @@ extension IO.Blocking.Threads.Thread.Worker {
             precondition(!destroyedTickets.contains(ticket), "Box already destroyed for ticket \(ticket)")
             destroyedTickets.insert(ticket)
             #endif
-            IO.Blocking.Threads.Box.destroy(box)
+            IO.Blocking.Box.destroy(box)
         }
     }
 }

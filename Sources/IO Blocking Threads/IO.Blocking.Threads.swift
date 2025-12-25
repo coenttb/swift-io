@@ -82,7 +82,8 @@ extension IO.Blocking.Threads {
         let ticket = try await awaitAcceptance(deadline: deadline, operation: operation)
 
         // Stage 2: Completion
-        return try await awaitCompletion(ticket: ticket)
+        let boxPointer = try await awaitCompletion(ticket: ticket)
+        return boxPointer.raw
     }
 
     /// Stage 1: Wait for acceptance (may suspend if queue is full).
@@ -174,60 +175,77 @@ extension IO.Blocking.Threads {
         }
     }
 
-    /// Stage 2: Wait for job completion (cancellable but drains).
-    private func awaitCompletion(ticket: Ticket) async throws(IO.Blocking.Failure) -> UnsafeMutableRawPointer {
+    /// Stage 2: Wait for job completion (cancellable, immediate unblock on cancel).
+    ///
+    /// ## Single-Resumer Authority
+    /// Exactly one path resumes the continuation:
+    /// - **Cancellation path**: removes waiter (if registered) and resumes with `.cancelled`
+    /// - **Completion path**: removes waiter and resumes with box
+    ///
+    /// Both paths remove the waiter under lock before resuming, so only one can succeed.
+    /// The `abandonedTickets` set ensures resource cleanup when no waiter will consume the box.
+    ///
+    /// ## Error Handling
+    /// Uses `any Error` at the continuation boundary due to Swift stdlib limitations,
+    /// but catches and maps to `IO.Blocking.Failure` to preserve typed throws.
+    /// The `Box.Pointer` wrapper provides `@unchecked Sendable` capability at the FFI boundary.
+    private func awaitCompletion(ticket: Ticket) async throws(IO.Blocking.Failure) -> IO.Blocking.Box.Pointer {
         let state = runtime.state
 
-        // Check cancellation - but we still need to handle draining
-        if Task.isCancelled {
-            state.lock.lock()
-            // Check if completion already arrived - if so, destroy it
-            if let box = state.completions.removeValue(forKey: ticket) {
-                state.destroyBox(ticket: ticket, box: box)
-                state.lock.unlock()
-            } else {
-                // No completion yet - mark ticket as abandoned
-                // The completion will be destroyed when it arrives
-                state.abandonedTickets.insert(ticket)
-                state.lock.unlock()
-            }
-            throw .cancelled
-        }
+        do {
+            return try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { (cont: CheckedContinuation<IO.Blocking.Box.Pointer, any Error>) in
+                    state.lock.lock()
+                    defer { state.lock.unlock() }
 
-        return await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<UnsafeMutableRawPointer, Never>) in
+                    // Check if completion already available
+                    if let box = state.completions.removeValue(forKey: ticket) {
+                        cont.resume(returning: IO.Blocking.Box.Pointer(box))
+                        return
+                    }
+
+                    // Check if already cancelled before registering waiter
+                    if Task.isCancelled {
+                        state.abandonedTickets.insert(ticket)
+                        cont.resume(throwing: IO.Blocking.Failure.cancelled)
+                        return
+                    }
+
+                    // Register waiter - cancellation or completion will resume it
+                    state.completionWaiters[ticket] = Completion.Waiter(continuation: cont)
+                }
+            } onCancel: {
                 state.lock.lock()
+                defer { state.lock.unlock() }
 
-                // Check if completion already available
+                // If completion already arrived, destroy it
                 if let box = state.completions.removeValue(forKey: ticket) {
-                    state.lock.unlock()
-                    continuation.resume(returning: box)
+                    state.abandonedTickets.insert(ticket)
+                    state.destroyBox(ticket: ticket, box: box)
                     return
                 }
 
-                // Register completion waiter
-                state.completionWaiters[ticket] = Completion.Waiter(
-                    continuation: continuation,
-                    abandoned: false,
-                    resumed: false
-                )
-                state.lock.unlock()
+                // If waiter registered, we own resumption - remove and resume with error
+                if var waiter = state.completionWaiters.removeValue(forKey: ticket) {
+                    state.abandonedTickets.insert(ticket)
+                    waiter.resumeThrowing(.cancelled)
+                    return
+                }
+
+                // Waiter not yet registered - mark abandoned for later
+                state.abandonedTickets.insert(ticket)
             }
-        } onCancel: {
-            state.lock.lock()
-            // Check if completion arrived while we were waiting
-            if let box = state.completions.removeValue(forKey: ticket) {
-                state.destroyBox(ticket: ticket, box: box)
-                state.lock.unlock()
-                return
+        } catch {
+            // Map any Error back to IO.Blocking.Failure
+            if let failure = error as? IO.Blocking.Failure {
+                throw failure
             }
 
-            // Mark waiter as abandoned (waiter was registered)
-            if var waiter = state.completionWaiters[ticket] {
-                waiter.abandoned = true
-                state.completionWaiters[ticket] = waiter
-            }
-            state.lock.unlock()
+            #if DEBUG
+            preconditionFailure("Unexpected error type: \(type(of: error)). Only IO.Blocking.Failure is permitted.")
+            #else
+            throw .internalInvariantViolation
+            #endif
         }
     }
 
