@@ -407,4 +407,82 @@ struct IOExecutorPoolStressTests {
         let disallowed = await outcomeTracker.assertAllOutcomesAllowed([.acquired, .cancelled, .shutdown])
         #expect(disallowed.isEmpty, "Unexpected outcomes: \(disallowed)")
     }
+
+    /// Targeted test for continuation leak during destroy-while-waiting.
+    ///
+    /// This test specifically stresses the scenario where:
+    /// 1. A holder has the resource checked out
+    /// 2. Multiple waiters are queued
+    /// 3. Destroy is called while waiters are waiting
+    ///
+    /// The bug: If destroy's resumeAll() races with the holder's resumeNext(),
+    /// a waiter's continuation might never be resumed.
+    @Test("destroy with queued waiters does not leak continuations")
+    func destroyWithQueuedWaitersNoLeak() async throws {
+        // Run multiple iterations to catch timing-sensitive races
+        for iteration in 0..<50 {
+            let pool = IO.Executor.Pool<StressTestResource>(lane: .inline)
+            let resourceID = try await pool.register(StressTestResource(id: iteration))
+
+            let waiterCount = 5
+            let outcomeTracker = OutcomeTracker(count: waiterCount)
+
+            // Start a holder that will block briefly to allow waiters to queue
+            let holderTask = Task { [pool, resourceID] in
+                do {
+                    try await pool.withHandle(resourceID) { resource in
+                        resource.counter += 1
+                        // Small delay to allow waiters to enqueue
+                        // (inline lane doesn't actually block, but the await points help)
+                    }
+                } catch {
+                    // Shutdown or destroy - expected
+                }
+            }
+
+            // Start waiters that will enqueue while holder has the resource
+            let waiterTasks = (0..<waiterCount).map { id in
+                Task { [pool, resourceID, outcomeTracker] in
+                    do {
+                        try await pool.withHandle(resourceID) { resource in
+                            resource.counter += 1
+                        }
+                        await outcomeTracker.record(id: id, outcome: .acquired)
+                    } catch is CancellationError {
+                        await outcomeTracker.record(id: id, outcome: .cancelled)
+                    } catch let error as IO.Error<Never> {
+                        switch error {
+                        case .cancelled:
+                            await outcomeTracker.record(id: id, outcome: .cancelled)
+                        case .executor(.shutdownInProgress), .handle(.invalidID):
+                            await outcomeTracker.record(id: id, outcome: .shutdown)
+                        default:
+                            await outcomeTracker.record(id: id, outcome: .otherError("\(error)"))
+                        }
+                    } catch {
+                        await outcomeTracker.record(id: id, outcome: .otherError("\(error)"))
+                    }
+                }
+            }
+
+            // Destroy while waiters might be queued (timing race)
+            // This is the critical path that might leak continuations
+            try await pool.destroy(resourceID)
+
+            // Wait for all tasks with timeout
+            await holderTask.value
+            for t in waiterTasks {
+                await t.value
+            }
+
+            // All waiters must complete (no leaked continuations)
+            let snapshot = await outcomeTracker.snapshot()
+            #expect(
+                snapshot.allCompleted,
+                "Iteration \(iteration): Not all waiters completed (\(snapshot.completedCount)/\(waiterCount)) - potential continuation leak"
+            )
+
+            await pool.shutdown()
+        }
+    }
 }

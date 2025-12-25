@@ -193,10 +193,20 @@ extension IO.Executor {
             guard !isShutdown else { return }  // Idempotent
             isShutdown = true
 
-            // Resume all waiters so they can observe shutdown
+            // Close all waiter queues and collect continuations to resume.
+            // This must happen BEFORE removing entries from the dictionary,
+            // and the closeAndDrain ensures late-arriving waiters get resumed
+            // immediately rather than enqueueing into a dead queue.
+            var allContinuations: [CheckedContinuation<Void, Never>] = []
             for (_, entry) in entries {
-                entry.waiters.resumeAll()
+                let continuations = entry.waiters.closeAndDrain()
+                allContinuations.append(contentsOf: continuations)
                 entry.state = .destroyed
+            }
+
+            // Resume all collected continuations
+            for continuation in allContinuations {
+                continuation.resume()
             }
 
             // Teardown each resource deterministically
@@ -372,12 +382,17 @@ extension IO.Executor {
             _ id: IO.Handle.ID,
             _ body: @Sendable @escaping (inout Resource) throws(E) -> T
         ) async throws(Transaction.Error<E>) -> T {
-            // Step 1: Validate scope
+            // Step 1: Check shutdown - reject new transactions immediately
+            guard !isShutdown else {
+                throw .lane(.shutdown)
+            }
+
+            // Step 2: Validate scope
             guard id.scope == scope else {
                 throw .handle(.scopeMismatch)
             }
 
-            // Step 2: Checkout handle (with waiting if needed)
+            // Step 3: Checkout handle (with waiting if needed)
             guard let entry = entries[id] else {
                 throw .handle(.invalidID)
             }
@@ -386,37 +401,74 @@ extension IO.Executor {
                 throw .handle(.invalidID)
             }
 
-            // If handle is available, take it
+            // Step 3: Acquire handle (with waiting loop if needed)
+            //
+            // ## Race Condition Mitigation
+            //
+            // When a waiter is resumed by resumeNext(), there's a race window before
+            // it can actually take the handle. A new transaction arriving during this
+            // window could steal the handle (state = .present allows taking).
+            //
+            // Solution: Loop and re-enqueue if the handle was stolen. This ensures
+            // fairness - the waiter will eventually get the handle.
             var checkedOutHandle: Resource
-            if entry.state == .present, let h = entry.take() {
-                entry.state = .checkedOut
-                checkedOutHandle = h
-            } else {
-                // Step 3: Handle is checked out - wait for it
-                // Check if waiter queue has capacity
+            while true {
+                // Try to take the handle if available
+                if entry.state == .present, let h = entry.take() {
+                    entry.state = .checkedOut
+                    checkedOutHandle = h
+                    break
+                }
+
+                // Handle is checked out or destroyed - wait for it or exit
+                // Check if waiter queue has capacity (quick check before generating token)
                 if entry.waiters.isFull {
                     throw .handle(.waitersFull)
                 }
 
                 let token = entry.waiters.generateToken()
-                var enqueueFailed = false
+                // Note: enqueueResult is mutated inside the withCheckedContinuation closure.
+                // This is safe because the closure runs synchronously before any suspension.
+                var enqueueResult: IO.Handle.Waiters.EnqueueResult = .enqueued
+
+                // Capture waiters reference for use in onCancel (Sendable)
+                let waiters = entry.waiters
 
                 await withTaskCancellationHandler {
                     await withCheckedContinuation {
                         (continuation: CheckedContinuation<Void, Never>) in
-                        if !entry.waiters.enqueue(token: token, continuation: continuation) {
-                            // Queue filled between check and enqueue (rare race)
-                            enqueueFailed = true
-                            continuation.resume()  // Resume immediately
-                        }
+                        // enqueueOrResumeIfClosed atomically checks if the queue is closed
+                        // (by shutdown/destroy) and either enqueues or resumes immediately.
+                        // This prevents the race where shutdown drains an empty queue,
+                        // then we enqueue into a dead queue.
+                        //
+                        // Critical: This method ALWAYS resumes or stores the continuation.
+                        // Even on .queueFull, the continuation is resumed immediately.
+                        enqueueResult = waiters.enqueueOrResumeIfClosed(
+                            token: token,
+                            continuation: continuation
+                        )
                     }
                 } onCancel: {
-                    Task { await self._cancelWaiter(token: token, for: id) }
+                    // Synchronous cancellation - no Task needed.
+                    // Waiters uses internal synchronization, so cancel() is safe to call
+                    // from the @Sendable onCancel handler without actor isolation.
+                    // cancel() is idempotent - returns nil if token already drained/resumed.
+                    if let continuation = waiters.cancel(token: token) {
+                        continuation.resume()
+                    }
                 }
 
-                // Handle enqueue failure
-                if enqueueFailed {
+                // Handle enqueue result
+                switch enqueueResult {
+                case .enqueued:
+                    break  // Successfully enqueued and resumed - continue to validation
+                case .queueFull:
                     throw .handle(.waitersFull)
+                case .closedAndResumed:
+                    // Queue was closed (shutdown/destroy) - we were resumed immediately.
+                    // The loop will re-check entry state and throw appropriately.
+                    break
                 }
 
                 // Check cancellation after waking
@@ -426,17 +478,13 @@ extension IO.Executor {
                     throw .lane(.cancelled)
                 }
 
-                // Re-validate after waiting
-                guard let entry = entries[id], entry.state != .destroyed else {
+                // Re-validate after waiting - entry might be destroyed
+                guard entries[id] != nil, entry.state != .destroyed else {
                     throw .handle(.invalidID)
                 }
 
-                guard entry.state == .present, let h = entry.take() else {
-                    throw .handle(.invalidID)
-                }
-
-                entry.state = .checkedOut
-                checkedOutHandle = h
+                // Loop will retry taking the handle
+                // If another task stole it, we'll re-enqueue and wait again
             }
 
             // Step 4: Execute body on lane using slot pattern
@@ -502,14 +550,6 @@ extension IO.Executor {
             }
         }
 
-        /// Cancels a waiter (called from cancellation handler).
-        private func _cancelWaiter(token: UInt64, for id: IO.Handle.ID) {
-            guard let entry = entries[id] else { return }
-            if let continuation = entry.waiters.cancel(token: token) {
-                continuation.resume()
-            }
-        }
-
         /// Executes a closure with exclusive access to a handle.
         ///
         /// This is a convenience wrapper over `transaction(_:_:)`.
@@ -568,18 +608,25 @@ extension IO.Executor {
                 return
             }
 
-            // If handle is checked out, mark for destruction on check-in
-            if entry.state == .checkedOut {
-                entry.state = .destroyed
-                // Drain waiters so they wake and see destroyed state
-                entry.waiters.resumeAll()
+            // Save whether handle is checked out before marking destroyed
+            let wasCheckedOut = entry.state == .checkedOut
+
+            // Close the waiter queue first - this ensures late-arriving waiters
+            // get resumed immediately rather than enqueueing into a dead queue.
+            let continuations = entry.waiters.closeAndDrain()
+            entry.state = .destroyed
+
+            // Resume all collected continuations
+            for continuation in continuations {
+                continuation.resume()
+            }
+
+            // If handle was checked out, defer teardown to check-in time
+            if wasCheckedOut {
                 return
             }
 
-            // Handle is present - mark destroyed, remove, and teardown
-            entry.state = .destroyed
-            entry.waiters.resumeAll()
-
+            // Handle is present - remove and teardown
             if let resource = entry.take() {
                 entries.removeValue(forKey: id)
                 await _teardownResource(resource)
