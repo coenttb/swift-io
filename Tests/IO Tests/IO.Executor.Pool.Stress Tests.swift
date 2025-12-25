@@ -5,8 +5,21 @@
 //  Deterministic stress test for waiter lifecycle under contention.
 //  Tests cancellation + shutdown + contention to catch decade-scale bugs.
 //
+//  ## Design Decisions for Timelessness
+//
+//  1. **Deterministic, not random**: Cancellation targets a fixed subset (id % 3 == 0)
+//     to ensure CI reproducibility. Randomized fuzzing belongs in a separate soak harness.
+//
+//  2. **Actor-based state tracking**: Uses actors instead of Mutex/Synchronization for
+//     future-proof test utilities with no platform coupling.
+//
+//  3. **Per-waiter exactly-once tracking**: Each waiter has an ID and outcome tracked
+//     individually to catch both lost-wakeup and double-resume bugs.
+//
+//  4. **Outcome categories**: Asserts that all outcomes are in the allowed set
+//     (acquired, cancelled, shutdown) to catch semantic regressions.
+//
 
-import Synchronization
 import Testing
 
 @testable import IO
@@ -18,70 +31,84 @@ private struct StressTestResource: Sendable {
     var counter: Int = 0
 }
 
-// MARK: - Stress Test Utilities
+// MARK: - Outcome Tracking (Actor-based for timelessness)
 
-/// Tracks exactly-once completion for each waiter.
-private final class DoneTracker: @unchecked Sendable {
-    private let storage: Mutex<Storage>
+/// Outcome categories for waiter completion.
+private enum Outcome: Sendable, Equatable, Hashable {
+    case acquired
+    case cancelled
+    case shutdown
+    case otherError(String)
+}
 
-    struct Storage {
-        var done: [Bool]
-        var doneCount: Int
-    }
+/// Tracks exactly-once completion with outcome category for each waiter.
+///
+/// Actor-based for future-proof concurrency without platform dependencies.
+private actor OutcomeTracker {
+    private var outcomes: [Outcome?]
+    private let count: Int
 
     init(count: Int) {
-        self.storage = Mutex(Storage(
-            done: Array(repeating: false, count: count),
-            doneCount: 0
-        ))
+        self.count = count
+        self.outcomes = Array(repeating: nil, count: count)
     }
 
-    func markDone(id: Int) {
-        storage.withLock { storage in
-            precondition(!storage.done[id], "Waiter \(id) completed more than once")
-            storage.done[id] = true
-            storage.doneCount += 1
-        }
+    /// Records an outcome for the given waiter ID.
+    ///
+    /// Precondition: waiter must not have completed already (exactly-once).
+    func record(id: Int, outcome: Outcome) {
+        precondition(id >= 0 && id < count, "Invalid waiter id: \(id)")
+        precondition(outcomes[id] == nil, "Waiter \(id) completed more than once (double-resume bug)")
+        outcomes[id] = outcome
     }
 
-    func snapshot() -> (doneCount: Int, allDone: Bool) {
-        storage.withLock { storage in
-            (storage.doneCount, storage.done.allSatisfy { $0 })
+    /// Returns a snapshot of completion state.
+    func snapshot() -> (completedCount: Int, allCompleted: Bool, outcomes: [Outcome?]) {
+        let completed = outcomes.compactMap { $0 }
+        return (completed.count, completed.count == count, outcomes)
+    }
+
+    /// Asserts all outcomes are in the allowed set.
+    func assertAllOutcomesAllowed(_ allowed: Set<Outcome>) -> [Outcome] {
+        var disallowed: [Outcome] = []
+        for outcome in outcomes.compactMap({ $0 }) {
+            if case .otherError = outcome {
+                disallowed.append(outcome)
+            } else if !allowed.contains(outcome) {
+                disallowed.append(outcome)
+            }
         }
+        return disallowed
     }
 }
 
-/// Sendable counter for tracking completions.
-private final class Counter: @unchecked Sendable {
-    private let storage: Mutex<Int>
+/// Simple counter using actor for consistency.
+private actor Counter {
+    private var value: Int
 
     init(_ value: Int = 0) {
-        self.storage = Mutex(value)
+        self.value = value
     }
 
     func increment() {
-        storage.withLock { $0 += 1 }
+        value += 1
     }
 
-    var value: Int {
-        storage.withLock { $0 }
+    func get() -> Int {
+        value
     }
 }
 
-/// Sendable list for tracking execution order.
-private final class OrderTracker: @unchecked Sendable {
-    private let storage: Mutex<[Int]>
-
-    init() {
-        self.storage = Mutex([])
-    }
+/// Tracks execution order using actor.
+private actor OrderTracker {
+    private var values: [Int] = []
 
     func append(_ value: Int) {
-        storage.withLock { $0.append(value) }
+        values.append(value)
     }
 
-    var values: [Int] {
-        storage.withLock { $0 }
+    func getValues() -> [Int] {
+        values
     }
 }
 
@@ -97,10 +124,11 @@ struct IOExecutorPoolStressTests {
     /// - Exercises lock ordering
     /// - Exercises shutdown semantics
     ///
-    /// Assertions:
+    /// ## Assertions
     /// - No deadlock (bounded timeout)
     /// - No lost wakeups (all waiters complete)
-    /// - Exactly-once resumption (DoneTracker pattern)
+    /// - Exactly-once resumption (per-waiter tracking)
+    /// - All outcomes in allowed set (acquired, cancelled, shutdown)
     @Test("waiter lifecycle under cancellation + shutdown + contention")
     func waiterLifecycleStress() async throws {
         // Configuration - tuned for deterministic CI
@@ -113,7 +141,7 @@ struct IOExecutorPoolStressTests {
         // Register a single resource (creates contention)
         let resourceID = try await pool.register(StressTestResource(id: 0))
 
-        let doneTracker = DoneTracker(count: waiterCount)
+        let outcomeTracker = OutcomeTracker(count: waiterCount)
         let holdersCompleted = Counter()
 
         // Start holder tasks that will acquire and hold the resource briefly
@@ -124,10 +152,10 @@ struct IOExecutorPoolStressTests {
                     try await pool.withHandle(resourceID) { resource in
                         resource.counter += 1
                     }
-                    holdersCompleted.increment()
+                    await holdersCompleted.increment()
                 } catch {
                     // May fail due to shutdown - that's acceptable
-                    holdersCompleted.increment()
+                    await holdersCompleted.increment()
                 }
             }
         }
@@ -137,19 +165,29 @@ struct IOExecutorPoolStressTests {
 
         // Start waiter tasks
         let waiterTasks: [Task<Void, Never>] = (0..<waiterCount).map { id in
-            Task { [pool, resourceID, doneTracker] in
+            Task { [pool, resourceID, outcomeTracker] in
                 do {
                     try await pool.withHandle(resourceID) { resource in
                         resource.counter += 1
                     }
-                    // Acquired and completed - mark done
-                    doneTracker.markDone(id: id)
+                    // Acquired and completed
+                    await outcomeTracker.record(id: id, outcome: .acquired)
+                } catch is CancellationError {
+                    await outcomeTracker.record(id: id, outcome: .cancelled)
+                } catch let error as IO.Error<Never> {
+                    switch error {
+                    case .cancelled:
+                        await outcomeTracker.record(id: id, outcome: .cancelled)
+                    case .executor(.shutdownInProgress):
+                        await outcomeTracker.record(id: id, outcome: .shutdown)
+                    case .handle(.invalidID):
+                        // Handle destroyed during wait - treat as shutdown
+                        await outcomeTracker.record(id: id, outcome: .shutdown)
+                    default:
+                        await outcomeTracker.record(id: id, outcome: .otherError("\(error)"))
+                    }
                 } catch {
-                    // Acceptable outcomes:
-                    // - CancellationError (task was cancelled)
-                    // - shutdownInProgress (pool is shutting down)
-                    // - invalidID (handle was destroyed)
-                    doneTracker.markDone(id: id)
+                    await outcomeTracker.record(id: id, outcome: .otherError("\(error)"))
                 }
             }
         }
@@ -157,7 +195,9 @@ struct IOExecutorPoolStressTests {
         // Give waiters time to enqueue
         try await Task.sleep(for: .milliseconds(20))
 
-        // Deterministic cancellation: cancel waiters with id divisible by 3
+        // Deterministic cancellation: cancel waiters with id divisible by 3.
+        // We use a fixed pattern (not random) to ensure CI reproducibility.
+        // Randomized fuzzing belongs in a separate soak harness.
         for id in stride(from: 0, to: waiterCount, by: 3) {
             waiterTasks[id].cancel()
         }
@@ -192,9 +232,13 @@ struct IOExecutorPoolStressTests {
         timeoutTask.cancel()
 
         // Verify all waiters completed exactly once
-        let snapshot = doneTracker.snapshot()
-        #expect(snapshot.doneCount == waiterCount, "Not all waiters completed: \(snapshot.doneCount)/\(waiterCount)")
-        #expect(snapshot.allDone, "Some waiters did not complete")
+        let snapshot = await outcomeTracker.snapshot()
+        #expect(snapshot.completedCount == waiterCount, "Not all waiters completed: \(snapshot.completedCount)/\(waiterCount)")
+        #expect(snapshot.allCompleted, "Some waiters did not complete (lost wakeup bug)")
+
+        // Verify all outcomes are in the allowed set
+        let disallowed = await outcomeTracker.assertAllOutcomesAllowed([.acquired, .cancelled, .shutdown])
+        #expect(disallowed.isEmpty, "Unexpected outcomes: \(disallowed)")
     }
 
     /// Tests that destroy during active transaction is handled correctly.
@@ -212,10 +256,10 @@ struct IOExecutorPoolStressTests {
                     resource.counter += 1
                     return resource.counter
                 }
-                transactionCompleted.increment()
+                await transactionCompleted.increment()
                 return result
             } catch {
-                transactionCompleted.increment()
+                await transactionCompleted.increment()
                 return -1
             }
         }
@@ -229,7 +273,7 @@ struct IOExecutorPoolStressTests {
 
         // Either transaction succeeded before destroy, or failed due to destroy
         #expect(result == 1 || result == -1)
-        #expect(transactionCompleted.value == 1)
+        #expect(await transactionCompleted.get() == 1)
 
         await pool.shutdown()
     }
@@ -249,10 +293,10 @@ struct IOExecutorPoolStressTests {
                     try await pool.withHandle(resourceID) { resource in
                         resource.counter += 1
                     }
-                    executionOrder.append(index)
+                    await executionOrder.append(index)
                 } catch {
                     // May fail on shutdown - still record
-                    executionOrder.append(index)
+                    await executionOrder.append(index)
                 }
             }
         }
@@ -263,7 +307,7 @@ struct IOExecutorPoolStressTests {
         }
 
         // Verify all tasks executed
-        let order = executionOrder.values
+        let order = await executionOrder.getValues()
         #expect(order.count == taskCount, "Not all transactions executed: \(order.count)/\(taskCount)")
 
         // Verify no duplicates (each executed exactly once)
@@ -290,13 +334,17 @@ struct IOExecutorPoolStressTests {
     }
 
     /// Tests that shutdown wakes all waiting tasks.
+    ///
+    /// ## Invariant
+    /// Shutdown must wake all waiters even if holders are still active.
+    /// This ensures no task is left suspended indefinitely.
     @Test("shutdown wakes all waiters")
     func shutdownWakesAllWaiters() async throws {
         let pool = IO.Executor.Pool<StressTestResource>(lane: .inline)
         let resourceID = try await pool.register(StressTestResource(id: 0))
 
         let waiterCount = 10
-        let wakeCounts = Counter()
+        let outcomeTracker = OutcomeTracker(count: waiterCount)
 
         // Start a holder that blocks briefly
         let holderTask = Task { [pool, resourceID] in
@@ -313,23 +361,35 @@ struct IOExecutorPoolStressTests {
         try await Task.sleep(for: .milliseconds(10))
 
         // Start waiters that will enqueue
-        let waiterTasks = (0..<waiterCount).map { _ in
-            Task { [pool, resourceID, wakeCounts] in
+        let waiterTasks = (0..<waiterCount).map { id in
+            Task { [pool, resourceID, outcomeTracker] in
                 do {
                     try await pool.withHandle(resourceID) { resource in
                         resource.counter += 1
                     }
+                    await outcomeTracker.record(id: id, outcome: .acquired)
+                } catch is CancellationError {
+                    await outcomeTracker.record(id: id, outcome: .cancelled)
+                } catch let error as IO.Error<Never> {
+                    switch error {
+                    case .cancelled:
+                        await outcomeTracker.record(id: id, outcome: .cancelled)
+                    case .executor(.shutdownInProgress), .handle(.invalidID):
+                        await outcomeTracker.record(id: id, outcome: .shutdown)
+                    default:
+                        await outcomeTracker.record(id: id, outcome: .otherError("\(error)"))
+                    }
                 } catch {
-                    // Expected - shutdown wakes us
+                    await outcomeTracker.record(id: id, outcome: .otherError("\(error)"))
                 }
-                wakeCounts.increment()
             }
         }
 
         // Give waiters time to enqueue
         try await Task.sleep(for: .milliseconds(20))
 
-        // Shutdown should wake all waiters
+        // Shutdown must wake all waiters even if holder hasn't released.
+        // This is the key invariant: shutdown must not block on in-flight operations.
         await pool.shutdown()
 
         // Wait for all tasks
@@ -338,7 +398,13 @@ struct IOExecutorPoolStressTests {
             await t.value
         }
 
-        // Verify all waiters woke up
-        #expect(wakeCounts.value == waiterCount, "Not all waiters woke: \(wakeCounts.value)/\(waiterCount)")
+        // Verify all waiters completed exactly once
+        let snapshot = await outcomeTracker.snapshot()
+        #expect(snapshot.completedCount == waiterCount, "Not all waiters woke: \(snapshot.completedCount)/\(waiterCount)")
+        #expect(snapshot.allCompleted, "Some waiters did not complete (lost wakeup bug)")
+
+        // Verify all outcomes are in the allowed set
+        let disallowed = await outcomeTracker.assertAllOutcomesAllowed([.acquired, .cancelled, .shutdown])
+        #expect(disallowed.isEmpty, "Unexpected outcomes: \(disallowed)")
     }
 }
