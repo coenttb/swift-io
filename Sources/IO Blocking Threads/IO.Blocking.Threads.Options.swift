@@ -13,7 +13,7 @@ extension IO.Blocking.Threads {
 
         /// Unified backpressure policy.
         ///
-        /// Configures queue limits and backpressure strategy.
+        /// Configures queue limits and backpressure behaviour.
         /// See `IO.Backpressure.Policy` for details.
         public var policy: IO.Backpressure.Policy
 
@@ -31,10 +31,10 @@ extension IO.Blocking.Threads {
             set { policy.laneAcceptanceWaitersLimit = newValue }
         }
 
-        /// Backpressure strategy when queue is full.
-        public var strategy: IO.Backpressure.Strategy {
-            get { policy.strategy }
-            set { policy.strategy = newValue }
+        /// Backpressure behaviour when queue is full.
+        public var behavior: IO.Backpressure.Lane.Behavior {
+            get { policy.behavior }
+            set { policy.behavior = newValue }
         }
 
         // MARK: - Initializers
@@ -58,16 +58,16 @@ extension IO.Blocking.Threads {
         ///   - workers: Number of workers (default: processor count).
         ///   - queueLimit: Maximum queue size (default: 256).
         ///   - acceptanceWaitersLimit: Maximum waiters (default: 4 × queueLimit).
-        ///   - strategy: Backpressure strategy (default: `.wait`).
+        ///   - behavior: Backpressure behaviour (default: `.wait`).
         public init(
             workers: Int? = nil,
             queueLimit: Int = 256,
             acceptanceWaitersLimit: Int? = nil,
-            strategy: IO.Backpressure.Strategy = .wait
+            behavior: IO.Backpressure.Lane.Behavior = .wait
         ) {
             self.workers = max(1, workers ?? IO.Blocking.Threads.processorCount)
             self.policy = IO.Backpressure.Policy(
-                strategy: strategy,
+                behavior: behavior,
                 laneQueueLimit: queueLimit,
                 laneAcceptanceWaitersLimit: acceptanceWaitersLimit
             )

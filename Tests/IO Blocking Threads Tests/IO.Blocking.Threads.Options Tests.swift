@@ -21,7 +21,12 @@ extension IO.Blocking.Threads.Options.Test.Unit {
         #expect(options.workers >= 1)
         #expect(options.queueLimit == 256)
         #expect(options.acceptanceWaitersLimit == 4 * 256)
-        #expect(options.strategy == .wait)
+        // Behavior defaults to .wait - verify via onQueueFull decision
+        let context = IO.Backpressure.Lane.QueueFull.Context(
+            queueCount: 0, queueCapacity: 0, deadline: nil,
+            acceptanceWaitersCount: 0, acceptanceWaitersCapacity: 0
+        )
+        #expect(options.behavior.onQueueFull(context) == .wait)
     }
 
     @Test("init with custom workers")
@@ -46,10 +51,15 @@ extension IO.Blocking.Threads.Options.Test.Unit {
         #expect(options.acceptanceWaitersLimit == 64)
     }
 
-    @Test("init with failFast strategy")
-    func initWithFailFastStrategy() {
-        let options = IO.Blocking.Threads.Options(strategy: .failFast)
-        #expect(options.strategy == .failFast)
+    @Test("init with failFast behavior")
+    func initWithFailFastBehavior() {
+        let options = IO.Blocking.Threads.Options(behavior: .failFast)
+        // Verify behavior returns .fail(.queueFull) for any context
+        let context = IO.Backpressure.Lane.QueueFull.Context(
+            queueCount: 0, queueCapacity: 0, deadline: nil,
+            acceptanceWaitersCount: 0, acceptanceWaitersCapacity: 0
+        )
+        #expect(options.behavior.onQueueFull(context) == .fail(.queueFull))
     }
 
     @Test("Sendable conformance")

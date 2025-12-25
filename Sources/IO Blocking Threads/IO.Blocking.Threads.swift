@@ -156,11 +156,19 @@ extension IO.Blocking.Threads {
                     return
                 }
 
-                // Queue is full - handle based on backpressure policy
-                switch options.strategy {
-                case .failFast:
+                // Queue is full - invoke behavior to decide
+                let queueFullContext = IO.Backpressure.Lane.QueueFull.Context(
+                    queueCount: state.queue.count,
+                    queueCapacity: state.queue.capacity,
+                    deadline: deadline,
+                    acceptanceWaitersCount: state.acceptanceWaiters.count,
+                    acceptanceWaitersCapacity: state.acceptanceWaiters.capacity
+                )
+
+                switch options.policy.behavior.onQueueFull(queueFullContext) {
+                case .fail(let failure):
                     state.lock.unlock()
-                    continuation.resume(returning: .failure(.queueFull))
+                    continuation.resume(returning: .failure(failure))
 
                 case .wait:
                     // Register acceptance waiter
@@ -171,10 +179,17 @@ extension IO.Blocking.Threads {
                         continuation: continuation,
                         resumed: false
                     )
-                    // Bounded queue - fail fast if full
+                    // Bounded queue - invoke overflow behavior if full
                     guard state.acceptanceWaiters.enqueue(waiter) else {
+                        let overflowContext = IO.Backpressure.Lane.AcceptanceOverflow.Context(
+                            waitersCount: state.acceptanceWaiters.count,
+                            waitersCapacity: state.acceptanceWaiters.capacity,
+                            queueCount: state.queue.count,
+                            queueCapacity: state.queue.capacity
+                        )
+                        let error = options.policy.behavior.onAcceptanceOverflow(overflowContext)
                         state.lock.unlock()
-                        continuation.resume(returning: .failure(.overloaded))
+                        continuation.resume(returning: .failure(error))
                         return
                     }
                     // Signal deadline manager if waiter has a deadline
