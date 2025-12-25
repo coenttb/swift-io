@@ -7,10 +7,11 @@
 
 extension IO.Executor.Handle {
     /// Internal entry in the handle registry.
-    // Uses a class to hold the non-copyable Resource.
-    // Actor isolation ensures thread safety without @unchecked Sendable.
-    // Generic over `Resource` which must be `~Copyable & Sendable`.
-    public final class Entry<Resource: ~Copyable & Sendable> {
+    ///
+    /// Uses a class to hold the non-copyable Resource.
+    /// Actor isolation ensures thread safety without @unchecked Sendable.
+    /// Generic over `Resource: ~Copyable` - Sendable is NOT required.
+    public final class Entry<Resource: ~Copyable> {
         /// The resource, or nil if currently checked out or destroyed.
         public var resource: Resource?
 

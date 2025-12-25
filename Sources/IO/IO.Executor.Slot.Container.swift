@@ -7,9 +7,11 @@
 
 extension IO.Executor.Slot {
     /// A raw memory slot for temporarily holding a ~Copyable resource during lane execution.
-    // Enables passing resources through @Sendable closures without
-    // claiming the resource itself is Sendable.
-    public struct Container<Resource: ~Copyable & Sendable>: ~Copyable {
+    ///
+    /// Enables passing resources through @Sendable closures without
+    /// claiming the resource itself is Sendable. The address is Sendable,
+    /// but the resource stays in one place and is accessed via pointer.
+    public struct Container<Resource: ~Copyable>: ~Copyable {
         /// The raw pointer to allocated memory, or nil if deallocated.
         private var raw: UnsafeMutableRawPointer?
         private var isInitialized: Bool = false
@@ -70,13 +72,54 @@ extension IO.Executor.Slot {
         }
 
         /// Initializes memory at the raw pointer location.
-        // Must only be called from within the lane closure.
-        // The `raw` pointer must be reconstructed from address inside the closure.
+        ///
+        /// Must only be called from within the lane closure.
+        /// The `raw` pointer must be reconstructed from address inside the closure.
         public static func initializeMemory(
             at raw: UnsafeMutableRawPointer,
             with resource: consuming Resource
         ) {
             raw.initializeMemory(as: Resource.self, to: resource)
+        }
+
+        /// Takes the resource out of the slot at the given raw pointer, consuming it.
+        ///
+        /// This is the static variant for use inside lane closures or teardown
+        /// where only the address is available.
+        ///
+        /// - Parameter raw: The raw pointer (reconstructed from `address.pointer`).
+        /// - Returns: The resource, with ownership transferred to caller.
+        public static func take(at raw: UnsafeMutableRawPointer) -> Resource {
+            let typed = raw.assumingMemoryBound(to: Resource.self)
+            return typed.move()
+        }
+
+        /// Consumes the resource at the given raw pointer, passing it to a closure.
+        ///
+        /// This is the canonical API for teardown closures. It ensures the resource
+        /// is moved out of the slot exactly once and consumed by the closure.
+        ///
+        /// ## Example: File Handle Teardown
+        /// ```swift
+        /// teardown: { address in
+        ///     _ = try? await lane.run(deadline: nil) {
+        ///         IO.Executor.Slot.Container<File.Handle>.consume(at: address.pointer) {
+        ///             try? $0.close()
+        ///         }
+        ///     }
+        /// }
+        /// ```
+        ///
+        /// - Parameters:
+        ///   - raw: The raw pointer (reconstructed from `address.pointer`).
+        ///   - body: Closure that consumes the resource.
+        /// - Returns: The result of the closure.
+        public static func consume<R>(
+            at raw: UnsafeMutableRawPointer,
+            _ body: (consuming Resource) throws -> R
+        ) rethrows -> R {
+            let resource = take(at: raw)
+            return try body(resource)
         }
 
         /// Takes the resource out of the slot, consuming it.

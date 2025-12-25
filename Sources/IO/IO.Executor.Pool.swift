@@ -24,28 +24,47 @@ extension IO.Executor {
     /// Only IDs cross await boundaries; entries never escape the actor.
     ///
     /// ## Generic over Resource
-    /// The pool is generic over `Resource: ~Copyable & Sendable`.
+    /// The pool is generic over `Resource: ~Copyable`.
     /// This allows reuse for files, sockets, database connections, etc.
-    public actor Pool<Resource: ~Copyable & Sendable> {
+    /// Resources do NOT need to be Sendable because:
+    /// - They are always actor-confined in the registry
+    /// - Cross-boundary operations use the slot pattern (address is Sendable)
+    /// - Teardown receives an address, not the resource directly
+    public actor Pool<Resource: ~Copyable> {
         /// Teardown closure type for deterministic resource cleanup.
         ///
         /// When a resource is removed from the pool (via `destroy()`, `shutdown()`,
         /// or check-in after destruction), the pool calls this closure to perform
         /// resource-specific cleanup.
         ///
+        /// The closure receives a `Slot.Address` (which is Sendable) rather than
+        /// the resource directly. This allows teardown to run blocking operations
+        /// on the lane without violating ~Copyable ownership rules.
+        ///
         /// ## Example: File Handle Cleanup
         /// ```swift
         /// let pool = IO.Executor.Pool<File.Handle>(
         ///     lane: lane,
-        ///     teardown: { handle in
-        ///         _ = try? await lane.run { handle.close() }
+        ///     teardown: { address in
+        ///         _ = try? await lane.run(deadline: nil) {
+        ///             // MUST use consume(at:) or take(at:) to move resource out
+        ///             IO.Executor.Slot.Container<File.Handle>.consume(at: address.pointer) {
+        ///                 try? $0.close()
+        ///             }
+        ///         }
         ///     }
         /// )
         /// ```
-        public typealias TeardownClosure = @Sendable (_ resource: consuming Resource) async -> Void
+        ///
+        /// **Important**: The teardown closure MUST consume the resource at `address`
+        /// using `consume(at:)` or `take(at:)`. Do NOT use `withResource(at:)` which
+        /// only borrows. The pool deallocates the slot's raw memory after teardown
+        /// returns - if the resource wasn't consumed, it will leak.
+        public typealias TeardownClosure = @Sendable (_ address: IO.Executor.Slot.Address) async -> Void
 
         /// The lane for executing blocking operations.
-        // nonisolated because Lane is Sendable and immutable after init.
+        ///
+        /// This is `nonisolated` because `Lane` is Sendable and immutable after init.
         public nonisolated let lane: IO.Blocking.Lane
 
         /// Unique scope identifier for this executor instance.
@@ -64,7 +83,7 @@ extension IO.Executor {
         private var isShutdown: Bool = false
 
         /// Actor-owned handle registry.
-        // Each entry holds a Resource (or nil if checked out) plus waiters.
+        /// Each entry holds a Resource (or nil if checked out) plus waiters.
         private var entries: [IO.Handle.ID: IO.Executor.Handle.Entry<Resource>] = [:]
 
         // MARK: - Initializers
@@ -77,11 +96,14 @@ extension IO.Executor {
         /// - Parameters:
         ///   - lane: The lane for executing blocking operations.
         ///   - policy: Backpressure policy (default: `.default`).
-        ///   - teardown: Resource teardown closure. Default drops the resource.
+        ///   - teardown: Slot-based teardown closure. Default drops the resource.
         public init(
             lane: IO.Blocking.Lane,
             policy: IO.Backpressure.Policy = .default,
-            teardown: @escaping TeardownClosure = { _ = consume $0 }
+            teardown: @escaping TeardownClosure = { address in
+                // Default: just consume/drop the resource
+                _ = IO.Executor.Slot.Container<Resource>.take(at: address.pointer)
+            }
         ) {
             self.lane = lane
             self.handleWaitersLimit = policy.handleWaitersLimit
@@ -98,10 +120,12 @@ extension IO.Executor {
         ///
         /// - Parameters:
         ///   - options: Options for the Threads lane.
-        ///   - teardown: Resource teardown closure. Default drops the resource.
+        ///   - teardown: Slot-based teardown closure. Default drops the resource.
         public init(
             _ options: IO.Blocking.Threads.Options = .init(),
-            teardown: @escaping TeardownClosure = { _ = consume $0 }
+            teardown: @escaping TeardownClosure = { address in
+                _ = IO.Executor.Slot.Container<Resource>.take(at: address.pointer)
+            }
         ) {
             self.lane = .threads(options)
             self.handleWaitersLimit = options.policy.handleWaitersLimit
@@ -182,7 +206,7 @@ extension IO.Executor {
             for (id, entry) in entries {
                 if let resource = entry.take() {
                     entries.removeValue(forKey: id)
-                    await teardown(resource)
+                    await _teardownResource(resource)
                 } else {
                     entries.removeValue(forKey: id)
                 }
@@ -203,6 +227,9 @@ extension IO.Executor {
 
         /// Registers a resource and returns its ID.
         ///
+        /// This is the internal registration method. For non-Sendable resources,
+        /// use `register(_:)` with a factory closure instead.
+        ///
         /// - Parameter resource: The resource to register (ownership transferred).
         /// - Returns: A unique handle ID for future operations.
         /// - Throws: `Executor.Error.shutdownInProgress` if executor is shut down.
@@ -212,6 +239,84 @@ extension IO.Executor {
             guard !isShutdown else {
                 throw .shutdownInProgress
             }
+            let id = generateHandleID()
+            entries[id] = IO.Executor.Handle.Entry(
+                resource: resource,
+                waitersCapacity: handleWaitersLimit
+            )
+            return id
+        }
+
+        /// Creates and registers a resource using a factory closure.
+        ///
+        /// This is the preferred registration method for non-Sendable resources.
+        /// The factory runs on the lane (blocking I/O) and the resulting resource
+        /// is registered atomically without crossing actor boundaries.
+        ///
+        /// Uses the slot pattern internally to transport the ~Copyable resource
+        /// across the await boundary.
+        ///
+        /// ## Example: Opening and Registering a File
+        /// ```swift
+        /// let id = try await pool.register {
+        ///     try File.Handle.open(path, mode: .read)
+        /// }
+        /// ```
+        ///
+        /// - Parameter make: Factory closure that creates the resource (runs on lane).
+        /// - Returns: A unique handle ID for future operations.
+        /// - Throws: `IO.Error<E>` on factory error or registration failure.
+        public func register<E: Swift.Error & Sendable>(
+            _ make: @Sendable @escaping () throws(E) -> Resource
+        ) async throws(IO.Error<E>) -> IO.Handle.ID {
+            guard !isShutdown else {
+                throw .executor(.shutdownInProgress)
+            }
+
+            // Allocate slot for ~Copyable resource transport
+            var slot = IO.Executor.Slot.Container<Resource>.allocate()
+            let address = slot.address
+
+            // Run factory on lane, storing result in slot
+            let factoryResult: Result<Void, E>
+            do {
+                factoryResult = try await lane.run(deadline: nil) { () throws(E) -> Void in
+                    let resource = try make()
+                    IO.Executor.Slot.Container<Resource>.initializeMemory(at: address.pointer, with: resource)
+                }
+            } catch {
+                slot.deallocateRawOnly()
+                // error is IO.Blocking.Failure due to typed throws
+                switch error {
+                case .shutdown:
+                    throw .executor(.shutdownInProgress)
+                case .queueFull:
+                    throw .lane(.queueFull)
+                case .deadlineExceeded:
+                    throw .lane(.deadlineExceeded)
+                case .cancelled:
+                    throw .cancelled
+                case .overloaded:
+                    throw .lane(.overloaded)
+                case .internalInvariantViolation:
+                    throw .lane(.internalInvariantViolation)
+                }
+            }
+
+            // Check factory result
+            switch factoryResult {
+            case .success:
+                break
+            case .failure(let factoryError):
+                slot.deallocateRawOnly()
+                throw .operation(factoryError)
+            }
+
+            // Take resource from slot and register
+            slot.markInitialized()
+            let resource = slot.take()
+            slot.deallocateRawOnly()
+
             let id = generateHandleID()
             entries[id] = IO.Executor.Handle.Entry(
                 resource: resource,
@@ -390,8 +495,7 @@ extension IO.Executor {
             if entry.state == .destroyed {
                 // Entry marked for destruction - remove from registry first
                 entries.removeValue(forKey: id)
-                // Then teardown the resource deterministically
-                await teardown(handle)
+                await _teardownResource(handle)
             } else {
                 // Sync path - store handle back and resume waiter
                 entry.resource = consume handle
@@ -480,10 +584,24 @@ extension IO.Executor {
 
             if let resource = entry.take() {
                 entries.removeValue(forKey: id)
-                await teardown(resource)
+                await _teardownResource(resource)
             } else {
                 entries.removeValue(forKey: id)
             }
+        }
+
+        // MARK: - Private Helpers
+
+        /// Teardown a resource via the slot pattern.
+        ///
+        /// This helper centralizes the slot allocation/deallocation logic
+        /// to prevent drift and ensure consistent teardown across all paths.
+        private func _teardownResource(_ resource: consuming Resource) async {
+            var slot = IO.Executor.Slot.Container<Resource>.allocate()
+            slot.initialize(with: resource)
+            let address = slot.address
+            await teardown(address)
+            slot.deallocateRawOnly()
         }
     }
 }
