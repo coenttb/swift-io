@@ -152,7 +152,11 @@ extension ContentionBenchmarks.Test.Performance {
             .timed(iterations: 3, warmup: 1, trackAllocations: false)
         )
         func swiftIO() async throws {
-            let lane = IO.Blocking.Lane.threads(.init(workers: Self.threadCount))
+            let lane = IO.Blocking.Lane.threads(.init(
+                workers: Self.threadCount,
+                queueLimit: Self.taskCount,
+                acceptanceWaitersLimit: Self.taskCount
+            ))
 
             try await withThrowingTaskGroup(of: Void.self) { group in
                 for _ in 0..<Self.taskCount {
