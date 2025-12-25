@@ -18,9 +18,9 @@ extension IO {
     /// func read() async throws(IO.Error<ReadError>) -> [UInt8]
     /// ```
     ///
-    /// ## No Equatable Constraint
-    /// The Operation type only requires `Error & Sendable` - no `Equatable` constraint.
-    /// This enables maximum flexibility.
+    // No Equatable Constraint:
+    // The Operation type only requires `Error & Sendable` - no `Equatable` constraint.
+    // This enables maximum flexibility.
     public enum Error<Operation: Swift.Error & Sendable>: Swift.Error, Sendable {
         /// The operation-specific error from the underlying primitive.
         case operation(Operation)
@@ -43,8 +43,7 @@ extension IO {
 
 extension IO.Error {
     /// Maps the operation error to a different type.
-    ///
-    /// Non-operation cases are preserved as-is.
+    // Non-operation cases are preserved as-is.
     public func mapOperation<NewOperation: Swift.Error & Sendable>(
         _ transform: (Operation) -> NewOperation
     ) -> IO.Error<NewOperation> {

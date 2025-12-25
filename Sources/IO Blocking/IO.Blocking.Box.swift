@@ -2,8 +2,6 @@
 //  IO.Blocking.Box.swift
 //  swift-io
 //
-//  Type-erased boxing for lane results.
-//
 
 extension IO.Blocking.Box {
     /// Sendable capability wrapper for boxed pointers.
@@ -43,26 +41,24 @@ extension IO.Blocking {
     ///
     /// **Never call both `take*()` and `destroy()` on the same pointer.**
     ///
-    /// ## Why Closure (Future: Replace with Thin Function Pointer)
-    /// The closure captures `T` and `E` type information needed for proper
-    /// deinitialization. Ideally we'd use `@convention(thin)` function pointers
-    /// with `unsafeBitCast` to erase the generic signature, eliminating the
-    /// closure allocation. However:
-    /// - Swift 6.2.3 crashes when `unsafeBitCast`ing generic thin function pointers
-    /// - Static witness-per-specialization patterns are blocked by Swift restrictions
-    ///
-    /// Revisit when the compiler bug is fixed.
+    // Why Closure (Future: Replace with Thin Function Pointer)
+    // The closure captures T and E type information needed for proper
+    // deinitialization. Ideally we'd use @convention(thin) function pointers
+    // with unsafeBitCast to erase the generic signature, eliminating the
+    // closure allocation. However:
+    // - Swift 6.2.3 crashes when unsafeBitCasting generic thin function pointers
+    // - Static witness-per-specialization patterns are blocked by Swift restrictions
+    // Revisit when the compiler bug is fixed.
     public enum Box {
-        /// Header for type-erased box.
-        ///
-        /// Struct-based (not class) to avoid ARC on the container.
-        /// The destroy function captures type information for proper deinitialization.
+        // Header for type-erased box.
+        // Struct-based (not class) to avoid ARC on the container.
+        // The destroy function captures type information for proper deinitialization.
         private struct Header {
-            /// Function to destroy the payload.
-            /// Captures type information (T, E) for proper deinitialization.
+            // Function to destroy the payload.
+            // Captures type information (T, E) for proper deinitialization.
             let destroyPayload: (UnsafeMutableRawPointer) -> Void
 
-            /// Pointer to the payload (Result<T, E> or T).
+            // Pointer to the payload (Result<T, E> or T).
             let payload: UnsafeMutableRawPointer
         }
 

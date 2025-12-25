@@ -8,20 +8,20 @@
 extension IO.Executor.Slot {
     /// A typed capability for a slot's memory address.
     ///
-    /// This provides a Sendable handle to the slot's memory that can be
+    /// Provides a Sendable handle to the slot's memory that can be
     /// safely captured in @Sendable closures and later used to reconstruct
     /// the raw pointer.
-    ///
-    /// ## Design
-    /// - Wraps a UInt (which is Sendable) rather than UnsafeMutableRawPointer
-    /// - Provides typed access via `pointer` property
-    /// - Enforces single usage pattern through the type system
-    ///
-    /// ## Safety
-    /// The caller must ensure the underlying slot remains allocated for the
-    /// duration of any pointer access. Typically this is guaranteed by:
-    /// 1. Slot lifetime scoped to an actor method
-    /// 2. Lane.run awaited within that scope
+    //
+    // Design:
+    // - Wraps a UInt (which is Sendable) rather than UnsafeMutableRawPointer
+    // - Provides typed access via `pointer` property
+    // - Enforces single usage pattern through the type system
+    //
+    // Safety:
+    // The caller must ensure the underlying slot remains allocated for the
+    // duration of any pointer access. Typically this is guaranteed by:
+    // 1. Slot lifetime scoped to an actor method
+    // 2. Lane.run awaited within that scope
     public struct Address: Sendable, Hashable {
         private let rawValue: UInt
 

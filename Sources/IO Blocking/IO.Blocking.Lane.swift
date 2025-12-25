@@ -43,9 +43,9 @@ extension IO.Blocking {
         /// The capabilities this lane provides.
         public let capabilities: Capabilities
 
-        /// The run implementation.
-        /// - Operation closure returns boxed value (never throws)
-        /// - Lane throws only Failure for infrastructure failures
+        // The run implementation.
+        // - Operation closure returns boxed value (never throws)
+        // - Lane throws only Failure for infrastructure failures
         private let _run:
             @Sendable @concurrent (
                 Deadline?,
@@ -70,13 +70,10 @@ extension IO.Blocking {
 
         // MARK: - Core Primitive (Result-returning)
 
-        /// Execute a Result-returning operation.
-        ///
-        /// This is the core primitive. The operation produces a `Result<T, E>` directly,
-        /// preserving the typed error without any casting or existentials.
-        ///
-        /// Internal to force callers through the typed-throws `run` wrapper.
-        /// Lane only throws `Failure` for infrastructure failures.
+        /// Executes a Result-returning operation.
+        // Core primitive - preserves typed error through Result without casting.
+        // Internal to force callers through the typed-throws run wrapper.
+        // Lane only throws Failure for infrastructure failures.
         @concurrent
         internal func runResult<T: Sendable, E: Swift.Error & Sendable>(
             deadline: Deadline?,
@@ -91,15 +88,12 @@ extension IO.Blocking {
 
         // MARK: - Convenience (Typed-Throws)
 
-        /// Execute a typed-throwing operation, returning Result.
-        ///
-        /// This convenience wrapper converts `throws(E) -> T` to `() -> Result<T, E>`.
-        ///
-        /// ## Quarantined Cast (Swift Embedded Safe)
-        /// Swift currently infers `error` as `any Error` even when `operation` throws(E).
-        /// We use a single, localized `as?` cast to recover E without introducing
-        /// existentials into storage or API boundaries. This is the ONLY cast in the
-        /// module and is acceptable for Embedded compatibility.
+        /// Executes a typed-throwing operation, returning Result.
+        // Quarantined Cast (Swift Embedded Safe)
+        // Swift currently infers error as any Error even when operation throws(E).
+        // We use a single, localized as? cast to recover E without introducing
+        // existentials into storage or API boundaries. This is the ONLY cast in the
+        // module and is acceptable for Embedded compatibility.
         @concurrent
         public func run<T: Sendable, E: Swift.Error & Sendable>(
             deadline: Deadline?,
@@ -125,7 +119,7 @@ extension IO.Blocking {
 
         // MARK: - Convenience (Non-throwing)
 
-        /// Execute a non-throwing operation, returning value directly.
+        /// Executes a non-throwing operation, returning value directly.
         @concurrent
         public func run<T: Sendable>(
             deadline: Deadline?,

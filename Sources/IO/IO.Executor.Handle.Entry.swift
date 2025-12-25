@@ -7,11 +7,9 @@
 
 extension IO.Executor.Handle {
     /// Internal entry in the handle registry.
-    ///
-    /// Uses a class to hold the non-copyable Resource.
-    /// Actor isolation ensures thread safety without @unchecked Sendable.
-    ///
-    /// Generic over `Resource` which must be `~Copyable & Sendable`.
+    // Uses a class to hold the non-copyable Resource.
+    // Actor isolation ensures thread safety without @unchecked Sendable.
+    // Generic over `Resource` which must be `~Copyable & Sendable`.
     public final class Entry<Resource: ~Copyable & Sendable> {
         /// The resource, or nil if currently checked out or destroyed.
         public var resource: Resource?
@@ -43,7 +41,7 @@ extension IO.Executor.Handle {
             state == .destroyed
         }
 
-        /// Takes the resource out if present, leaving nil.
+        /// Returns the resource if present, leaving nil.
         public func take() -> Resource? {
             guard state == .present else { return nil }
             guard resource != nil else { return nil }

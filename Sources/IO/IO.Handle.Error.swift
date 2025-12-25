@@ -14,11 +14,10 @@ extension IO.Handle {
         case scopeMismatch
         /// The handle has already been closed.
         case handleClosed
-        /// The waiter queue for this handle is full (bounded memory protection).
-        ///
-        /// This is a HANDLE-LEVEL error indicating too many tasks are waiting
-        /// for this specific handle. Distinct from lane-level `.overloaded`.
-        /// Callers may retry with backoff.
+        /// The waiter queue for this handle is full.
+        // This is a HANDLE-LEVEL error indicating too many tasks are waiting
+        // for this specific handle. Distinct from lane-level `.overloaded`.
+        // Callers may retry with backoff.
         case waitersFull
     }
 }

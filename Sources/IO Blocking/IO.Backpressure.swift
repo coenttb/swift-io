@@ -42,8 +42,7 @@ extension IO.Backpressure {
     /// Each layer maintains its own error type:
     /// - `IO.Blocking.Failure.queueFull` / `.overloaded` for lane
     /// - `IO.Handle.Error.waitersFull` for handles
-    ///
-    /// These are kept separate intentionally - see ARCHITECTURE.md.
+    // These are kept separate intentionally - see ARCHITECTURE.md.
     public struct Policy: Sendable, Equatable {
         /// Strategy when queues are full.
         public var strategy: Strategy

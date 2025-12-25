@@ -6,13 +6,9 @@
 //
 
 extension IO.Executor.Slot {
-    /// A raw memory slot for temporarily holding a ~Copyable resource
-    /// during lane execution.
-    ///
-    /// This enables passing resources through @Sendable closures without
-    /// claiming the resource itself is Sendable.
-    ///
-    /// Generic over `Resource` which must be `~Copyable & Sendable`.
+    /// A raw memory slot for temporarily holding a ~Copyable resource during lane execution.
+    // Enables passing resources through @Sendable closures without
+    // claiming the resource itself is Sendable.
     public struct Container<Resource: ~Copyable & Sendable>: ~Copyable {
         /// The raw pointer to allocated memory, or nil if deallocated.
         private var raw: UnsafeMutableRawPointer?
@@ -20,9 +16,8 @@ extension IO.Executor.Slot {
         private var isConsumed: Bool = false
 
         /// The address of the allocated memory as a typed capability.
-        ///
-        /// This is Sendable and can be captured in @Sendable closures.
-        /// Use `address.pointer` inside the closure to reconstruct.
+        // Sendable - can be captured in @Sendable closures.
+        // Use address.pointer inside the closure to reconstruct.
         public var address: Address {
             guard let raw = raw else {
                 preconditionFailure("Slot already deallocated")
@@ -44,7 +39,7 @@ extension IO.Executor.Slot {
         }
 
         /// Initializes the slot with a resource, consuming ownership.
-        /// Use this when the resource is available on the actor side.
+        // Use this when the resource is available on the actor side.
         public mutating func initialize(with resource: consuming Resource) {
             guard let raw = raw else {
                 preconditionFailure("Slot already deallocated")
@@ -56,17 +51,16 @@ extension IO.Executor.Slot {
         }
 
         /// Marks the slot as initialized after memory was written via static method.
-        /// Call this after `lane.run` returns successfully.
+        // Call this after lane.run returns successfully.
         public mutating func markInitialized() {
             precondition(!isInitialized, "Slot already initialized")
             precondition(!isConsumed, "Slot already consumed")
             isInitialized = true
         }
 
-        /// Execute a closure with inout access to the resource.
-        ///
-        /// **Must only be called from within the lane closure.**
-        /// The `raw` pointer must be reconstructed from address inside the closure.
+        /// Executes a closure with inout access to the resource.
+        // Must only be called from within the lane closure.
+        // The `raw` pointer must be reconstructed from address inside the closure.
         public static func withResource<T, E: Swift.Error>(
             at raw: UnsafeMutableRawPointer,
             _ body: (inout Resource) throws(E) -> T
@@ -75,10 +69,9 @@ extension IO.Executor.Slot {
             return try body(&typed.pointee)
         }
 
-        /// Initialize memory at the raw pointer location.
-        ///
-        /// **Must only be called from within the lane closure.**
-        /// The `raw` pointer must be reconstructed from address inside the closure.
+        /// Initializes memory at the raw pointer location.
+        // Must only be called from within the lane closure.
+        // The `raw` pointer must be reconstructed from address inside the closure.
         public static func initializeMemory(
             at raw: UnsafeMutableRawPointer,
             with resource: consuming Resource
@@ -87,8 +80,7 @@ extension IO.Executor.Slot {
         }
 
         /// Takes the resource out of the slot, consuming it.
-        ///
-        /// **Must only be called after the lane await returns and markInitialized().**
+        // Must only be called after the lane await returns and markInitialized().
         public mutating func take() -> Resource {
             guard let raw = raw else {
                 preconditionFailure("Slot already deallocated")
@@ -102,10 +94,9 @@ extension IO.Executor.Slot {
         }
 
         /// Deallocates the slot's raw storage only. Idempotent.
-        ///
-        /// This does NOT deinitialize any resource. Use via `defer` to ensure
-        /// raw memory is always freed. Safe to call whether or not the slot
-        /// was ever initialized or consumed.
+        // Does NOT deinitialize any resource. Use via defer to ensure
+        // raw memory is always freed. Safe to call whether or not the slot
+        // was ever initialized or consumed.
         public mutating func deallocateRawOnly() {
             guard let p = raw else { return }
             raw = nil

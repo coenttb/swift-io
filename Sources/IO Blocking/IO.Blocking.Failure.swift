@@ -6,8 +6,8 @@
 //
 
 extension IO.Blocking {
-    /// Infrastructure failures from the Lane itself.
-    /// Operation errors are returned in the boxed Result, not thrown.
+    /// Infrastructure failures from the lane.
+    // Operation errors are returned in the boxed Result, not thrown.
     public enum Failure: Swift.Error, Sendable, Equatable {
         case shutdown
         case queueFull

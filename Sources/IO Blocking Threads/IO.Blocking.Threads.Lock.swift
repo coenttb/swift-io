@@ -109,8 +109,8 @@ extension IO.Blocking.Threads {
 
         // MARK: - Shutdown Helper
 
-        /// Broadcast to both worker and deadline condition variables.
-        /// Used during shutdown to wake all waiting threads.
+        /// Broadcasts to both worker and deadline condition variables.
+        // Used during shutdown to wake all waiting threads.
         func broadcastAll() {
             worker.broadcast()
             deadline.broadcast()
@@ -148,7 +148,7 @@ extension IO.Blocking.Threads.Lock {
             self._lock = lock
         }
 
-        /// Wait on the worker condition. Must be called while holding the lock.
+        /// Waits on the worker condition. Must be called while holding the lock.
         func wait() {
             #if os(Windows)
                 _ = SleepConditionVariableSRW(&_lock.workerCondvar, &_lock.srwlock, INFINITE, 0)
@@ -157,7 +157,7 @@ extension IO.Blocking.Threads.Lock {
             #endif
         }
 
-        /// Wait on the worker condition with a timeout. Must be called while holding the lock.
+        /// Waits on the worker condition with a timeout. Must be called while holding the lock.
         ///
         /// - Parameter nanoseconds: Maximum wait time in nanoseconds.
         /// - Returns: `true` if signaled, `false` if timed out.
@@ -196,7 +196,7 @@ extension IO.Blocking.Threads.Lock {
             #endif
         }
 
-        /// Signal one worker thread.
+        /// Signals one worker thread.
         func signal() {
             #if os(Windows)
                 WakeConditionVariable(&_lock.workerCondvar)
@@ -205,7 +205,7 @@ extension IO.Blocking.Threads.Lock {
             #endif
         }
 
-        /// Signal all worker threads.
+        /// Signals all worker threads.
         func broadcast() {
             #if os(Windows)
                 WakeAllConditionVariable(&_lock.workerCondvar)
@@ -234,7 +234,7 @@ extension IO.Blocking.Threads.Lock {
             self._lock = lock
         }
 
-        /// Wait on the deadline condition. Must be called while holding the lock.
+        /// Waits on the deadline condition. Must be called while holding the lock.
         func wait() {
             #if os(Windows)
                 _ = SleepConditionVariableSRW(&_lock.deadlineCondvar, &_lock.srwlock, INFINITE, 0)
@@ -243,7 +243,7 @@ extension IO.Blocking.Threads.Lock {
             #endif
         }
 
-        /// Wait on the deadline condition with a timeout. Must be called while holding the lock.
+        /// Waits on the deadline condition with a timeout. Must be called while holding the lock.
         ///
         /// - Parameter nanoseconds: Maximum wait time in nanoseconds.
         /// - Returns: `true` if signaled, `false` if timed out.
@@ -282,7 +282,7 @@ extension IO.Blocking.Threads.Lock {
             #endif
         }
 
-        /// Signal the deadline manager thread.
+        /// Signals the deadline manager thread.
         func signal() {
             #if os(Windows)
                 WakeConditionVariable(&_lock.deadlineCondvar)
@@ -291,7 +291,7 @@ extension IO.Blocking.Threads.Lock {
             #endif
         }
 
-        /// Signal all deadline waiters (used for shutdown).
+        /// Signals all deadline waiters (used for shutdown).
         func broadcast() {
             #if os(Windows)
                 WakeAllConditionVariable(&_lock.deadlineCondvar)

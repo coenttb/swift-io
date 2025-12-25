@@ -27,14 +27,35 @@ extension IO.Executor {
     /// The pool is generic over `Resource: ~Copyable & Sendable`.
     /// This allows reuse for files, sockets, database connections, etc.
     public actor Pool<Resource: ~Copyable & Sendable> {
+        /// Teardown closure type for deterministic resource cleanup.
+        ///
+        /// When a resource is removed from the pool (via `destroy()`, `shutdown()`,
+        /// or check-in after destruction), the pool calls this closure to perform
+        /// resource-specific cleanup.
+        ///
+        /// ## Example: File Handle Cleanup
+        /// ```swift
+        /// let pool = IO.Executor.Pool<File.Handle>(
+        ///     lane: lane,
+        ///     teardown: { handle in
+        ///         _ = try? await lane.run { handle.close() }
+        ///     }
+        /// )
+        /// ```
+        public typealias TeardownClosure = @Sendable (_ resource: consuming Resource) async -> Void
+
         /// The lane for executing blocking operations.
-        public let lane: IO.Blocking.Lane
+        // nonisolated because Lane is Sendable and immutable after init.
+        public nonisolated let lane: IO.Blocking.Lane
 
         /// Unique scope identifier for this executor instance.
         public nonisolated let scope: UInt64
 
-        /// Maximum waiters per handle (from backpressure policy).
+        /// Maximum waiters per handle.
         private let handleWaitersLimit: Int
+
+        /// Resource teardown closure for deterministic cleanup.
+        private let teardown: TeardownClosure
 
         /// Counter for generating unique handle IDs.
         private var nextRawID: UInt64 = 0
@@ -43,12 +64,12 @@ extension IO.Executor {
         private var isShutdown: Bool = false
 
         /// Actor-owned handle registry.
-        /// Each entry holds a Resource (or nil if checked out) plus waiters.
+        // Each entry holds a Resource (or nil if checked out) plus waiters.
         private var entries: [IO.Handle.ID: IO.Executor.Handle.Entry<Resource>] = [:]
 
         // MARK: - Initializers
 
-        /// Creates an executor with the given lane and backpressure policy.
+        /// Creates an executor with the given lane, backpressure policy, and teardown.
         ///
         /// Executors created with this initializer **must** be shut down
         /// when no longer needed using `shutdown()`.
@@ -56,9 +77,15 @@ extension IO.Executor {
         /// - Parameters:
         ///   - lane: The lane for executing blocking operations.
         ///   - policy: Backpressure policy (default: `.default`).
-        public init(lane: IO.Blocking.Lane, policy: IO.Backpressure.Policy = .default) {
+        ///   - teardown: Resource teardown closure. Default drops the resource.
+        public init(
+            lane: IO.Blocking.Lane,
+            policy: IO.Backpressure.Policy = .default,
+            teardown: @escaping TeardownClosure = { _ = consume $0 }
+        ) {
             self.lane = lane
             self.handleWaitersLimit = policy.handleWaitersLimit
+            self.teardown = teardown
             self.scope = IO.Executor.scopeCounter.next()
         }
 
@@ -66,19 +93,25 @@ extension IO.Executor {
         ///
         /// This is a convenience initializer equivalent to:
         /// ```swift
-        /// Executor(lane: .threads(options), policy: options.policy)
+        /// Executor(lane: .threads(options), policy: options.policy, teardown: teardown)
         /// ```
         ///
-        /// - Parameter options: Options for the Threads lane.
-        public init(_ options: IO.Blocking.Threads.Options = .init()) {
+        /// - Parameters:
+        ///   - options: Options for the Threads lane.
+        ///   - teardown: Resource teardown closure. Default drops the resource.
+        public init(
+            _ options: IO.Blocking.Threads.Options = .init(),
+            teardown: @escaping TeardownClosure = { _ = consume $0 }
+        ) {
             self.lane = .threads(options)
             self.handleWaitersLimit = options.policy.handleWaitersLimit
+            self.teardown = teardown
             self.scope = IO.Executor.scopeCounter.next()
         }
 
         // MARK: - Execution
 
-        /// Execute a blocking operation on the lane with typed throws.
+        /// Executes a blocking operation on the lane with typed throws.
         ///
         /// This method preserves the operation's specific error type while also
         /// capturing I/O infrastructure errors in `IO.Error<E>`.
@@ -128,14 +161,12 @@ extension IO.Executor {
 
         // MARK: - Shutdown
 
-        /// Shut down the executor.
+        /// Shuts down the executor.
         ///
         /// 1. Marks executor as shut down (rejects new `run()` calls)
         /// 2. Resumes all waiters so they can exit gracefully
-        /// 3. Shuts down the lane
-        ///
-        /// Note: Handle cleanup should be done by the caller before shutdown,
-        /// or by providing a cleanup closure.
+        /// 3. Tears down all remaining resources deterministically
+        /// 4. Shuts down the lane
         public func shutdown() async {
             guard !isShutdown else { return }  // Idempotent
             isShutdown = true
@@ -146,7 +177,16 @@ extension IO.Executor {
                 entry.state = .destroyed
             }
 
-            entries.removeAll()
+            // Teardown each resource deterministically
+            // Process one at a time since Resource is ~Copyable
+            for (id, entry) in entries {
+                if let resource = entry.take() {
+                    entries.removeValue(forKey: id)
+                    await teardown(resource)
+                } else {
+                    entries.removeValue(forKey: id)
+                }
+            }
 
             // Shutdown the lane
             await lane.shutdown()
@@ -154,14 +194,14 @@ extension IO.Executor {
 
         // MARK: - Handle Management
 
-        /// Generate a unique handle ID.
+        /// Generates a unique handle ID.
         private func generateHandleID() -> IO.Handle.ID {
             let raw = nextRawID
             nextRawID += 1
             return IO.Handle.ID(raw: raw, scope: scope)
         }
 
-        /// Register a resource and return its ID.
+        /// Registers a resource and returns its ID.
         ///
         /// - Parameter resource: The resource to register (ownership transferred).
         /// - Returns: A unique handle ID for future operations.
@@ -180,7 +220,7 @@ extension IO.Executor {
             return id
         }
 
-        /// Check if a handle ID is currently valid.
+        /// Checks if a handle ID is currently valid.
         ///
         /// - Parameter id: The handle ID to check.
         /// - Returns: `true` if the handle exists and is not destroyed.
@@ -189,9 +229,9 @@ extension IO.Executor {
             return entry.state != .destroyed
         }
 
-        /// Check if a handle ID refers to an open handle.
+        /// Checks if a handle ID refers to an open handle.
         ///
-        /// This is the source of truth for handle liveness. Returns true if:
+        /// This is the source of truth for handle liveness. Returns `true` if:
         /// - The ID belongs to this executor (scope match)
         /// - An entry exists in the registry
         /// - The entry is present or checked out (not destroyed)
@@ -206,21 +246,20 @@ extension IO.Executor {
 
         // MARK: - Transaction API
 
-        /// Execute a transaction with exclusive handle access and typed errors.
+        /// Executes a transaction with exclusive handle access and typed errors.
         ///
         /// ## Semantics
         /// Transaction does not imply database-style atomicity or rollback:
         /// - Exclusive access to the resource (mutual exclusion)
         /// - Guaranteed check-in after body completes (including errors/cancellation)
         /// - No rollback or atomic commit semantics are implied
-        ///
-        /// ## Algorithm
-        /// 1. Validate scope and existence
-        /// 2. If resource available: move out (entry.resource = nil)
-        /// 3. Else: enqueue waiter and suspend (cancellation-safe)
-        /// 4. Execute via slot: allocate slot, run on lane, move handle back
-        /// 5. Check-in: restore handle or close if destroyed
-        /// 6. Resume next non-cancelled waiter
+        // Algorithm:
+        // 1. Validate scope and existence
+        // 2. If resource available: move out (entry.resource = nil)
+        // 3. Else: enqueue waiter and suspend (cancellation-safe)
+        // 4. Execute via slot: allocate slot, run on lane, move handle back
+        // 5. Check-in: restore handle or close if destroyed
+        // 6. Resume next non-cancelled waiter
         ///
         /// ## Cancellation Semantics
         /// - Cancellation while waiting: waiter marked cancelled, resumes, throws CancellationError
@@ -313,7 +352,7 @@ extension IO.Executor {
                 }
             } catch {
                 // error is statically IO.Blocking.Failure due to typed throws
-                _checkInHandle(slot.take(), for: id, entry: entry)
+                await _checkInHandle(slot.take(), for: id, entry: entry)
                 slot.deallocateRawOnly()
                 throw .lane(error)
             }
@@ -326,7 +365,7 @@ extension IO.Executor {
             slot.deallocateRawOnly()
 
             // Step 5: Check-in handle
-            _checkInHandle(checkedInHandle, for: id, entry: entry)
+            await _checkInHandle(checkedInHandle, for: id, entry: entry)
 
             // Handle cancellation
             if wasCancelled {
@@ -347,12 +386,12 @@ extension IO.Executor {
             _ handle: consuming Resource,
             for id: IO.Handle.ID,
             entry: IO.Executor.Handle.Entry<Resource>
-        ) {
+        ) async {
             if entry.state == .destroyed {
-                // Entry marked for destruction - remove from registry
-                // The resource is dropped here (caller should handle cleanup)
+                // Entry marked for destruction - remove from registry first
                 entries.removeValue(forKey: id)
-                _ = consume handle
+                // Then teardown the resource deterministically
+                await teardown(handle)
             } else {
                 // Sync path - store handle back and resume waiter
                 entry.resource = consume handle
@@ -361,7 +400,7 @@ extension IO.Executor {
             }
         }
 
-        /// Cancel a waiter (called from cancellation handler).
+        /// Cancels a waiter (called from cancellation handler).
         private func _cancelWaiter(token: UInt64, for id: IO.Handle.ID) {
             guard let entry = entries[id] else { return }
             if let continuation = entry.waiters.cancel(token: token) {
@@ -369,7 +408,7 @@ extension IO.Executor {
             }
         }
 
-        /// Execute a closure with exclusive access to a handle.
+        /// Executes a closure with exclusive access to a handle.
         ///
         /// This is a convenience wrapper over `transaction(_:_:)`.
         public func withHandle<T: Sendable, E: Swift.Error & Sendable>(
@@ -403,14 +442,16 @@ extension IO.Executor {
             }
         }
 
-        /// Mark a handle for destruction.
+        /// Destroys a handle, tearing down the resource deterministically.
         ///
         /// If the handle is currently checked out, it will be destroyed
-        /// when the transaction completes.
+        /// when the transaction completes (teardown runs at check-in).
+        ///
+        /// If the handle is present, teardown runs immediately.
         ///
         /// - Parameter id: The handle ID.
         /// - Note: Idempotent for entries that were already destroyed.
-        public func destroy(_ id: IO.Handle.ID) throws(IO.Handle.Error) {
+        public func destroy(_ id: IO.Handle.ID) async throws(IO.Handle.Error) {
             guard id.scope == scope else {
                 throw .scopeMismatch
             }
@@ -433,10 +474,16 @@ extension IO.Executor {
                 return
             }
 
-            // Handle is present - mark destroyed and remove
+            // Handle is present - mark destroyed, remove, and teardown
             entry.state = .destroyed
             entry.waiters.resumeAll()
-            entries.removeValue(forKey: id)
+
+            if let resource = entry.take() {
+                entries.removeValue(forKey: id)
+                await teardown(resource)
+            } else {
+                entries.removeValue(forKey: id)
+            }
         }
     }
 }

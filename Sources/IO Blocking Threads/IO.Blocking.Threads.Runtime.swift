@@ -7,11 +7,10 @@
 
 extension IO.Blocking.Threads {
     /// Mutable runtime state for the Threads lane.
-    ///
-    /// ## Safety Invariant (for @unchecked Sendable)
-    /// - `state` is thread-safe via its internal lock
-    /// - `threads` is only mutated in `start()` before any concurrent access
-    /// - `isStarted` and `threads` mutations are synchronized via state.lock
+    // Safety Invariant (for @unchecked Sendable):
+    // - state is thread-safe via its internal lock
+    // - threads is only mutated in start() before any concurrent access
+    // - isStarted and threads mutations are synchronized via state.lock
     final class Runtime: @unchecked Sendable {
         let state: Thread.Worker.State
         var threads: Threads = Threads()
@@ -50,7 +49,7 @@ extension IO.Blocking.Threads {
             }
         }
 
-        /// Join all worker threads and the deadline manager.
+        /// Joins all worker threads and the deadline manager.
         func joinAll() {
             threads.joinAll()
             if let managerThread = deadlineManagerThread {
@@ -68,12 +67,12 @@ extension IO.Blocking.Threads.Runtime {
     struct Threads {
         private(set) var handles: [IO.Blocking.Threads.Thread.Handle] = []
 
-        /// Append a thread handle.
+        /// Appends a thread handle.
         mutating func append(_ handle: IO.Blocking.Threads.Thread.Handle) {
             handles.append(handle)
         }
 
-        /// Join all threads and clear the collection.
+        /// Joins all threads and clears the collection.
         mutating func joinAll() {
             for thread in handles {
                 thread.join()
