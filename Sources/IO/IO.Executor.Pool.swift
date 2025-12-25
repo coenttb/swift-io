@@ -30,6 +30,27 @@ extension IO.Executor {
     /// - They are always actor-confined in the registry
     /// - Cross-boundary operations use the slot pattern (address is Sendable)
     /// - Teardown receives an address, not the resource directly
+    ///
+    /// ## Behavioral Guarantees
+    ///
+    /// **Waiter Fairness**: Waiters are resumed in FIFO order (best effort).
+    /// Under high contention, exact ordering is not guaranteed due to
+    /// actor scheduling, but the implementation does not reorder waiters.
+    ///
+    /// **Cancellation Semantics**:
+    /// - Waiting cancelled: Waiter is marked cancelled, resumes, throws `CancellationError`
+    /// - Checked out + cancelled: Operation completes, handle checked in, then throws
+    /// - Cancellation never abandons a resource in an inconsistent state
+    ///
+    /// **Shutdown Semantics**:
+    /// - Rejects new operations immediately (throws `shutdownInProgress`)
+    /// - Resumes all waiters so they can observe shutdown and exit
+    /// - Tears down all present resources deterministically
+    /// - Checked-out resources are torn down when returned (at check-in)
+    /// - Completes only after lane shutdown
+    ///
+    /// **Exactly-Once Resumption**: Each waiter is resumed exactly once.
+    /// Double-resume is structurally prevented by the waiter queue implementation.
     public actor Pool<Resource: ~Copyable> {
         /// The lane for executing blocking operations.
         ///
@@ -57,22 +78,22 @@ extension IO.Executor {
 
         // MARK: - Initializers
 
-        /// Creates an executor with the given lane, backpressure policy, and teardown.
+        /// Creates an executor with the given lane and teardown.
         ///
         /// Executors created with this initializer **must** be shut down
         /// when no longer needed using `shutdown()`.
         ///
         /// - Parameters:
         ///   - lane: The lane for executing blocking operations.
-        ///   - policy: Backpressure policy (default: `.default`).
+        ///   - handleWaitersLimit: Maximum waiters per handle (default: 64).
         ///   - teardown: Teardown strategy. Default is `.drop()`.
         public init(
             lane: IO.Blocking.Lane,
-            policy: IO.Backpressure.Policy = .default,
+            handleWaitersLimit: Int = 64,
             teardown: IO.Executor.Teardown<Resource> = .drop()
         ) {
             self.lane = lane
-            self.handleWaitersLimit = policy.handleWaitersLimit
+            self.handleWaitersLimit = handleWaitersLimit
             self.teardown = teardown
             self.scope = IO.Executor.scopeCounter.next()
         }
@@ -81,18 +102,20 @@ extension IO.Executor {
         ///
         /// This is a convenience initializer equivalent to:
         /// ```swift
-        /// Pool(lane: .threads(options), policy: options.policy, teardown: teardown)
+        /// Pool(lane: .threads(options), handleWaitersLimit: 64, teardown: teardown)
         /// ```
         ///
         /// - Parameters:
         ///   - options: Options for the Threads lane.
+        ///   - handleWaitersLimit: Maximum waiters per handle (default: 64).
         ///   - teardown: Teardown strategy. Default is `.drop()`.
         public init(
             _ options: IO.Blocking.Threads.Options = .init(),
+            handleWaitersLimit: Int = 64,
             teardown: IO.Executor.Teardown<Resource> = .drop()
         ) {
             self.lane = .threads(options)
-            self.handleWaitersLimit = options.policy.handleWaitersLimit
+            self.handleWaitersLimit = handleWaitersLimit
             self.teardown = teardown
             self.scope = IO.Executor.scopeCounter.next()
         }
@@ -151,10 +174,21 @@ extension IO.Executor {
 
         /// Shuts down the executor.
         ///
+        /// ## Shutdown Sequence
         /// 1. Marks executor as shut down (rejects new `run()` calls)
         /// 2. Resumes all waiters so they can exit gracefully
-        /// 3. Tears down all remaining resources deterministically
+        /// 3. Tears down all present resources deterministically
         /// 4. Shuts down the lane
+        ///
+        /// ## Guarantees
+        /// - **Idempotent**: Safe to call multiple times; subsequent calls return immediately
+        /// - **Waiter notification**: All waiting tasks are resumed before teardown begins
+        /// - **Deterministic teardown**: Resources are torn down one at a time, in registry order
+        /// - **Checked-out resources**: Not torn down here; deferred to check-in time
+        /// - **Completion**: Returns only after all teardowns and lane shutdown complete
+        ///
+        /// ## Thread Safety
+        /// This method is actor-isolated. Concurrent shutdown calls are serialized.
         public func shutdown() async {
             guard !isShutdown else { return }  // Idempotent
             isShutdown = true

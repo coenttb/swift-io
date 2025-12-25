@@ -7,7 +7,23 @@
 
 extension IO.Blocking {
     /// Infrastructure failures from the lane.
-    // Operation errors are returned in the boxed Result, not thrown.
+    ///
+    /// Operation errors are returned in the boxed `Result`, not thrown.
+    /// Lane only throws `Failure` for infrastructure-level issues.
+    ///
+    /// ## Forward Compatibility
+    /// This enum is intentionally not `@frozen`. New cases may be added
+    /// in future versions. Clients should use `@unknown default` in
+    /// exhaustive switches to remain forward-compatible:
+    ///
+    /// ```swift
+    /// switch failure {
+    /// case .cancelled: ...
+    /// case .shutdown: ...
+    /// // ... other cases ...
+    /// @unknown default: handleUnknownFailure(failure)
+    /// }
+    /// ```
     public enum Failure: Swift.Error, Sendable, Equatable {
         case shutdown
         case queueFull

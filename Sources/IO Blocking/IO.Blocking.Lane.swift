@@ -106,10 +106,11 @@ extension IO.Blocking {
                     // Quarantined cast to recover E from `any Error`.
                     // This is the only cast in the module - do not add others.
                     guard let e = error as? E else {
-                        // Unreachable if typed-throws is respected by the compiler.
-                        // Trap to surface invariant violations during development.
+                        // Contract: `operation` is declared as `throws(E)` and must be observed as `E`.
+                        // If this fails, there is no safe recovery (we cannot manufacture `E`).
+                        // Terminate deliberately to surface invariant violations.
                         fatalError(
-                            "Lane.run: typed-throws invariant violated. Expected \(E.self), got \(type(of: error))"
+                            "Lane.run: invariant violated - expected \(E.self), got \(type(of: error))"
                         )
                     }
                     return .failure(e)

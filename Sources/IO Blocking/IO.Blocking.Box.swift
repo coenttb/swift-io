@@ -18,6 +18,25 @@ extension IO.Blocking.Box {
 extension IO.Blocking {
     /// Type-erased boxing for lane results.
     ///
+    /// ## Unsafe Boundary Contract
+    ///
+    /// This type forms part of the unsafe memory boundary for lane execution.
+    /// All unsafe pointer operations are confined to this file.
+    ///
+    /// **Provenance**: Pointers returned by `make`/`makeValue` originate from
+    /// `UnsafeMutablePointer.allocate` and must be consumed exactly once.
+    ///
+    /// **Alignment**: Header and payload are separately allocated with natural
+    /// alignment for their respective types.
+    ///
+    /// **Lifetime**: From `make*()` to either `take*()` or `destroy()`.
+    /// The caller must ensure exactly one consumption path is taken.
+    ///
+    /// **Permitted Operations**:
+    /// - `make(Result<T, E>)` / `makeValue(T)`: Allocate and initialize
+    /// - `take<T, E>(ptr)` / `takeValue<T>(ptr)`: Move out and deallocate
+    /// - `destroy(ptr)`: Deinitialize and deallocate without reading
+    ///
     /// ## Design
     /// Each box consists of two allocations:
     /// - A header struct containing a destroy function and payload pointer

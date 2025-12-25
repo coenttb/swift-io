@@ -8,6 +8,38 @@
 extension IO.Executor.Slot {
     /// A raw memory slot for temporarily holding a ~Copyable resource during lane execution.
     ///
+    /// ## Unsafe Boundary Contract
+    ///
+    /// This type forms part of the unsafe memory boundary for resource transport.
+    /// All unsafe pointer operations for slot-based resource management are confined here.
+    ///
+    /// **Provenance**: Pointers originate from `allocate()` using `MemoryLayout<Resource>`.
+    /// The same `Resource` type must be used for all operations on a given slot.
+    ///
+    /// **Alignment**: Memory is allocated with `MemoryLayout<Resource>.alignment`.
+    /// All access assumes proper alignment for `Resource`.
+    ///
+    /// **Lifetime**: From `allocate()` to `deallocateRawOnly()`.
+    /// Between these, the slot may be:
+    /// - Uninitialized (after allocate, before initialize/initializeMemory)
+    /// - Initialized (after initialize, before take)
+    /// - Consumed (after take, before deallocate)
+    ///
+    /// **Permitted Operations**:
+    /// - `allocate()`: Allocate raw storage
+    /// - `initialize(with:)` / `initializeMemory(at:with:)`: Initialize storage
+    /// - `withResource(at:_:)`: Borrow access (does not consume)
+    /// - `take()` / `take(at:)` / `consume(at:_:)`: Move out (consumes)
+    /// - `deallocateRawOnly()`: Deallocate storage (must be consumed or never initialized)
+    ///
+    /// **State Machine**:
+    /// ```
+    /// allocate() → [uninitialized]
+    ///            → initialize() → [initialized]
+    ///                           → take() → [consumed]
+    ///                                    → deallocateRawOnly() → [freed]
+    /// ```
+    ///
     /// Enables passing resources through @Sendable closures without
     /// claiming the resource itself is Sendable. The address is Sendable,
     /// but the resource stays in one place and is accessed via pointer.

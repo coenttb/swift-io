@@ -59,16 +59,20 @@ extension IO.Handle {
         }
 
         /// Marks a waiter as cancelled by token, returning its continuation.
-        // Caller must resume the returned continuation immediately.
-        // O(n) scan - acceptable with bounded capacity.
+        ///
+        /// Caller must resume the returned continuation immediately.
+        /// The continuation is nil'd in storage to ensure exactly-once resumption.
+        ///
+        /// - Complexity: O(n) scan - acceptable with bounded capacity.
         mutating func cancel(token: UInt64) -> CheckedContinuation<Void, Never>? {
             var idx = head
             var remaining = _count
             while remaining > 0 {
                 if var node = storage[idx], node.token == token, !node.isCancelled {
                     node.isCancelled = true
+                    let continuation = node.takeContinuation()
                     storage[idx] = node
-                    return node.continuation
+                    return continuation
                 }
                 idx = (idx + 1) % capacity
                 remaining -= 1
@@ -77,16 +81,20 @@ extension IO.Handle {
         }
 
         /// Resumes exactly one non-cancelled waiter.
-        // Skips cancelled waiters (already resumed) and reclaims their slots.
+        ///
+        /// Skips cancelled waiters (already resumed) and reclaims their slots.
+        /// Uses `takeContinuation()` to ensure exactly-once resumption.
         mutating func resumeNext() {
             while _count > 0 {
-                let node = storage[head]
+                let storedNode = storage[head]
                 storage[head] = nil
                 head = (head + 1) % capacity
                 _count -= 1
 
-                if let node = node, !node.isCancelled {
-                    node.continuation.resume()
+                if var node = storedNode, !node.isCancelled {
+                    if let continuation = node.takeContinuation() {
+                        continuation.resume()
+                    }
                     return
                 }
                 // Cancelled or nil - slot reclaimed, continue
@@ -94,10 +102,14 @@ extension IO.Handle {
         }
 
         /// Resumes all non-cancelled waiters.
+        ///
+        /// Uses `takeContinuation()` to ensure exactly-once resumption.
         mutating func resumeAll() {
             while _count > 0 {
-                if let node = storage[head], !node.isCancelled {
-                    node.continuation.resume()
+                if var node = storage[head], !node.isCancelled {
+                    if let continuation = node.takeContinuation() {
+                        continuation.resume()
+                    }
                 }
                 storage[head] = nil
                 head = (head + 1) % capacity
