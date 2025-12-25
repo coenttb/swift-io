@@ -31,37 +31,6 @@ extension IO.Executor {
     /// - Cross-boundary operations use the slot pattern (address is Sendable)
     /// - Teardown receives an address, not the resource directly
     public actor Pool<Resource: ~Copyable> {
-        /// Teardown closure type for deterministic resource cleanup.
-        ///
-        /// When a resource is removed from the pool (via `destroy()`, `shutdown()`,
-        /// or check-in after destruction), the pool calls this closure to perform
-        /// resource-specific cleanup.
-        ///
-        /// The closure receives a `Slot.Address` (which is Sendable) rather than
-        /// the resource directly. This allows teardown to run blocking operations
-        /// on the lane without violating ~Copyable ownership rules.
-        ///
-        /// ## Example: File Handle Cleanup
-        /// ```swift
-        /// let pool = IO.Executor.Pool<File.Handle>(
-        ///     lane: lane,
-        ///     teardown: { address in
-        ///         _ = try? await lane.run(deadline: nil) {
-        ///             // MUST use consume(at:) or take(at:) to move resource out
-        ///             IO.Executor.Slot.Container<File.Handle>.consume(at: address.pointer) {
-        ///                 try? $0.close()
-        ///             }
-        ///         }
-        ///     }
-        /// )
-        /// ```
-        ///
-        /// **Important**: The teardown closure MUST consume the resource at `address`
-        /// using `consume(at:)` or `take(at:)`. Do NOT use `withResource(at:)` which
-        /// only borrows. The pool deallocates the slot's raw memory after teardown
-        /// returns - if the resource wasn't consumed, it will leak.
-        public typealias TeardownClosure = @Sendable (_ address: IO.Executor.Slot.Address) async -> Void
-
         /// The lane for executing blocking operations.
         ///
         /// This is `nonisolated` because `Lane` is Sendable and immutable after init.
@@ -73,8 +42,8 @@ extension IO.Executor {
         /// Maximum waiters per handle.
         private let handleWaitersLimit: Int
 
-        /// Resource teardown closure for deterministic cleanup.
-        private let teardown: TeardownClosure
+        /// Resource teardown strategy for deterministic cleanup.
+        private let teardown: IO.Executor.Teardown<Resource>
 
         /// Counter for generating unique handle IDs.
         private var nextRawID: UInt64 = 0
@@ -96,14 +65,11 @@ extension IO.Executor {
         /// - Parameters:
         ///   - lane: The lane for executing blocking operations.
         ///   - policy: Backpressure policy (default: `.default`).
-        ///   - teardown: Slot-based teardown closure. Default drops the resource.
+        ///   - teardown: Teardown strategy. Default is `.drop()`.
         public init(
             lane: IO.Blocking.Lane,
             policy: IO.Backpressure.Policy = .default,
-            teardown: @escaping TeardownClosure = { address in
-                // Default: just consume/drop the resource
-                _ = IO.Executor.Slot.Container<Resource>.take(at: address.pointer)
-            }
+            teardown: IO.Executor.Teardown<Resource> = .drop()
         ) {
             self.lane = lane
             self.handleWaitersLimit = policy.handleWaitersLimit
@@ -115,17 +81,15 @@ extension IO.Executor {
         ///
         /// This is a convenience initializer equivalent to:
         /// ```swift
-        /// Executor(lane: .threads(options), policy: options.policy, teardown: teardown)
+        /// Pool(lane: .threads(options), policy: options.policy, teardown: teardown)
         /// ```
         ///
         /// - Parameters:
         ///   - options: Options for the Threads lane.
-        ///   - teardown: Slot-based teardown closure. Default drops the resource.
+        ///   - teardown: Teardown strategy. Default is `.drop()`.
         public init(
             _ options: IO.Blocking.Threads.Options = .init(),
-            teardown: @escaping TeardownClosure = { address in
-                _ = IO.Executor.Slot.Container<Resource>.take(at: address.pointer)
-            }
+            teardown: IO.Executor.Teardown<Resource> = .drop()
         ) {
             self.lane = .threads(options)
             self.handleWaitersLimit = options.policy.handleWaitersLimit
