@@ -36,7 +36,7 @@ extension IO.Blocking {
         public var guaranteesRunOnceEnqueued: Bool
 
         /// Creates capabilities with explicit values.
-        public init(
+        package init(
             executesOnDedicatedThreads: Bool,
             guaranteesRunOnceEnqueued: Bool
         ) {

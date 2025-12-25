@@ -22,7 +22,7 @@ extension IO.Executor.Slot {
     // duration of any pointer access. Typically this is guaranteed by:
     // 1. Slot lifetime scoped to an actor method
     // 2. Lane.run awaited within that scope
-    public struct Address: Sendable, Hashable {
+    struct Address: Sendable, Hashable {
         private let rawValue: UInt
 
         init(_ rawValue: UInt) {
@@ -33,7 +33,7 @@ extension IO.Executor.Slot {
         ///
         /// - Important: Only call this inside a lane closure where the slot
         ///   is guaranteed to be alive.
-        public var pointer: UnsafeMutableRawPointer {
+        var pointer: UnsafeMutableRawPointer {
             guard let ptr = UnsafeMutableRawPointer(bitPattern: rawValue) else {
                 preconditionFailure("Invalid slot address (null pointer)")
             }

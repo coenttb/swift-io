@@ -10,13 +10,13 @@ extension IO.Blocking.Threads {
     ///
     /// Uses the Lock from this module to ensure all synchronization primitives
     /// are consolidated.
-    public final class Counter: @unchecked Sendable {
+    package final class Counter: @unchecked Sendable {
         private let lock = Lock()
         private var value: UInt64 = 0
 
-        public init() {}
+        package init() {}
 
-        public func next() -> UInt64 {
+        package func next() -> UInt64 {
             lock.withLock {
                 let result = value
                 value += 1

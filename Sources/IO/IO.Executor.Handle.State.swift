@@ -12,7 +12,7 @@ extension IO.Executor.Handle {
     /// - `present`: Handle is stored and available
     /// - `checkedOut`: Handle temporarily moved for transaction
     /// - `destroyed`: Handle closed or marked for closure
-    public enum State {
+    enum State {
         case present
         case checkedOut
         case destroyed

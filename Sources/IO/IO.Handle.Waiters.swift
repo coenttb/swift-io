@@ -22,10 +22,10 @@ extension IO.Handle {
     /// ## Bounded Capacity
     /// Uses a fixed capacity ring buffer. If capacity is exhausted, `enqueue`
     /// returns false (caller should handle gracefully or fail).
-    public struct Waiters {
+    struct Waiters {
         /// Default capacity for waiter queues.
         // Per-handle limit, keeping memory bounded.
-        public static let defaultCapacity: Int = 64
+        static let defaultCapacity: Int = 64
 
         private var storage: [Node?]
         private var head: Int = 0
@@ -34,23 +34,23 @@ extension IO.Handle {
         private let capacity: Int
         private var nextToken: UInt64 = 0
 
-        public init(capacity: Int = Waiters.defaultCapacity) {
+        init(capacity: Int = Waiters.defaultCapacity) {
             self.capacity = max(capacity, 1)
             self.storage = [Node?](repeating: nil, count: self.capacity)
         }
 
-        public var count: Int { _count }
-        public var isEmpty: Bool { _count == 0 }
-        public var isFull: Bool { _count >= capacity }
+        var count: Int { _count }
+        var isEmpty: Bool { _count == 0 }
+        var isFull: Bool { _count >= capacity }
 
-        public mutating func generateToken() -> UInt64 {
+        mutating func generateToken() -> UInt64 {
             let token = nextToken
             nextToken += 1
             return token
         }
 
         /// Enqueues a waiter. Returns `false` if queue is full.
-        public mutating func enqueue(token: UInt64, continuation: CheckedContinuation<Void, Never>) -> Bool {
+        mutating func enqueue(token: UInt64, continuation: CheckedContinuation<Void, Never>) -> Bool {
             guard _count < capacity else { return false }
             storage[tail] = Node(token: token, continuation: continuation)
             tail = (tail + 1) % capacity
@@ -61,7 +61,7 @@ extension IO.Handle {
         /// Marks a waiter as cancelled by token, returning its continuation.
         // Caller must resume the returned continuation immediately.
         // O(n) scan - acceptable with bounded capacity.
-        public mutating func cancel(token: UInt64) -> CheckedContinuation<Void, Never>? {
+        mutating func cancel(token: UInt64) -> CheckedContinuation<Void, Never>? {
             var idx = head
             var remaining = _count
             while remaining > 0 {
@@ -78,7 +78,7 @@ extension IO.Handle {
 
         /// Resumes exactly one non-cancelled waiter.
         // Skips cancelled waiters (already resumed) and reclaims their slots.
-        public mutating func resumeNext() {
+        mutating func resumeNext() {
             while _count > 0 {
                 let node = storage[head]
                 storage[head] = nil
@@ -94,7 +94,7 @@ extension IO.Handle {
         }
 
         /// Resumes all non-cancelled waiters.
-        public mutating func resumeAll() {
+        mutating func resumeAll() {
             while _count > 0 {
                 if let node = storage[head], !node.isCancelled {
                     node.continuation.resume()

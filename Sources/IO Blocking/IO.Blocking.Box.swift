@@ -9,9 +9,9 @@ extension IO.Blocking.Box {
     /// This is the only `@unchecked Sendable` in the lane internals.
     /// It represents a capability to consume or destroy a box, and
     /// concentrates the unsafe sendability at the FFI boundary.
-    public struct Pointer: @unchecked Sendable {
-        public let raw: UnsafeMutableRawPointer
-        public init(_ raw: UnsafeMutableRawPointer) { self.raw = raw }
+    package struct Pointer: @unchecked Sendable {
+        package let raw: UnsafeMutableRawPointer
+        package init(_ raw: UnsafeMutableRawPointer) { self.raw = raw }
     }
 }
 
@@ -49,7 +49,7 @@ extension IO.Blocking {
     // - Swift 6.2.3 crashes when unsafeBitCasting generic thin function pointers
     // - Static witness-per-specialization patterns are blocked by Swift restrictions
     // Revisit when the compiler bug is fixed.
-    public enum Box {
+    package enum Box {
         // Header for type-erased box.
         // Struct-based (not class) to avoid ARC on the container.
         // The destroy function captures type information for proper deinitialization.
@@ -68,7 +68,7 @@ extension IO.Blocking {
         ///
         /// Returns a pointer to the erased header. Use `take<T,E>` to unbox
         /// or `destroy` to free without unboxing.
-        public static func make<T: Sendable, E: Swift.Error & Sendable>(
+        package static func make<T: Sendable, E: Swift.Error & Sendable>(
             _ result: Result<T, E>
         ) -> UnsafeMutableRawPointer {
             // Allocate payload
@@ -95,7 +95,7 @@ extension IO.Blocking {
         ///
         /// Moves the Result out of the box and deallocates all memory.
         /// Caller must provide the correct T and E types.
-        public static func take<T: Sendable, E: Swift.Error & Sendable>(
+        package static func take<T: Sendable, E: Swift.Error & Sendable>(
             _ ptr: UnsafeMutableRawPointer
         ) -> Result<T, E> {
             let headerPtr = ptr.assumingMemoryBound(to: Header.self)
@@ -114,7 +114,7 @@ extension IO.Blocking {
         ///
         /// Returns a pointer to the erased header. Use `takeValue<T>` to unbox
         /// or `destroy` to free without unboxing.
-        public static func makeValue<T: Sendable>(
+        package static func makeValue<T: Sendable>(
             _ value: T
         ) -> UnsafeMutableRawPointer {
             // Allocate payload
@@ -141,7 +141,7 @@ extension IO.Blocking {
         ///
         /// Moves the value out of the box and deallocates all memory.
         /// Caller must provide the correct T type.
-        public static func takeValue<T: Sendable>(
+        package static func takeValue<T: Sendable>(
             _ ptr: UnsafeMutableRawPointer
         ) -> T {
             let headerPtr = ptr.assumingMemoryBound(to: Header.self)
@@ -162,7 +162,7 @@ extension IO.Blocking {
         ///
         /// - Important: Uses `move()` on Header before deallocate to properly
         ///   release the closure and balance the initialization from `make()`.
-        public static func destroy(_ ptr: UnsafeMutableRawPointer) {
+        package static func destroy(_ ptr: UnsafeMutableRawPointer) {
             let headerPtr = ptr.assumingMemoryBound(to: Header.self)
             let header = headerPtr.move()  // releases closure
             header.destroyPayload(header.payload)

@@ -28,7 +28,7 @@ extension IO.Blocking {
         private let runtime: Runtime
 
         /// Creates a Threads lane with the given options.
-        public init(_ options: Options = .init()) {
+        init(_ options: Options = .init()) {
             self.runtime = Runtime(options: options)
         }
 
@@ -48,7 +48,7 @@ extension IO.Blocking {
 // MARK: - Capabilities
 
 extension IO.Blocking.Threads {
-    public var capabilities: IO.Blocking.Capabilities {
+    var capabilities: IO.Blocking.Capabilities {
         IO.Blocking.Capabilities(
             executesOnDedicatedThreads: true,
             guaranteesRunOnceEnqueued: true
@@ -60,14 +60,14 @@ extension IO.Blocking.Threads {
 
 extension IO.Blocking.Threads {
     /// Accessor for running operations on this lane.
-    public var run: Run { Run(self) }
+    var run: Run { Run(self) }
 }
 
 // MARK: - Threads.Run
 
 extension IO.Blocking.Threads {
     /// Accessor for running operations on this lane.
-    public struct Run {
+    struct Run {
         private let threads: IO.Blocking.Threads
 
         fileprivate init(_ threads: IO.Blocking.Threads) {
@@ -89,7 +89,7 @@ extension IO.Blocking.Threads {
         // - No helper Task{} spawned inside lane machinery
         // - Exactly-once resume for all continuations
         // - Cancel-wait-but-drain-completion: cancelled callers don't leak boxes
-        public func boxed(
+        func boxed(
             deadline: IO.Blocking.Deadline?,
             _ operation: @Sendable @escaping () -> UnsafeMutableRawPointer
         ) async throws(IO.Blocking.Failure) -> UnsafeMutableRawPointer {
@@ -275,7 +275,7 @@ extension IO.Blocking.Threads {
     /// 3. Signals workers
     /// 4. Waits for queue to drain and in-flight jobs to complete
     /// 5. Joins worker threads
-    public func shutdown() async {
+    func shutdown() async {
         guard runtime.isStarted else { return }
 
         let state = runtime.state

@@ -38,5 +38,5 @@ extension IO.Executor {
     /// let resource = slot.take()
     /// // register resource
     /// ```
-    public enum Slot {}
+    enum Slot {}
 }

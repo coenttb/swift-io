@@ -54,7 +54,7 @@ extension IO.Blocking {
 
         private let _shutdown: @Sendable @concurrent () async -> Void
 
-        public init(
+        package init(
             capabilities: Capabilities,
             run:
                 @escaping @Sendable @concurrent (
