@@ -46,9 +46,9 @@ extension IO.Blocking.Threads.Options.Test.Unit {
         #expect(options.acceptanceWaitersLimit == 64)
     }
 
-    @Test("init with throw backpressure")
-    func initWithThrowBackpressure() {
-        let options = IO.Blocking.Threads.Options(backpressure: .throw)
+    @Test("init with failFast strategy")
+    func initWithFailFastStrategy() {
+        let options = IO.Blocking.Threads.Options(strategy: .failFast)
         #expect(options.strategy == .failFast)
     }
 

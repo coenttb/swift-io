@@ -39,7 +39,7 @@ extension IO.Blocking {
                     runtime.state.isShutdown = true
                 }
                 runtime.state.lock.broadcastAll()
-                runtime.joinAllThreads()
+                runtime.joinAll()
             }
         }
     }
@@ -335,7 +335,7 @@ extension IO.Blocking.Threads {
         }
 
         // Join all threads
-        runtime.joinAllThreads()
+        runtime.joinAll()
     }
 }
 

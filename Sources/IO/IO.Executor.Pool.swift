@@ -19,9 +19,9 @@ extension IO.Executor {
     /// - Custom pools must call `shutdown()` when done
     ///
     /// ## Handle Management
-    /// The pool owns all handles in an actor-isolated registry.
+    /// The pool owns all entries in an actor-isolated registry.
     /// Handles are accessed via transactions that provide exclusive access.
-    /// Only IDs cross await boundaries; handles never escape the actor.
+    /// Only IDs cross await boundaries; entries never escape the actor.
     ///
     /// ## Generic over Resource
     /// The pool is generic over `Resource: ~Copyable & Sendable`.
@@ -44,7 +44,7 @@ extension IO.Executor {
 
         /// Actor-owned handle registry.
         /// Each entry holds a Resource (or nil if checked out) plus waiters.
-        private var handles: [IO.Handle.ID: IO.Executor.Handle.Entry<Resource>] = [:]
+        private var entries: [IO.Handle.ID: IO.Executor.Handle.Entry<Resource>] = [:]
 
         // MARK: - Initializers
 
@@ -141,12 +141,12 @@ extension IO.Executor {
             isShutdown = true
 
             // Resume all waiters so they can observe shutdown
-            for (_, entry) in handles {
+            for (_, entry) in entries {
                 entry.waiters.resumeAll()
                 entry.state = .destroyed
             }
 
-            handles.removeAll()
+            entries.removeAll()
 
             // Shutdown the lane
             await lane.shutdown()
@@ -173,8 +173,8 @@ extension IO.Executor {
                 throw .shutdownInProgress
             }
             let id = generateHandleID()
-            handles[id] = IO.Executor.Handle.Entry(
-                handle: resource,
+            entries[id] = IO.Executor.Handle.Entry(
+                resource: resource,
                 waitersCapacity: handleWaitersLimit
             )
             return id
@@ -185,7 +185,7 @@ extension IO.Executor {
         /// - Parameter id: The handle ID to check.
         /// - Returns: `true` if the handle exists and is not destroyed.
         public func isValid(_ id: IO.Handle.ID) -> Bool {
-            guard let entry = handles[id] else { return false }
+            guard let entry = entries[id] else { return false }
             return entry.state != .destroyed
         }
 
@@ -200,7 +200,7 @@ extension IO.Executor {
         /// - Returns: `true` if the handle is logically open.
         public func isOpen(_ id: IO.Handle.ID) -> Bool {
             guard id.scope == scope else { return false }
-            guard let entry = handles[id] else { return false }
+            guard let entry = entries[id] else { return false }
             return entry.isOpen
         }
 
@@ -216,7 +216,7 @@ extension IO.Executor {
         ///
         /// ## Algorithm
         /// 1. Validate scope and existence
-        /// 2. If handle available: move out (entry.handle = nil)
+        /// 2. If resource available: move out (entry.resource = nil)
         /// 3. Else: enqueue waiter and suspend (cancellation-safe)
         /// 4. Execute via slot: allocate slot, run on lane, move handle back
         /// 5. Check-in: restore handle or close if destroyed
@@ -236,7 +236,7 @@ extension IO.Executor {
             }
 
             // Step 2: Checkout handle (with waiting if needed)
-            guard let entry = handles[id] else {
+            guard let entry = entries[id] else {
                 throw .handle(.invalidID)
             }
 
@@ -285,7 +285,7 @@ extension IO.Executor {
                 }
 
                 // Re-validate after waiting
-                guard let entry = handles[id], entry.state != .destroyed else {
+                guard let entry = entries[id], entry.state != .destroyed else {
                     throw .handle(.invalidID)
                 }
 
@@ -351,11 +351,11 @@ extension IO.Executor {
             if entry.state == .destroyed {
                 // Entry marked for destruction - remove from registry
                 // The resource is dropped here (caller should handle cleanup)
-                handles.removeValue(forKey: id)
+                entries.removeValue(forKey: id)
                 _ = consume handle
             } else {
                 // Sync path - store handle back and resume waiter
-                entry.handle = consume handle
+                entry.resource = consume handle
                 entry.state = .present
                 entry.waiters.resumeNext()
             }
@@ -363,7 +363,7 @@ extension IO.Executor {
 
         /// Cancel a waiter (called from cancellation handler).
         private func _cancelWaiter(token: UInt64, for id: IO.Handle.ID) {
-            guard let entry = handles[id] else { return }
+            guard let entry = entries[id] else { return }
             if let continuation = entry.waiters.cancel(token: token) {
                 continuation.resume()
             }
@@ -409,13 +409,13 @@ extension IO.Executor {
         /// when the transaction completes.
         ///
         /// - Parameter id: The handle ID.
-        /// - Note: Idempotent for handles that were already destroyed.
+        /// - Note: Idempotent for entries that were already destroyed.
         public func destroy(_ id: IO.Handle.ID) throws(IO.Handle.Error) {
             guard id.scope == scope else {
                 throw .scopeMismatch
             }
 
-            guard let entry = handles[id] else {
+            guard let entry = entries[id] else {
                 // Already destroyed - idempotent
                 return
             }
@@ -436,7 +436,7 @@ extension IO.Executor {
             // Handle is present - mark destroyed and remove
             entry.state = .destroyed
             entry.waiters.resumeAll()
-            handles.removeValue(forKey: id)
+            entries.removeValue(forKey: id)
         }
     }
 }

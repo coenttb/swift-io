@@ -23,9 +23,12 @@ enum IOExecutorPoolTests {
 extension IOExecutorPoolTests.Test.Unit {
     @Test("init with default options")
     func initDefaultOptions() async {
-        let pool = IO.Executor.Pool<TestResource>()
-        #expect(pool.scope > 0)
-        await pool.shutdown()
+        let pool1 = IO.Executor.Pool<TestResource>()
+        let pool2 = IO.Executor.Pool<TestResource>()
+        // Each pool gets a unique scope
+        #expect(pool1.scope != pool2.scope)
+        await pool1.shutdown()
+        await pool2.shutdown()
     }
 
     @Test("init with custom lane")

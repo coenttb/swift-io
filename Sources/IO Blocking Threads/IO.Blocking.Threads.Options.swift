@@ -58,16 +58,16 @@ extension IO.Blocking.Threads {
         ///   - workers: Number of workers (default: processor count).
         ///   - queueLimit: Maximum queue size (default: 256).
         ///   - acceptanceWaitersLimit: Maximum waiters (default: 4 × queueLimit).
-        ///   - backpressure: Backpressure strategy (default: `.suspend`).
+        ///   - strategy: Backpressure strategy (default: `.wait`).
         public init(
             workers: Int? = nil,
             queueLimit: Int = 256,
             acceptanceWaitersLimit: Int? = nil,
-            backpressure: Backpressure = .suspend
+            strategy: IO.Backpressure.Strategy = .wait
         ) {
             self.workers = max(1, workers ?? IO.Blocking.Threads.processorCount)
             self.policy = IO.Backpressure.Policy(
-                strategy: backpressure.strategy,
+                strategy: strategy,
                 laneQueueLimit: queueLimit,
                 laneAcceptanceWaitersLimit: acceptanceWaitersLimit
             )

@@ -14,7 +14,7 @@ extension IO.Executor.Handle {
     /// Generic over `Resource` which must be `~Copyable & Sendable`.
     public final class Entry<Resource: ~Copyable & Sendable> {
         /// The resource, or nil if currently checked out or destroyed.
-        public var handle: Resource?
+        public var resource: Resource?
 
         /// Queue of tasks waiting for this handle.
         public var waiters: IO.Handle.Waiters
@@ -25,10 +25,10 @@ extension IO.Executor.Handle {
         /// Creates an entry with the given resource and waiter capacity.
         ///
         /// - Parameters:
-        ///   - handle: The resource to store (ownership transferred).
+        ///   - resource: The resource to store (ownership transferred).
         ///   - waitersCapacity: Maximum waiters for this handle (default: 64).
-        public init(handle: consuming Resource, waitersCapacity: Int = IO.Handle.Waiters.defaultCapacity) {
-            self.handle = consume handle
+        public init(resource: consuming Resource, waitersCapacity: Int = IO.Handle.Waiters.defaultCapacity) {
+            self.resource = consume resource
             self.waiters = IO.Handle.Waiters(capacity: waitersCapacity)
             self.state = .present
         }
@@ -43,12 +43,12 @@ extension IO.Executor.Handle {
             state == .destroyed
         }
 
-        /// Takes the handle out if present, leaving nil.
+        /// Takes the resource out if present, leaving nil.
         public func take() -> Resource? {
             guard state == .present else { return nil }
-            guard handle != nil else { return nil }
+            guard resource != nil else { return nil }
             var result: Resource? = nil
-            swap(&result, &handle)
+            swap(&result, &resource)
             return result
         }
     }
