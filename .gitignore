@@ -13,11 +13,16 @@ Thumbs.db
 !/.swiftformat
 !/.swiftlint.yml
 
-# Folders (opt-in only - ignores non-standard folders like export/)
+# Folders (opt-in only)
 /*/
 !/Sources/
 !/Tests/
 !/.github/
+
+# Top-level files (whitelist only)
+/*
+!/Package.swift
+!/LICENSE.md
 
 # Documentation (opt-in for whitelisted .md files and .docc catalogs only)
 # Blocks all .md files by default to prevent AI-generated content from being committed
