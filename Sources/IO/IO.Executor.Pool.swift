@@ -420,16 +420,12 @@ extension IO.Executor {
                     break
                 }
 
-                // Handle is checked out or destroyed - wait for it or exit
-                // Check if waiter queue has capacity (quick check before generating token)
-                if entry.waiters.isFull {
-                    throw .handle(.waitersFull)
-                }
-
+                // Handle is checked out or destroyed - wait for it
                 let token = entry.waiters.generateToken()
+
                 // Note: enqueueResult is mutated inside the withCheckedContinuation closure.
                 // This is safe because the closure runs synchronously before any suspension.
-                var enqueueResult: IO.Handle.Waiters.EnqueueResult = .enqueued
+                var enqueueResult: IO.Handle.Waiters.EnqueueResult = .stored
 
                 // Capture waiters reference for use in onCancel (Sendable)
                 let waiters = entry.waiters
@@ -437,14 +433,12 @@ extension IO.Executor {
                 await withTaskCancellationHandler {
                     await withCheckedContinuation {
                         (continuation: CheckedContinuation<Void, Never>) in
-                        // enqueueOrResumeIfClosed atomically checks if the queue is closed
-                        // (by shutdown/destroy) and either enqueues or resumes immediately.
-                        // This prevents the race where shutdown drains an empty queue,
-                        // then we enqueue into a dead queue.
+                        // enqueue() atomically checks if the queue is closed (by shutdown/destroy)
+                        // and either stores or resumes immediately. This prevents the race where
+                        // shutdown drains an empty queue, then we enqueue into a dead queue.
                         //
-                        // Critical: This method ALWAYS resumes or stores the continuation.
-                        // Even on .queueFull, the continuation is resumed immediately.
-                        enqueueResult = waiters.enqueueOrResumeIfClosed(
+                        // On .rejected(...), the continuation is resumed immediately.
+                        enqueueResult = waiters.enqueue(
                             token: token,
                             continuation: continuation
                         )
@@ -461,11 +455,11 @@ extension IO.Executor {
 
                 // Handle enqueue result
                 switch enqueueResult {
-                case .enqueued:
-                    break  // Successfully enqueued and resumed - continue to validation
-                case .queueFull:
+                case .stored:
+                    break  // Successfully stored and later resumed - continue to validation
+                case .rejected(.full):
                     throw .handle(.waitersFull)
-                case .closedAndResumed:
+                case .rejected(.closed):
                     // Queue was closed (shutdown/destroy) - we were resumed immediately.
                     // The loop will re-check entry state and throw appropriately.
                     break
