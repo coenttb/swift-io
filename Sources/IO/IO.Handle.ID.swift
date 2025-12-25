@@ -11,8 +11,8 @@ extension IO.Handle {
     /// IDs are:
     /// - Scoped to a specific executor instance (prevents cross-executor misuse)
     /// - Never reused within an executor's lifetime
-    /// - Sendable, Hashable, and Codable for persistence/IPC
-    public struct ID: Hashable, Sendable, Codable {
+    /// - Sendable and Hashable; Codable when CODABLE flag is set
+    public struct ID: Hashable, Sendable {
         /// The unique identifier within the executor.
         public let raw: UInt64
         /// The scope identifier (unique per executor instance).
@@ -24,3 +24,7 @@ extension IO.Handle {
         }
     }
 }
+
+#if CODABLE
+extension IO.Handle.ID: Codable {}
+#endif
