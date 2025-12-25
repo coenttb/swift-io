@@ -1,23 +1,23 @@
 //
-//  IO.Blocking.Threads.Box Tests.swift
+//  IO.Blocking.Box Tests.swift
 //  swift-io
 //
 
 import StandardsTestSupport
 import Testing
 
-@testable import IO_Blocking_Threads
+@testable import IO_Blocking
 
-extension IO.Blocking.Threads.Box {
+extension IO.Blocking.Box {
     #TestSuites
 }
 
 // MARK: - Unit Tests
 
-extension IO.Blocking.Threads.Box.Test.Unit {
+extension IO.Blocking.Box.Test.Unit {
     @Test("type exists")
     func typeExists() {
-        // IO.Blocking.Threads.Box is an internal type
+        // IO.Blocking.Box is the type-erased boxing for lane results
         // This test verifies compilation
     }
 }
