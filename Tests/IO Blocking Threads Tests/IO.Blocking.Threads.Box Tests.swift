@@ -7,6 +7,7 @@ import StandardsTestSupport
 import Testing
 
 @testable import IO_Blocking
+@testable import IO_Blocking_Threads
 
 extension IO.Blocking.Box {
     #TestSuites
