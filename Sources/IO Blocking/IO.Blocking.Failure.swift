@@ -24,5 +24,12 @@ extension IO.Blocking {
         ///   This refers to the waiter queue for tasks awaiting acceptance.
         /// - Callers may retry with backoff.
         case overloaded
+
+        /// Internal invariant violation (should never occur in correct code).
+        ///
+        /// Indicates a bug in the lane implementation where an unexpected
+        /// error type escaped through the continuation boundary.
+        /// In debug builds, this triggers a precondition failure instead.
+        case internalInvariantViolation
     }
 }

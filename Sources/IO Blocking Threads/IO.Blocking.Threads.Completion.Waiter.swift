@@ -9,40 +9,58 @@ extension IO.Blocking.Threads.Completion {
     /// A waiter for job completion.
     ///
     /// Created when a caller awaits completion of an accepted job.
-    /// If the caller cancels, the waiter is marked `abandoned` so the
-    /// completion handler knows to free the result instead of resuming.
+    ///
+    /// ## Continuation Resumption Invariant
+    /// The continuation MUST be resumed exactly once. This is enforced by:
+    /// - Cancellation path: removes waiter from dictionary and resumes with `.cancelled`
+    /// - Completion path: removes waiter from dictionary and resumes with box
+    ///
+    /// Because both paths remove the waiter under lock before resuming,
+    /// only one can ever see and resume a given waiter.
+    ///
+    /// ## Error Handling
+    /// The continuation uses `any Error` due to Swift stdlib limitations
+    /// (`withCheckedThrowingContinuation` doesn't support typed throws in Swift 6.2).
+    /// However, `resumeThrowing` only accepts `IO.Blocking.Failure`, ensuring
+    /// by construction that no other error types can escape.
+    /// The `Box.Pointer` wrapper provides `@unchecked Sendable` capability at the FFI boundary.
     struct Waiter {
-        /// The continuation to resume with the result pointer.
-        let continuation: CheckedContinuation<UnsafeMutableRawPointer, Never>
+        /// Continuation type alias for clarity.
+        typealias Continuation = CheckedContinuation<IO.Blocking.Box.Pointer, any Error>
 
-        /// Whether the waiter has been abandoned due to cancellation.
-        /// If true, the completion should free the result instead of resuming.
-        var abandoned: Bool
+        /// The continuation to resume with the boxed result or failure.
+        let continuation: Continuation
 
-        /// Whether this waiter has been resumed. Used for DEBUG assertions.
+        /// Whether this waiter has been resumed. Used for DEBUG assertions only.
         var resumed: Bool
 
         init(
-            continuation: CheckedContinuation<UnsafeMutableRawPointer, Never>,
-            abandoned: Bool = false,
+            continuation: Continuation,
             resumed: Bool = false
         ) {
             self.continuation = continuation
-            self.abandoned = abandoned
             self.resumed = resumed
         }
 
         /// Resume this waiter exactly once with the result.
-        ///
-        /// - Precondition: Must not have been resumed before.
-        /// - Precondition: Must not be abandoned.
-        mutating func resumeReturning(_ box: sending UnsafeMutableRawPointer) {
+        mutating func resumeReturning(_ box: IO.Blocking.Box.Pointer) {
             #if DEBUG
-                precondition(!resumed, "Completion waiter resumed more than once")
-                precondition(!abandoned, "Completion waiter resumed after abandonment")
+            precondition(!resumed, "Completion waiter resumed more than once")
             #endif
             resumed = true
             continuation.resume(returning: box)
+        }
+
+        /// Resume this waiter exactly once with a failure.
+        ///
+        /// Only accepts `IO.Blocking.Failure` to ensure by construction
+        /// that no unexpected error types escape through the continuation.
+        mutating func resumeThrowing(_ error: IO.Blocking.Failure) {
+            #if DEBUG
+            precondition(!resumed, "Completion waiter resumed more than once")
+            #endif
+            resumed = true
+            continuation.resume(throwing: error)
         }
     }
 }
