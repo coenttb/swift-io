@@ -1413,7 +1413,7 @@ struct IOExecutorPoolStressTests {
         try await Task.sleep(for: .milliseconds(1))
 
         // Create capacity waiters while holder is active
-        let waiterTasks = (0..<capacity).map { id in
+        let waiterTasks = (0..<capacity).map { _ in
             Task { [pool, resourceID] in
                 do {
                     try await pool.withHandle(resourceID) { _ in }
@@ -1457,7 +1457,7 @@ struct IOExecutorPoolStressTests {
 
         try await Task.sleep(for: .milliseconds(1))
 
-        let secondWaveTasks = (0..<capacity).map { id in
+        let secondWaveTasks = (0..<capacity).map { _ in
             Task { [pool, resourceID] in
                 do {
                     try await pool.withHandle(resourceID) { _ in }
@@ -1539,8 +1539,10 @@ struct IOExecutorPoolStressTests {
 
             // Wait for waiter to complete (should NOT trap)
             let result = await waiterTask.value
-            #expect(result == "acquired" || result == "cancelled",
-                    "Iteration \(iteration): Unexpected result: \(result)")
+            #expect(
+                result == "acquired" || result == "cancelled",
+                "Iteration \(iteration): Unexpected result: \(result)"
+            )
         }
 
         await pool.shutdown()

@@ -58,7 +58,7 @@ extension IO.Blocking.Threads.Acceptance {
         /// - Precondition: Must not have been resumed before.
         mutating func resume(with outcome: Outcome) {
             #if DEBUG
-            precondition(!resumed, "Acceptance waiter resumed more than once")
+                precondition(!resumed, "Acceptance waiter resumed more than once")
             #endif
             resumed = true
             continuation.resume(returning: outcome)

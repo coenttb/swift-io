@@ -13,9 +13,5 @@ extension IO.Blocking.Threads {
     /// within a Threads instance.
     struct Ticket: Hashable, Sendable {
         let rawValue: UInt64
-
-        init(rawValue: UInt64) {
-            self.rawValue = rawValue
-        }
     }
 }

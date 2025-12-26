@@ -64,7 +64,7 @@ extension IO.Executor {
         private let handleWaitersLimit: Int
 
         /// Resource teardown strategy for deterministic cleanup.
-        private let teardown: IO.Executor.Teardown<Resource>
+        private let teardown: Teardown<Resource>
 
         /// Counter for generating unique handle IDs.
         private var nextRawID: UInt64 = 0
@@ -90,7 +90,7 @@ extension IO.Executor {
         public init(
             lane: IO.Blocking.Lane,
             handleWaitersLimit: Int = 64,
-            teardown: IO.Executor.Teardown<Resource> = .drop()
+            teardown: Teardown<Resource> = .drop()
         ) {
             self.lane = lane
             self.handleWaitersLimit = handleWaitersLimit
@@ -112,7 +112,7 @@ extension IO.Executor {
         public init(
             _ options: IO.Blocking.Threads.Options = .init(),
             handleWaitersLimit: Int = 64,
-            teardown: IO.Executor.Teardown<Resource> = .drop()
+            teardown: Teardown<Resource> = .drop()
         ) {
             self.lane = .threads(options)
             self.handleWaitersLimit = handleWaitersLimit
@@ -281,7 +281,7 @@ extension IO.Executor {
             // Run factory on lane, storing result in slot
             let factoryResult: Result<Void, E>
             do {
-                factoryResult = try await lane.run(deadline: nil) { () throws(E) -> Void in
+                factoryResult = try await lane.run(deadline: nil) { () throws(E) in
                     let resource = try make()
                     IO.Executor.Slot.Container<Resource>.initializeMemory(at: address.pointer, with: resource)
                 }

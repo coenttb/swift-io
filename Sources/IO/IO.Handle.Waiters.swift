@@ -195,7 +195,7 @@ extension IO.Handle {
 
                 enum Reason: Sendable, Equatable {
                     case closed
-                    case cancelled      // Returned when cancellation removed ticket between token.take() and arm()
+                    case cancelled  // Returned when cancellation removed ticket between token.take() and arm()
                     case handleAvailable
                 }
             }
@@ -419,8 +419,8 @@ extension IO.Handle {
 
                     deinit {
                         #if DEBUG
-                        let leaked = lock.withLock { $0 != nil }
-                        assert(!leaked, "Resume.Token dropped without calling resume()")
+                            let leaked = lock.withLock { $0 != nil }
+                            assert(!leaked, "Resume.Token dropped without calling resume()")
                         #endif
                     }
                 }
@@ -512,11 +512,12 @@ extension IO.Handle {
                 return .stored
             case .resume(let cont, let reason):
                 // Convert internal Reason to public Arm.Result.Reason
-                let publicReason: Arm.Result.Reason = switch reason {
-                case .handleAvailable: .handleAvailable
-                case .cancelled: .cancelled
-                case .closed: .closed
-                }
+                let publicReason: Arm.Result.Reason =
+                    switch reason {
+                    case .handleAvailable: .handleAvailable
+                    case .cancelled: .cancelled
+                    case .closed: .closed
+                    }
                 return .resumeNow(Resume.Token(cont), publicReason)
             }
         }
