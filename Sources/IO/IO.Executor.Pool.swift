@@ -193,20 +193,20 @@ extension IO.Executor {
             guard !isShutdown else { return }  // Idempotent
             isShutdown = true
 
-            // Close all waiter queues and collect continuations to resume.
+            // Close all waiter queues and collect tokens to resume.
             // This must happen BEFORE removing entries from the dictionary,
             // and the closeAndDrain ensures late-arriving waiters get resumed
             // immediately rather than enqueueing into a dead queue.
-            var allContinuations: [CheckedContinuation<Void, Never>] = []
+            var allTokens: [IO.Handle.Waiters.Resume.Token] = []
             for (_, entry) in entries {
-                let continuations = entry.waiters.closeAndDrain()
-                allContinuations.append(contentsOf: continuations)
+                let tokens = entry.waiters.closeAndDrain()
+                allTokens.append(contentsOf: tokens)
                 entry.state = .destroyed
             }
 
-            // Resume all collected continuations
-            for continuation in allContinuations {
-                continuation.resume()
+            // Resume all collected tokens
+            for token in allTokens {
+                token.resume()
             }
 
             // Teardown each resource deterministically
@@ -469,36 +469,43 @@ extension IO.Executor {
                 // Handle is checked out or destroyed - register as waiter
                 let waiters = entry.waiters
 
-                // Phase 1: Register (cancellable identity now exists)
-                let ticket: IO.Handle.Waiters.Ticket
+                // Phase 1: Register (creates Ticket.Cell - both paths can race for the token)
+                let cell: IO.Handle.Waiters.Ticket.Cell
                 switch waiters.register() {
-                case .registered(let t):
-                    ticket = t
+                case .registered(let c):
+                    cell = c
                 case .rejected(.closed):
                     throw .handle(.invalidID)
                 case .rejected(.full):
                     throw .handle(.waitersFull)
                 }
 
-                // Phase 2: Install cancellation handler and arm the ticket
+                // Phase 2: Race for token between normal path and cancellation handler
                 await withTaskCancellationHandler {
                     await withCheckedContinuation { continuation in
-                        switch waiters.arm(ticket, continuation) {
-                        case .stored:
-                            // Continuation stored - will be resumed by resumeNext() or closeAndDrain()
-                            return
-                        case .resumeNow:
-                            // Pre-cancelled or closed - resume immediately
+                        // Try to take the token - if nil, cancellation won the race
+                        if let token = cell.take() {
+                            switch waiters.arm(token, continuation) {
+                            case .stored:
+                                // Continuation stored - will be resumed by resumeNext() or closeAndDrain()
+                                return
+                            case .resumeNow(let resume, _):
+                                // Closed or permit available - resume immediately
+                                resume.resume()
+                            }
+                        } else {
+                            // Cancellation won the race - resume so task can hit Task.isCancelled check
                             continuation.resume()
                         }
                     }
                 } onCancel: {
-                    // Synchronous cancellation - no Task needed.
-                    // Waiters uses internal synchronization, so cancel() is safe to call
-                    // from the @Sendable onCancel handler without actor isolation.
-                    // cancel() returns the continuation if the ticket was armed.
-                    if let c = waiters.cancel(ticket) {
-                        c.resume()
+                    // Synchronous cancellation - race for the token
+                    // If we win, cancel removes the entry (consume-on-cancel)
+                    // If normal path already took the token, this is a no-op
+                    if let token = cell.take() {
+                        if let resume = waiters.cancel(token) {
+                            resume.resume()
+                        }
                     }
                 }
 
@@ -655,12 +662,12 @@ extension IO.Executor {
 
             // Close the waiter queue first - this ensures late-arriving waiters
             // get resumed immediately rather than enqueueing into a dead queue.
-            let continuations = entry.waiters.closeAndDrain()
+            let tokens = entry.waiters.closeAndDrain()
             entry.state = .destroyed
 
-            // Resume all collected continuations
-            for continuation in continuations {
-                continuation.resume()
+            // Resume all collected tokens
+            for token in tokens {
+                token.resume()
             }
 
             // If handle was checked out, defer teardown to check-in time

@@ -1341,11 +1341,11 @@ struct IOExecutorPoolStressTests {
         // Register tickets and abandon them all
         for _ in 0..<100 {
             // Fill up the capacity
-            var tickets: [IO.Handle.Waiters.Ticket] = []
+            var cells: [IO.Handle.Waiters.Ticket.Cell] = []
             for _ in 0..<5 {
                 switch waiters.register() {
-                case .registered(let t):
-                    tickets.append(t)
+                case .registered(let cell):
+                    cells.append(cell)
                 case .rejected:
                     Issue.record("Should be able to register up to capacity")
                 }
@@ -1361,15 +1361,19 @@ struct IOExecutorPoolStressTests {
                 Issue.record("Should not be closed")
             }
 
-            // Abandon all tickets
-            for ticket in tickets {
-                waiters.abandon(ticket)
+            // Abandon all tickets via their cells
+            for cell in cells {
+                if let token = cell.take() {
+                    waiters.abandon(token)
+                }
             }
 
             // Now we should be able to register again
             switch waiters.register() {
-            case .registered(let t):
-                waiters.abandon(t)  // Clean up
+            case .registered(let cell):
+                if let token = cell.take() {
+                    waiters.abandon(token)  // Clean up
+                }
             case .rejected:
                 Issue.record("Should be able to register after abandon")
             }
