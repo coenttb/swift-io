@@ -43,7 +43,7 @@ extension IO {
         /// - Parameter body: A closure that operates on the protected state.
         /// - Returns: The value returned by the closure.
         @inline(__always)
-        internal func withLock<T>(_ body: (inout State) -> T) -> T {
+        internal func withLock<T: ~Copyable>(_ body: (inout State) -> T) -> T {
             mutex.withLock { body(&$0) }
         }
     }

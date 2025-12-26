@@ -34,52 +34,111 @@ extension IO.Handle {
         ///
         /// The ticket lifecycle separates identity from capability:
         /// - `ID`: Copyable identity used in internal data structures
-        /// - `Token`: Capability to transition (arm or cancel) - affine (single use)
+        /// - `Token<P>`: Capability to transition (arm or cancel) - move-only, phantom-typed
+        /// - `StoredToken<P>`: Copyable storage handle that produces move-only Token
         /// - `Cell`: Sendable reference cell allowing exactly-once token extraction
         struct Ticket {
+            /// Phantom types representing ticket lifecycle phases.
+            ///
+            /// Currently only `Registering` is used - after consumption, the token is gone.
+            /// This typestate documents that a token came from `register()` and is ready
+            /// for either `arm()` or `cancel()`.
+            enum Phase {
+                /// The ticket has been registered but not yet armed or cancelled.
+                enum Registering {}
+            }
+
             /// Copyable waiter identity for internal bookkeeping.
             struct ID: Sendable, Hashable {
                 fileprivate let raw: UInt64
             }
 
-            /// Capability to arm or cancel a registered ticket.
+            /// Shared box enforcing exactly-once consumption across all references.
             ///
-            /// This token is affine: it can only be used once (for arm or cancel).
-            /// The first use wins; subsequent uses trap.
+            /// This box is needed because:
+            /// - We need shared, thread-safe exactly-once state that persists across
+            ///   storage/transfer and copies of storage handles (StoredToken).
+            /// - Swift cannot yet express an affine capability without either a box
+            ///   or language-level linear types.
+            fileprivate final class Box: @unchecked Sendable {
+                private let lock: IO._Lock<Bool>
+
+                init() {
+                    self.lock = IO._Lock(false)
+                }
+
+                /// Returns true if this is the first consumption, false otherwise.
+                func consume() -> Bool {
+                    lock.withLock { consumed in
+                        if consumed { return false }
+                        consumed = true
+                        return true
+                    }
+                }
+            }
+
+            /// Copyable storage handle for Cell to hold behind IO._Lock.
             ///
-            /// ## Implementation Note
-            /// Currently copyable (backed by shared box) to work with Swift's `Optional`.
-            /// When stdlib supports `~Copyable` in containers, can swap to true `~Copyable`.
-            struct Token: Sendable {
+            /// This is copyable because it only holds references (Box) and an ID.
+            /// The Box enforces exactly-once consumption across copies.
+            /// The move-only property is preserved at the API boundary where
+            /// `move()` extracts a `Token<P>`.
+            struct StoredToken<P>: Sendable {
                 fileprivate let id: ID
-                private let box: Box
+                fileprivate let box: Box
 
                 fileprivate init(id: ID) {
                     self.id = id
                     self.box = Box()
                 }
 
-                /// Consumes this token's capability, returning the ID if not already consumed.
-                fileprivate func consume() -> ID? {
-                    box.consume() ? id : nil
+                /// Converts this storage handle into a move-only Token.
+                fileprivate consuming func move() -> Token<P> {
+                    Token(id: id, box: box)
+                }
+            }
+
+            /// Capability to arm or cancel a registered ticket.
+            ///
+            /// This token is move-only and affine: it can only be consumed once
+            /// (for arm or cancel). The phantom type `P` indicates the token's phase.
+            ///
+            /// ## Usage
+            /// ```swift
+            /// switch cell.take() {
+            /// case .token(let token):
+            ///     waiters.arm(token, continuation)  // OR
+            ///     waiters.cancel(token)
+            /// case .alreadyTaken:
+            ///     // handle race
+            /// }
+            /// ```
+            struct Token<P>: ~Copyable, Sendable {
+                fileprivate let id: ID
+                private let box: Box
+
+                fileprivate init(id: ID, box: Box) {
+                    self.id = id
+                    self.box = box
                 }
 
-                /// Shared box enforcing exactly-once consumption across all copies.
-                private final class Box: @unchecked Sendable {
-                    private let lock: IO._Lock<Bool>
+                /// Consumes this token's capability, returning the ID if not already consumed.
+                fileprivate consuming func consume() -> ID? {
+                    box.consume() ? id : nil
+                }
+            }
 
-                    init() {
-                        self.lock = IO._Lock(false)
-                    }
-
-                    /// Returns true if this is the first consumption, false otherwise.
-                    func consume() -> Bool {
-                        lock.withLock { consumed in
-                            if consumed { return false }
-                            consumed = true
-                            return true
-                        }
-                    }
+            /// Namespace for take-related types.
+            struct Take {
+                /// Result of attempting to take the token from a cell.
+                ///
+                /// This sum type forces exhaustive handling of both cases,
+                /// making it a compile error to accidentally delete the cancel-by-ID fallback.
+                ///
+                /// `~Copyable` because the `.token` case contains a move-only `Token`.
+                enum Result: ~Copyable, Sendable {
+                    case token(Token<Phase.Registering>)
+                    case alreadyTaken
                 }
             }
 
@@ -91,38 +150,44 @@ extension IO.Handle {
                 /// The ticket identity (always valid, for logging/debugging).
                 let id: ID
 
-                private let lock: IO._Lock<Token?>
+                private let lock: IO._Lock<StoredToken<Phase.Registering>?>
 
-                fileprivate init(id: ID, token: Token) {
+                fileprivate init(id: ID, storedToken: StoredToken<Phase.Registering>) {
                     self.id = id
-                    self.lock = IO._Lock(token)
+                    self.lock = IO._Lock(storedToken)
                 }
 
-                /// Extracts the token exactly once. Subsequent calls return nil.
-                func take() -> Token? {
+                /// Extracts the token exactly once. Subsequent calls return `.alreadyTaken`.
+                func take() -> Take.Result {
                     lock.withLock { stored in
-                        guard let token = stored else { return nil }
+                        guard let s = stored else { return .alreadyTaken }
                         stored = nil
-                        return token
+                        return .token(s.move())
                     }
                 }
             }
         }
 
-        enum RegisterResult: Sendable {
-            case registered(Ticket.Cell)
-            case rejected(Rejection)
+        /// Namespace for register-related types.
+        struct Register {
+            /// Result of attempting to register a waiter.
+            enum Result: Sendable {
+                case registered(Ticket.Cell)
+                case rejected(Rejection)
 
-            enum Rejection: Sendable, Equatable {
-                case closed
-                case full
+                enum Rejection: Sendable, Equatable {
+                    case closed
+                    case full
+                }
             }
         }
 
         /// Namespace for arm-related types.
         struct Arm {
             /// Result of arming a ticket with its continuation.
-            enum Result: Sendable {
+            ///
+            /// This enum is `~Copyable` because the `.resumeNow` case contains a `Resume.Token`.
+            enum Result: ~Copyable, Sendable {
                 /// Continuation is now stored and eligible for FIFO resumption.
                 case stored
                 /// Continuation must be resumed immediately with the given reason.
@@ -306,16 +371,9 @@ extension IO.Handle {
             /// Token representing the obligation to resume a continuation exactly once.
             ///
             /// This type ensures:
-            /// - **Exactly-once resumption:** The first `resume()` call succeeds; subsequent calls trap.
+            /// - **Exactly-once resumption:** Must call `resume()` exactly once.
+            /// - **Move-only semantics:** Token cannot be copied; must be consumed.
             /// - **No orphaning:** In debug builds, dropping without calling `resume()` triggers an assertion.
-            ///
-            /// ## Implementation Note
-            /// This token is currently copyable (backed by a shared box) to work with Swift's
-            /// `Optional` and `Array` which don't yet support `~Copyable` elements.
-            /// When stdlib containers support noncopyable types, the implementation can be
-            /// swapped to true `~Copyable` without changing call sites.
-            ///
-            /// Copies share the same underlying continuation - the first `resume()` wins.
             ///
             /// ## Usage
             /// ```swift
@@ -323,21 +381,24 @@ extension IO.Handle {
             ///     token.resume()
             /// }
             /// ```
-            struct Token: Sendable {
+            struct Token: ~Copyable, Sendable {
                 private let box: Box
 
                 fileprivate init(_ continuation: CheckedContinuation<Void, Never>) {
                     self.box = Box(continuation)
                 }
 
-                /// Resumes the underlying continuation.
+                /// Resumes the underlying continuation, consuming the token.
                 ///
-                /// - Precondition: Token has not already been consumed (by this or any copy).
-                func resume() {
+                /// - Precondition: Token has not already been consumed.
+                consuming func resume() {
                     box.resume()
                 }
 
-                /// Shared box enforcing exactly-once resumption across all copies.
+                /// Shared box holding the continuation.
+                ///
+                /// Still uses a box internally because ~Copyable structs with deinit
+                /// have restrictions, and we need the debug-mode leak detection.
                 private final class Box: @unchecked Sendable {
                     private let lock: IO._Lock<CheckedContinuation<Void, Never>?>
 
@@ -373,13 +434,54 @@ extension IO.Handle {
             self.lock = IO._Lock(State(capacity: max(capacity, 1)))
         }
 
+        // MARK: - Single Execution Point
+
+        /// Executes a single-resumption action, returning a Resume.Token if present.
+        ///
+        /// This is the **execution point** for state transitions that produce at most one continuation.
+        /// Use for: cancel, resumeNext, signalHandleAvailable.
+        ///
+        /// - Precondition: Action is `.none` or `.resume` (never `.resumeMany`).
+        @inline(__always)
+        private static func executeSingle(_ action: Action) -> Resume.Token? {
+            switch action {
+            case .none:
+                return nil
+            case .resume(let c, _):
+                return Resume.Token(c)
+            case .resumeMany:
+                preconditionFailure("executeSingle called with resumeMany action")
+            }
+        }
+
+        /// Executes a multi-resumption action by directly resuming all continuations.
+        ///
+        /// This is the **execution point** for state transitions that may produce multiple continuations.
+        /// Use for: closeAndDrain.
+        ///
+        /// This method resumes continuations directly rather than returning tokens because
+        /// `Resume.Token` is `~Copyable` and cannot be stored in arrays.
+        @inline(__always)
+        private static func executeAndResumeAll(_ action: Action) {
+            switch action {
+            case .none:
+                break
+            case .resume(let c, _):
+                c.resume()
+            case .resumeMany(let cs, _):
+                for c in cs { c.resume() }
+            }
+        }
+
+        // MARK: - Adapter Methods
+
         /// Registers a waiter identity.
         ///
         /// After this returns `.registered(cell)`, both the normal path and `onCancel`
         /// can call `cell.take()` to race for the token.
         ///
         /// Capacity is enforced at registration time (bounded by `capacity`).
-        func register() -> RegisterResult {
+        func register() -> Register.Result {
             lock.withLock { state in
                 state.register()
             }
@@ -397,19 +499,25 @@ extension IO.Handle {
         /// This method never calls `resume()`. It only returns whether the caller must resume now.
         ///
         /// - Precondition: Token has not already been consumed.
-        func arm(_ token: consuming Ticket.Token, _ continuation: CheckedContinuation<Void, Never>) -> Arm.Result {
+        func arm(_ token: consuming Ticket.Token<Ticket.Phase.Registering>, _ continuation: CheckedContinuation<Void, Never>) -> Arm.Result {
             guard let id = token.consume() else {
                 preconditionFailure("Ticket.Token already consumed")
             }
-            // State returns raw result (continuation if resume needed), wrap outside lock
-            let result = lock.withLock { state in
+            // State returns State.Arm.Action, convert to public Arm.Result outside lock
+            let action = lock.withLock { state in
                 state.arm(id, continuation)
             }
-            switch result {
+            switch action {
             case .stored:
                 return .stored
-            case .resumeNow(let cont, let reason):
-                return .resumeNow(Resume.Token(cont), reason)
+            case .resume(let cont, let reason):
+                // Convert internal Reason to public Arm.Result.Reason
+                let publicReason: Arm.Result.Reason = switch reason {
+                case .handleAvailable: .handleAvailable
+                case .cancelled: .cancelled
+                case .closed: .closed
+                }
+                return .resumeNow(Resume.Token(cont), publicReason)
             }
         }
 
@@ -421,7 +529,7 @@ extension IO.Handle {
         /// - Parameter token: The ticket token (consumed by this call).
         ///
         /// - Precondition: Token has not already been consumed.
-        func abandon(_ token: consuming Ticket.Token) {
+        func abandon(_ token: consuming Ticket.Token<Ticket.Phase.Registering>) {
             guard let id = token.consume() else {
                 preconditionFailure("Ticket.Token already consumed")
             }
@@ -440,15 +548,12 @@ extension IO.Handle {
         /// With consume-on-cancel semantics, this removes the entry entirely.
         ///
         /// - Precondition: Token has not already been consumed.
-        func cancel(_ token: consuming Ticket.Token) -> Resume.Token? {
+        func cancel(_ token: consuming Ticket.Token<Ticket.Phase.Registering>) -> Resume.Token? {
             guard let id = token.consume() else {
                 preconditionFailure("Ticket.Token already consumed")
             }
-            // Get continuation inside lock, wrap outside (resume outside lock principle)
-            guard let continuation = lock.withLock({ state in state.cancel(id) }) else {
-                return nil
-            }
-            return Resume.Token(continuation)
+            let action = lock.withLock { state in state.cancel(id) }
+            return Self.executeSingle(action)
         }
 
         /// Cancels a waiter by ID for eager capacity reclamation.
@@ -459,10 +564,8 @@ extension IO.Handle {
         /// - Parameter id: The ticket ID to cancel.
         /// - Returns: A `Resume.Token` if the waiter was armed, nil if already consumed or not found.
         func cancel(_ id: Ticket.ID) -> Resume.Token? {
-            guard let continuation = lock.withLock({ state in state.cancel(id) }) else {
-                return nil
-            }
-            return Resume.Token(continuation)
+            let action = lock.withLock { state in state.cancel(id) }
+            return Self.executeSingle(action)
         }
 
         /// Dequeues the next armed waiter in FIFO order.
@@ -475,11 +578,8 @@ extension IO.Handle {
         /// This method is for **fairness handoffs** (cancellation, destroy races).
         /// For check-in wakeups, use `signalHandleAvailable()` instead.
         func resumeNext() -> Resume.Token? {
-            // Get continuation inside lock, wrap outside (resume outside lock principle)
-            guard let continuation = lock.withLock({ state in state.takeNext() }) else {
-                return nil
-            }
-            return Resume.Token(continuation)
+            let action = lock.withLock { state in state.takeNext() }
+            return Self.executeSingle(action)
         }
 
         /// Signals that a handle has become available.
@@ -495,26 +595,22 @@ extension IO.Handle {
         /// Call this method **only** when a handle is checked in and becomes present.
         /// For fairness handoffs (cancellation, destroy), use `resumeNext()` instead.
         func signalHandleAvailable() -> Resume.Token? {
-            // Get continuation inside lock, wrap outside (resume outside lock principle)
-            guard let continuation = lock.withLock({ state in state.signalHandleAvailable() }) else {
-                return nil
-            }
-            return Resume.Token(continuation)
+            let action = lock.withLock { state in state.signalHandleAvailable() }
+            return Self.executeSingle(action)
         }
 
-        /// Closes the queue and drains all pending armed continuations.
+        /// Closes the queue and resumes all pending armed waiters.
         ///
         /// After calling this method:
         /// - `register` returns `.rejected(.closed)`
         /// - `arm` returns `.resumeNow(.closed)`
         ///
-        /// Idempotent: calling on an already-closed queue returns an empty array.
+        /// All armed waiters are resumed immediately with `.closed` reason.
         ///
-        /// - Returns: All `Resume.Token`s that need to be resumed by the caller.
-        func closeAndDrain() -> [Resume.Token] {
-            // Get continuations inside lock, wrap outside (resume outside lock principle)
-            let continuations = lock.withLock { state in state.closeAndDrain() }
-            return continuations.map { Resume.Token($0) }
+        /// Idempotent: calling on an already-closed queue is a no-op.
+        func closeAndDrain() {
+            let action = lock.withLock { state in state.closeAndDrain() }
+            Self.executeAndResumeAll(action)
         }
 
         // MARK: - Debug
@@ -544,29 +640,65 @@ extension IO.Handle {
 // MARK: - State
 
 extension IO.Handle.Waiters {
+    /// Unified action type for all state transitions.
+    ///
+    /// Every State method returns an Action that is executed via `Waiters.execute(_:)`
+    /// outside the lock. This single execution point enforces "resume outside lock"
+    /// and makes adding new action types a compile-time change across all call sites.
+    fileprivate enum Action: Sendable {
+        case none
+        case resume(CheckedContinuation<Void, Never>, Reason)
+        case resumeMany([CheckedContinuation<Void, Never>], Reason)
+    }
+
+    /// Reason for a resumption action.
+    ///
+    /// This is Equatable for testability (unlike Action which contains continuations).
+    fileprivate enum Reason: Sendable, Equatable {
+        case handleAvailable
+        case cancelled
+        case closed
+    }
+
     /// Mutable state protected by the lock.
     ///
     /// This type never calls `resume()` on any continuation. It only stores,
     /// retrieves, and removes continuations. All resumption happens in the
     /// outer `Waiters` methods after the lock is released.
-    struct State: Sendable {
-        /// Internal arm namespace for State-level types.
-        enum Arm {
-            /// Internal arm result returning raw continuation (not Resume.Token).
-            /// Wrapper methods convert to public Arm.Result outside the lock.
-            enum Result: Sendable {
+    fileprivate struct State: Sendable {
+        /// Namespace for arm-related internal types.
+        struct Arm {
+            /// Action for State.arm - can only resume one continuation (not many).
+            enum Action: Sendable {
                 case stored
-                case resumeNow(CheckedContinuation<Void, Never>, IO.Handle.Waiters.Arm.Result.Reason)
+                case resume(CheckedContinuation<Void, Never>, Reason)
             }
         }
 
-        private var isClosed: Bool = false
+        /// Lifecycle state of the waiter queue.
+        ///
+        /// Transitions: `.open` → `.closed` (one-way, irreversible)
+        enum Lifecycle: Sendable, Equatable {
+            case open
+            case closed
+        }
+
+        /// Availability permit for handle check-in.
+        ///
+        /// When a handle becomes available and no armed waiter exists,
+        /// the permit is recorded. A future `arm()` consumes it immediately.
+        enum Permit: Sendable, Equatable {
+            case available
+            case unavailable
+        }
+
+        private var lifecycle: Lifecycle = .open
         private var nextID: UInt64 = 1
 
-        /// Availability permit: true if a handle is available and unclaimed.
+        /// Availability permit for handle check-in.
         /// Set by `signalHandleAvailable()` when no armed waiter exists.
         /// Consumed by `arm()` when a waiter arms and the permit is set.
-        private var handleAvailable: Bool = false
+        private var permit: Permit = .unavailable
 
         /// Tickets that are registered but not yet armed.
         private var registering: Set.Registering
@@ -586,40 +718,61 @@ extension IO.Handle.Waiters {
             self.armed = Queue.Armed(capacity: self.capacity)
         }
 
-        mutating func register() -> RegisterResult {
+        // MARK: - Helper Methods
+
+        /// Attempts to consume the availability permit.
+        ///
+        /// - Returns: `true` if the permit was available and is now consumed.
+        private mutating func consumePermitIfAvailable() -> Bool {
+            switch permit {
+            case .available:
+                permit = .unavailable
+                return true
+            case .unavailable:
+                return false
+            }
+        }
+
+        /// Records an availability permit.
+        private mutating func recordPermit() {
+            permit = .available
+        }
+
+        /// Whether the queue is closed.
+        private var isClosed: Bool { lifecycle == .closed }
+
+        mutating func register() -> Register.Result {
             if isClosed { return .rejected(.closed) }
             if totalCount >= capacity { return .rejected(.full) }
 
             let rawID = nextID
             nextID &+= 1
 
-            // Create the ticket ID, token, and cell
+            // Create the ticket ID, stored token, and cell
             let id = Ticket.ID(raw: rawID)
             registering.insert(id)
 
-            let token = Ticket.Token(id: id)
-            let cell = Ticket.Cell(id: id, token: token)
+            let storedToken = Ticket.StoredToken<Ticket.Phase.Registering>(id: id)
+            let cell = Ticket.Cell(id: id, storedToken: storedToken)
             return .registered(cell)
         }
 
-        mutating func arm(_ id: Ticket.ID, _ continuation: CheckedContinuation<Void, Never>) -> Arm.Result {
+        mutating func arm(_ id: Ticket.ID, _ continuation: CheckedContinuation<Void, Never>) -> Arm.Action {
             if isClosed {
                 // Consume the ticket if present (best-effort), then force immediate resume.
                 registering.consumeForArm(id)
-                return .resumeNow(continuation, .closed)
+                return .resume(continuation, .closed)
             }
 
             // Consume from registering - if missing, cancellation already removed it
             guard registering.consumeForArm(id) else {
                 // Cancellation removed the ticket between token.take() and arm()
-                return .resumeNow(continuation, .cancelled)
+                return .resume(continuation, .cancelled)
             }
 
             // Check availability permit before storing
-            if handleAvailable {
-                // Consume permit and resume immediately
-                handleAvailable = false
-                return .resumeNow(continuation, .handleAvailable)
+            if consumePermitIfAvailable() {
+                return .resume(continuation, .handleAvailable)
             }
 
             // Enqueue to armed queue
@@ -632,19 +785,25 @@ extension IO.Handle.Waiters {
             registering.consumeForCancel(id)
         }
 
-        mutating func cancel(_ id: Ticket.ID) -> CheckedContinuation<Void, Never>? {
+        mutating func cancel(_ id: Ticket.ID) -> Action {
             // First, try to consume from registering
             if registering.consumeForCancel(id) {
                 // Was in registering state - no continuation to return
-                return nil
+                return .none
             }
 
             // Not in registering - try to remove from armed queue
-            return armed.remove(id: id)
+            if let continuation = armed.remove(id: id) {
+                return .resume(continuation, .cancelled)
+            }
+            return .none
         }
 
-        mutating func takeNext() -> CheckedContinuation<Void, Never>? {
-            armed.dequeueNext()
+        mutating func takeNext() -> Action {
+            if let continuation = armed.dequeueNext() {
+                return .resume(continuation, .handleAvailable)
+            }
+            return .none
         }
 
         /// Signals that a handle has become available.
@@ -652,20 +811,20 @@ extension IO.Handle.Waiters {
         /// Implements availability permit semantics:
         /// - If an armed waiter exists: return its continuation (permit consumed immediately)
         /// - Otherwise: record the availability permit for a future arm() call
-        mutating func signalHandleAvailable() -> CheckedContinuation<Void, Never>? {
+        mutating func signalHandleAvailable() -> Action {
             // First, try to find an armed waiter
-            if let continuation = takeNext() {
+            if let continuation = armed.dequeueNext() {
                 // Permit consumed immediately by this waiter
-                return continuation
+                return .resume(continuation, .handleAvailable)
             }
             // No armed waiter - record the permit for a future arm()
-            handleAvailable = true
-            return nil
+            recordPermit()
+            return .none
         }
 
-        mutating func closeAndDrain() -> [CheckedContinuation<Void, Never>] {
-            guard !isClosed else { return [] }
-            isClosed = true
+        mutating func closeAndDrain() -> Action {
+            guard lifecycle == .open else { return .none }
+            lifecycle = .closed
 
             // Drain all armed continuations
             let continuations = armed.drainAll()
@@ -674,15 +833,18 @@ extension IO.Handle.Waiters {
             // but with cell pattern they may never call arm() - that's OK)
             registering.removeAll()
 
-            handleAvailable = false  // Clear permit on close
+            permit = .unavailable  // Clear permit on close
 
-            return continuations
+            if continuations.isEmpty {
+                return .none
+            }
+            return .resumeMany(continuations, .closed)
         }
 
         func debugSnapshot() -> IO.Handle.Waiters.DebugSnapshot {
             IO.Handle.Waiters.DebugSnapshot(
-                isClosed: isClosed,
-                handleAvailable: handleAvailable,
+                isClosed: lifecycle == .closed,
+                handleAvailable: permit == .available,
                 pendingCount: totalCount,
                 armedCount: armed.count,
                 fifoCount: armed.count  // fifo and armed are now the same

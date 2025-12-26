@@ -193,20 +193,13 @@ extension IO.Executor {
             guard !isShutdown else { return }  // Idempotent
             isShutdown = true
 
-            // Close all waiter queues and collect tokens to resume.
+            // Close all waiter queues and resume waiters.
+            // closeAndDrain() resumes all armed waiters immediately.
             // This must happen BEFORE removing entries from the dictionary,
-            // and the closeAndDrain ensures late-arriving waiters get resumed
-            // immediately rather than enqueueing into a dead queue.
-            var allTokens: [IO.Handle.Waiters.Resume.Token] = []
+            // ensuring late-arriving waiters get resumed immediately.
             for (_, entry) in entries {
-                let tokens = entry.waiters.closeAndDrain()
-                allTokens.append(contentsOf: tokens)
+                entry.waiters.closeAndDrain()
                 entry.state = .destroyed
-            }
-
-            // Resume all collected tokens
-            for token in allTokens {
-                token.resume()
             }
 
             // Teardown each resource deterministically
@@ -483,8 +476,9 @@ extension IO.Executor {
                 // Phase 2: Race for token between normal path and cancellation handler
                 await withTaskCancellationHandler {
                     await withCheckedContinuation { continuation in
-                        // Try to take the token - if nil, cancellation won the race
-                        if let token = cell.take() {
+                        // Try to take the token - exhaustive switch prevents missing cases
+                        switch cell.take() {
+                        case .token(let token):
                             switch waiters.arm(token, continuation) {
                             case .stored:
                                 // Continuation stored - will be resumed by resumeNext() or closeAndDrain()
@@ -493,19 +487,20 @@ extension IO.Executor {
                                 // Closed or permit available - resume immediately
                                 resume.resume()
                             }
-                        } else {
+                        case .alreadyTaken:
                             // Cancellation won the race - resume so task can hit Task.isCancelled check
                             continuation.resume()
                         }
                     }
                 } onCancel: {
-                    // Synchronous cancellation - race for the token
-                    if let token = cell.take() {
+                    // Synchronous cancellation - exhaustive switch forces handling both cases
+                    switch cell.take() {
+                    case .token(let token):
                         // Pre-arm race: cancellation won the token
                         if let resume = waiters.cancel(token) {
                             resume.resume()
                         }
-                    } else {
+                    case .alreadyTaken:
                         // Post-arm: token already taken, cancel by ID for eager capacity reclaim
                         if let resume = waiters.cancel(cell.id) {
                             resume.resume()
@@ -667,13 +662,9 @@ extension IO.Executor {
 
             // Close the waiter queue first - this ensures late-arriving waiters
             // get resumed immediately rather than enqueueing into a dead queue.
-            let tokens = entry.waiters.closeAndDrain()
+            // closeAndDrain() resumes all armed waiters immediately.
+            entry.waiters.closeAndDrain()
             entry.state = .destroyed
-
-            // Resume all collected tokens
-            for token in tokens {
-                token.resume()
-            }
 
             // If handle was checked out, defer teardown to check-in time
             if wasCheckedOut {

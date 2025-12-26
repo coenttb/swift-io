@@ -116,8 +116,7 @@ private actor OrderTracker {
 // MARK: - Stress Tests
 
 @Suite(
-    "IO.Executor.Pool Stress Tests",
-    .serialized
+    "IO.Executor.Pool Stress Tests"
 )
 struct IOExecutorPoolStressTests {
 
@@ -1008,62 +1007,62 @@ struct IOExecutorPoolStressTests {
     ///
     /// Tests that transactions on different handles don't interfere with each other,
     /// and that cancellation on one doesn't affect others.
-//    @Test("multi-resource contention")
-//    func multiResourceContention() async throws {
-//        let pool = IO.Executor.Pool<StressTestResource>(lane: .inline)
-//        let resourceCount = 3
-//        let transactionsPerResource = 10
-//
-//        var resourceIDs: [IO.Handle.ID] = []
-//        for i in 0..<resourceCount {
-//            let id = try await pool.register(StressTestResource(id: i))
-//            resourceIDs.append(id)
-//        }
-//
-//        let totalTransactions = resourceCount * transactionsPerResource
-//        let outcomeTracker = OutcomeTracker(count: totalTransactions)
-//
-//        let tasks = (0..<totalTransactions).map { index in
-//            let resourceIndex = index % resourceCount
-//            let resourceID = resourceIDs[resourceIndex]
-//
-//            return Task { [pool, resourceID, outcomeTracker, index] in
-//                do {
-//                    try await pool.withHandle(resourceID) { resource in
-//                        resource.counter += 1
-//                    }
-//                    await outcomeTracker.record(id: index, outcome: .acquired)
-//                } catch is CancellationError {
-//                    await outcomeTracker.record(id: index, outcome: .cancelled)
-//                } catch let error as IO.Error<Never> {
-//                    switch error {
-//                    case .cancelled:
-//                        await outcomeTracker.record(id: index, outcome: .cancelled)
-//                    default:
-//                        await outcomeTracker.record(id: index, outcome: .shutdown)
-//                    }
-//                } catch {
-//                    await outcomeTracker.record(id: index, outcome: .shutdown)
-//                }
-//            }
-//        }
-//
-//        // Cancel some tasks (deterministic pattern) - best-effort cancellation
-//        for i in stride(from: 0, to: totalTransactions, by: 7) {
-//            tasks[i].cancel()
-//        }
-//
-//        for t in tasks { await t.value }
-//
-//        let snapshot = await outcomeTracker.snapshot()
-//        #expect(snapshot.allCompleted, "Not all transactions completed")
-//
-//        // All outcomes should be in allowed set (acquired, cancelled, or shutdown)
-//        let disallowed = await outcomeTracker.assertAllOutcomesAllowed([.acquired, .cancelled, .shutdown])
-//        #expect(disallowed.isEmpty, "Unexpected outcomes: \(disallowed)")
-//
-//        await pool.shutdown()
-//    }
+    @Test("multi-resource contention")
+    func multiResourceContention() async throws {
+        let pool = IO.Executor.Pool<StressTestResource>(lane: .inline)
+        let resourceCount = 3
+        let transactionsPerResource = 10
+
+        var resourceIDs: [IO.Handle.ID] = []
+        for i in 0..<resourceCount {
+            let id = try await pool.register(StressTestResource(id: i))
+            resourceIDs.append(id)
+        }
+
+        let totalTransactions = resourceCount * transactionsPerResource
+        let outcomeTracker = OutcomeTracker(count: totalTransactions)
+
+        let tasks = (0..<totalTransactions).map { index in
+            let resourceIndex = index % resourceCount
+            let resourceID = resourceIDs[resourceIndex]
+
+            return Task { [pool, resourceID, outcomeTracker, index] in
+                do {
+                    try await pool.withHandle(resourceID) { resource in
+                        resource.counter += 1
+                    }
+                    await outcomeTracker.record(id: index, outcome: .acquired)
+                } catch is CancellationError {
+                    await outcomeTracker.record(id: index, outcome: .cancelled)
+                } catch let error as IO.Error<Never> {
+                    switch error {
+                    case .cancelled:
+                        await outcomeTracker.record(id: index, outcome: .cancelled)
+                    default:
+                        await outcomeTracker.record(id: index, outcome: .shutdown)
+                    }
+                } catch {
+                    await outcomeTracker.record(id: index, outcome: .shutdown)
+                }
+            }
+        }
+
+        // Cancel some tasks (deterministic pattern) - best-effort cancellation
+        for i in stride(from: 0, to: totalTransactions, by: 7) {
+            tasks[i].cancel()
+        }
+
+        for t in tasks { await t.value }
+
+        let snapshot = await outcomeTracker.snapshot()
+        #expect(snapshot.allCompleted, "Not all transactions completed")
+
+        // All outcomes should be in allowed set (acquired, cancelled, or shutdown)
+        let disallowed = await outcomeTracker.assertAllOutcomesAllowed([.acquired, .cancelled, .shutdown])
+        #expect(disallowed.isEmpty, "Unexpected outcomes: \(disallowed)")
+
+        await pool.shutdown()
+    }
 
     /// Tests resumeNext racing with cancel on the same waiter.
     ///
@@ -1363,16 +1362,22 @@ struct IOExecutorPoolStressTests {
 
             // Abandon all tickets via their cells
             for cell in cells {
-                if let token = cell.take() {
+                switch cell.take() {
+                case .token(let token):
                     waiters.abandon(token)
+                case .alreadyTaken:
+                    break  // Already consumed
                 }
             }
 
             // Now we should be able to register again
             switch waiters.register() {
             case .registered(let cell):
-                if let token = cell.take() {
+                switch cell.take() {
+                case .token(let token):
                     waiters.abandon(token)  // Clean up
+                case .alreadyTaken:
+                    break
                 }
             case .rejected:
                 Issue.record("Should be able to register after abandon")
