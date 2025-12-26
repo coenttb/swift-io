@@ -397,13 +397,14 @@ extension IO.Executor {
         /// - Exclusive access to the resource (mutual exclusion)
         /// - Guaranteed check-in after body completes (including errors/cancellation)
         /// - No rollback or atomic commit semantics are implied
-        // Algorithm:
-        // 1. Validate scope and existence
-        // 2. If resource available: move out (entry.resource = nil)
-        // 3. Else: enqueue waiter and suspend (cancellation-safe)
-        // 4. Execute via slot: allocate slot, run on lane, move handle back
-        // 5. Check-in: restore handle or close if destroyed
-        // 6. Resume next non-cancelled waiter
+        ///
+        /// ## Algorithm
+        /// 1. Validate scope and existence
+        /// 2. If resource available: move out (`entry.resource = nil`)
+        /// 3. Else: enqueue waiter and suspend (cancellation-safe)
+        /// 4. Execute via slot: allocate slot, run on lane, move handle back
+        /// 5. Check-in: restore handle or close if destroyed
+        /// 6. Resume next non-cancelled waiter
         ///
         /// ## Cancellation Semantics
         /// - Cancellation while waiting: waiter marked cancelled, resumes, throws CancellationError

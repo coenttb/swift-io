@@ -32,11 +32,11 @@ extension IO.Executor.Slot {
     /// Provides a Sendable handle to the slot's memory that can be
     /// safely captured in @Sendable closures and later used to reconstruct
     /// the raw pointer.
-    //
-    // Design:
-    // - Wraps a UInt (which is Sendable) rather than UnsafeMutableRawPointer
-    // - Provides typed access via `pointer` property
-    // - Enforces single usage pattern through the type system
+    ///
+    /// ## Design
+    /// - Wraps a `UInt` (which is Sendable) rather than `UnsafeMutableRawPointer`
+    /// - Provides typed access via `pointer` property
+    /// - Enforces single usage pattern through the type system
     struct Address: Sendable, Hashable {
         private let rawValue: UInt
 

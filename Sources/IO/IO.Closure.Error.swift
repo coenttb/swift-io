@@ -16,7 +16,8 @@ extension IO.Closure {
         public let description: String
 
         /// Creates a closure error from any typed error.
-        // Generic version - no existentials.
+        ///
+        /// Generic version - no existentials.
         public init<E: Swift.Error>(_ error: E) {
             self.description = String(describing: error)
         }

@@ -7,10 +7,11 @@
 
 extension IO.Blocking.Threads {
     /// Mutable runtime state for the Threads lane.
-    // Safety Invariant (for @unchecked Sendable):
-    // - state is thread-safe via its internal lock
-    // - threads is only mutated in start() before any concurrent access
-    // - isStarted and threads mutations are synchronized via state.lock
+    ///
+    /// ## Safety Invariant (for @unchecked Sendable)
+    /// - `state` is thread-safe via its internal lock
+    /// - `threads` is only mutated in `start()` before any concurrent access
+    /// - `isStarted` and `threads` mutations are synchronized via `state.lock`
     final class Runtime: @unchecked Sendable {
         let state: Thread.Worker.State
         var threads: Threads = Threads()

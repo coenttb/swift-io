@@ -15,9 +15,10 @@ extension IO.Handle {
         /// The handle has already been closed.
         case handleClosed
         /// The waiter queue for this handle is full.
-        // This is a HANDLE-LEVEL error indicating too many tasks are waiting
-        // for this specific handle. Distinct from lane-level `.overloaded`.
-        // Callers may retry with backoff.
+        ///
+        /// This is a handle-level error indicating too many tasks are waiting
+        /// for this specific handle. Distinct from lane-level `.overloaded`.
+        /// Callers may retry with backoff.
         case waitersFull
     }
 }

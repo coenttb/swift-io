@@ -7,7 +7,8 @@
 
 extension IO.Executor.Transaction {
     /// Typed error for transaction operations.
-    // Generic over the body error E - no existentials, full structure preserved.
+    ///
+    /// Generic over the body error E - no existentials, full structure preserved.
     public enum Error<E: Swift.Error & Sendable>: Swift.Error, Sendable {
         case lane(IO.Blocking.Failure)
         case handle(IO.Handle.Error)

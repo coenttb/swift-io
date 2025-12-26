@@ -85,10 +85,9 @@ extension IO.Blocking.Threads {
         /// - Cancellation while waiting for acceptance: throw `.cancelled`, no job runs
         /// - Cancellation after acceptance: job runs to completion, result is drained, throw `.cancelled`
         ///
-        // Invariants:
-        // - No helper Task{} spawned inside lane machinery
-        // - Exactly-once resume for all continuations
-        // - Cancel-wait-but-drain-completion: cancelled callers don't leak boxes
+        /// - Invariant: No helper `Task{}` spawned inside lane machinery
+        /// - Invariant: Exactly-once resume for all continuations
+        /// - Invariant: Cancel-wait-but-drain-completion: cancelled callers don't leak boxes
         func boxed(
             deadline: IO.Blocking.Deadline?,
             _ operation: @Sendable @escaping () -> UnsafeMutableRawPointer
@@ -107,10 +106,10 @@ extension IO.Blocking.Threads {
 
 extension IO.Blocking.Threads {
     /// Stage 1: Waits for acceptance (may suspend if queue is full).
-    // Typed Throws via Result:
-    // Uses withCheckedContinuation with Result<Ticket, Failure> instead of
-    // withCheckedThrowingContinuation to preserve typed throws throughout.
-    // No any Error appears in this code path.
+    ///
+    /// Uses `withCheckedContinuation` with `Result<Ticket, Failure>` instead of
+    /// `withCheckedThrowingContinuation` to preserve typed throws throughout.
+    /// No `any Error` appears in this code path.
     private func awaitAcceptance(
         deadline: IO.Blocking.Deadline?,
         operation: @Sendable @escaping () -> UnsafeMutableRawPointer
@@ -216,17 +215,17 @@ extension IO.Blocking.Threads {
     }
 
     /// Stage 2: Waits for job completion (cancellable, immediate unblock on cancel).
-    // Single-Resumer Authority:
-    // Exactly one path resumes the continuation:
-    // - Cancellation path: removes waiter (if registered) and resumes with .cancelled
-    // - Completion path: removes waiter and resumes with box
-    // Both paths remove the waiter under lock before resuming, so only one can succeed.
-    // The abandonedTickets set ensures resource cleanup when no waiter will consume the box.
-    //
-    // Typed Throws via Result:
-    // Uses withCheckedContinuation with Result<BoxPointer, Failure> instead of
-    // withCheckedThrowingContinuation to preserve typed throws throughout.
-    // No any Error appears in this code path.
+    ///
+    /// ## Single-Resumer Authority
+    /// Exactly one path resumes the continuation:
+    /// - Cancellation path: removes waiter (if registered) and resumes with `.cancelled`
+    /// - Completion path: removes waiter and resumes with box
+    ///
+    /// Both paths remove the waiter under lock before resuming, so only one can succeed.
+    /// The `abandonedTickets` set ensures resource cleanup when no waiter will consume the box.
+    ///
+    /// Uses `withCheckedContinuation` with `Result<BoxPointer, Failure>` instead of
+    /// `withCheckedThrowingContinuation` to preserve typed throws throughout.
     private func awaitCompletion(ticket: Ticket) async throws(IO.Blocking.Failure) -> IO.Blocking.Box.Pointer {
         let state = runtime.state
 

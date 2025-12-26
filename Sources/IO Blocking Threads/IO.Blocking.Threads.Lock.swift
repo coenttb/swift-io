@@ -110,7 +110,8 @@ extension IO.Blocking.Threads {
         // MARK: - Shutdown Helper
 
         /// Broadcasts to both worker and deadline condition variables.
-        // Used during shutdown to wake all waiting threads.
+        ///
+        /// Used during shutdown to wake all waiting threads.
         func broadcastAll() {
             worker.broadcast()
             deadline.broadcast()
