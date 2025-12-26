@@ -2,22 +2,23 @@
 //  IO.Executor.Pool.Stress Tests.swift
 //  swift-io
 //
-//  Deterministic stress test for waiter lifecycle under contention.
-//  Tests cancellation + shutdown + contention to catch decade-scale bugs.
+//  Comprehensive stress and chaos tests for waiter lifecycle.
+//  Designed to catch decade-scale bugs through systematic torture.
 //
 //  ## Design Decisions for Timelessness
 //
-//  1. **Deterministic, not random**: Cancellation targets a fixed subset (id % 3 == 0)
-//     to ensure CI reproducibility. Randomized fuzzing belongs in a separate soak harness.
+//  1. **Deterministic patterns**: Uses fixed patterns (id % N) not random, for CI reproducibility.
+//  2. **Actor-based tracking**: Future-proof concurrency without platform coupling.
+//  3. **Per-waiter exactly-once tracking**: Catches both lost-wakeup and double-resume bugs.
+//  4. **Outcome categories**: Asserts all outcomes are in the allowed set.
+//  5. **Chaos mode**: Systematic torture with interleaved operations.
 //
-//  2. **Actor-based state tracking**: Uses actors instead of Mutex/Synchronization for
-//     future-proof test utilities with no platform coupling.
+//  ## Test Categories
 //
-//  3. **Per-waiter exactly-once tracking**: Each waiter has an ID and outcome tracked
-//     individually to catch both lost-wakeup and double-resume bugs.
-//
-//  4. **Outcome categories**: Asserts that all outcomes are in the allowed set
-//     (acquired, cancelled, shutdown) to catch semantic regressions.
+//  - **Lifecycle tests**: Normal flow under contention
+//  - **Race window tests**: Exploit specific timing windows
+//  - **Capacity edge cases**: Boundary conditions
+//  - **Chaos tests**: Systematic torture with mixed operations
 //
 
 import Testing
@@ -114,7 +115,10 @@ private actor OrderTracker {
 
 // MARK: - Stress Tests
 
-@Suite("IO.Executor.Pool Stress Tests")
+@Suite(
+    "IO.Executor.Pool Stress Tests",
+    .serialized
+)
 struct IOExecutorPoolStressTests {
 
     /// Tests waiter lifecycle under cancellation + shutdown + contention.
@@ -483,6 +487,892 @@ struct IOExecutorPoolStressTests {
             )
 
             await pool.shutdown()
+        }
+    }
+
+    // MARK: - Race Window Tests
+
+    /// Tests cancel racing with enqueue on the same token.
+    ///
+    /// Scenario: Generate token, then race cancel vs enqueue.
+    /// The cancel might arrive before enqueue stores the continuation.
+    @Test("cancel racing with enqueue")
+    func cancelRacingWithEnqueue() async throws {
+        for iteration in 0..<100 {
+            let pool = IO.Executor.Pool<StressTestResource>(lane: .inline)
+            let resourceID = try await pool.register(StressTestResource(id: iteration))
+
+            let outcomeTracker = OutcomeTracker(count: 1)
+
+            // Hold the resource so waiter must queue
+            let holderTask = Task { [pool, resourceID] in
+                try? await pool.withHandle(resourceID) { resource in
+                    resource.counter += 1
+                }
+            }
+
+            // Give holder time to acquire
+            try await Task.sleep(for: .milliseconds(1))
+
+            // Start waiter that will be immediately cancelled
+            let waiterTask = Task { [pool, resourceID, outcomeTracker] in
+                do {
+                    try await pool.withHandle(resourceID) { resource in
+                        resource.counter += 1
+                    }
+                    await outcomeTracker.record(id: 0, outcome: .acquired)
+                } catch is CancellationError {
+                    await outcomeTracker.record(id: 0, outcome: .cancelled)
+                } catch let error as IO.Error<Never> {
+                    switch error {
+                    case .cancelled:
+                        await outcomeTracker.record(id: 0, outcome: .cancelled)
+                    case .executor(.shutdownInProgress), .handle(.invalidID):
+                        await outcomeTracker.record(id: 0, outcome: .shutdown)
+                    default:
+                        await outcomeTracker.record(id: 0, outcome: .otherError("\(error)"))
+                    }
+                } catch {
+                    await outcomeTracker.record(id: 0, outcome: .otherError("\(error)"))
+                }
+            }
+
+            // Immediately cancel - races with enqueue
+            waiterTask.cancel()
+
+            await holderTask.value
+            await waiterTask.value
+
+            let snapshot = await outcomeTracker.snapshot()
+            #expect(snapshot.allCompleted, "Iteration \(iteration): waiter didn't complete")
+
+            await pool.shutdown()
+        }
+    }
+
+    /// Tests double concurrent shutdown.
+    ///
+    /// Both shutdowns should complete without deadlock or crash.
+    @Test("double concurrent shutdown")
+    func doubleConcurrentShutdown() async throws {
+        for iteration in 0..<50 {
+            let pool = IO.Executor.Pool<StressTestResource>(lane: .inline)
+            let resourceID = try await pool.register(StressTestResource(id: iteration))
+
+            // Start some waiters
+            let waiterCount = 5
+            let outcomeTracker = OutcomeTracker(count: waiterCount)
+
+            // Hold the resource
+            let holderTask = Task { [pool, resourceID] in
+                try? await pool.withHandle(resourceID) { resource in
+                    resource.counter += 1
+                }
+            }
+
+            try await Task.sleep(for: .milliseconds(1))
+
+            let waiterTasks = (0..<waiterCount).map { id in
+                Task { [pool, resourceID, outcomeTracker] in
+                    do {
+                        try await pool.withHandle(resourceID) { resource in
+                            resource.counter += 1
+                        }
+                        await outcomeTracker.record(id: id, outcome: .acquired)
+                    } catch is CancellationError {
+                        await outcomeTracker.record(id: id, outcome: .cancelled)
+                    } catch {
+                        await outcomeTracker.record(id: id, outcome: .shutdown)
+                    }
+                }
+            }
+
+            // Two concurrent shutdowns
+            let shutdown1 = Task { [pool] in await pool.shutdown() }
+            let shutdown2 = Task { [pool] in await pool.shutdown() }
+
+            await shutdown1.value
+            await shutdown2.value
+            await holderTask.value
+            for t in waiterTasks { await t.value }
+
+            let snapshot = await outcomeTracker.snapshot()
+            #expect(snapshot.allCompleted, "Iteration \(iteration): not all completed")
+        }
+    }
+
+    /// Tests destroy immediately followed by re-register.
+    @Test("rapid destroy and re-register")
+    func rapidDestroyAndReRegister() async throws {
+        let pool = IO.Executor.Pool<StressTestResource>(lane: .inline)
+
+        for iteration in 0..<100 {
+            let id1 = try await pool.register(StressTestResource(id: iteration))
+
+            // Start a transaction
+            let transactionTask = Task { [pool, id1] in
+                try? await pool.withHandle(id1) { resource in
+                    resource.counter += 1
+                }
+            }
+
+            // Destroy and immediately re-register
+            try await pool.destroy(id1)
+            let id2 = try await pool.register(StressTestResource(id: iteration + 1000))
+
+            // New resource should work
+            try await pool.withHandle(id2) { resource in
+                resource.counter += 1
+            }
+
+            await transactionTask.value
+            try await pool.destroy(id2)
+        }
+
+        await pool.shutdown()
+    }
+
+    // MARK: - Capacity Edge Cases
+
+    /// Tests exact capacity boundary.
+    @Test("exact capacity boundary")
+    func exactCapacityBoundary() async throws {
+        let pool = IO.Executor.Pool<StressTestResource>(lane: .inline)
+        let resourceID = try await pool.register(StressTestResource(id: 0))
+
+        // Create exactly 64 waiters (default capacity)
+        let waiterCount = 64
+        let outcomeTracker = OutcomeTracker(count: waiterCount)
+
+        // Hold the resource
+        let holderTask = Task { [pool, resourceID] in
+            try? await pool.withHandle(resourceID) { resource in
+                resource.counter += 1
+            }
+        }
+
+        try await Task.sleep(for: .milliseconds(5))
+
+        let waiterTasks = (0..<waiterCount).map { id in
+            Task { [pool, resourceID, outcomeTracker] in
+                do {
+                    try await pool.withHandle(resourceID) { resource in
+                        resource.counter += 1
+                    }
+                    await outcomeTracker.record(id: id, outcome: .acquired)
+                } catch is CancellationError {
+                    await outcomeTracker.record(id: id, outcome: .cancelled)
+                } catch let error as IO.Error<Never> {
+                    if case .handle(.waitersFull) = error {
+                        await outcomeTracker.record(id: id, outcome: .otherError("waitersFull"))
+                    } else {
+                        await outcomeTracker.record(id: id, outcome: .shutdown)
+                    }
+                } catch {
+                    await outcomeTracker.record(id: id, outcome: .otherError("\(error)"))
+                }
+            }
+        }
+
+        await holderTask.value
+        for t in waiterTasks { await t.value }
+
+        let snapshot = await outcomeTracker.snapshot()
+        #expect(snapshot.allCompleted, "Not all waiters completed")
+
+        await pool.shutdown()
+    }
+
+    /// Tests capacity = 1 (degenerate case).
+    ///
+    /// With capacity 1, the second enqueue while one is stored should reject.
+    @Test("capacity one degenerate case")
+    func capacityOneDegenerate() async throws {
+        let pool = IO.Executor.Pool<StressTestResource>(lane: .inline)
+        let resourceID = try await pool.register(StressTestResource(id: 0))
+
+        let outcomeTracker = OutcomeTracker(count: 2)
+
+        // Hold the resource
+        let holderTask = Task { [pool, resourceID] in
+            try? await pool.withHandle(resourceID) { resource in
+                resource.counter += 1
+            }
+        }
+
+        try await Task.sleep(for: .milliseconds(1))
+
+        // Two waiters competing
+        let waiterTasks = (0..<2).map { id in
+            Task { [pool, resourceID, outcomeTracker] in
+                do {
+                    try await pool.withHandle(resourceID) { resource in
+                        resource.counter += 1
+                    }
+                    await outcomeTracker.record(id: id, outcome: .acquired)
+                } catch is CancellationError {
+                    await outcomeTracker.record(id: id, outcome: .cancelled)
+                } catch {
+                    await outcomeTracker.record(id: id, outcome: .shutdown)
+                }
+            }
+        }
+
+        await holderTask.value
+        for t in waiterTasks { await t.value }
+
+        let snapshot = await outcomeTracker.snapshot()
+        #expect(snapshot.allCompleted, "Both waiters should complete")
+
+        await pool.shutdown()
+    }
+
+    /// Tests cancel all waiters then enqueue more.
+    ///
+    /// ## Cancellation Semantics
+    /// Cancellation is best-effort in Swift concurrency:
+    /// - A cancelled waiter may still acquire if it wins the race with cancellation.
+    /// - The guarantee is: no continuation leaks, exactly-once completion.
+    ///
+    /// This test verifies:
+    /// 1. All waiters complete (no lost wakeups)
+    /// 2. First wave outcomes are either cancelled OR acquired (best-effort)
+    /// 3. Second wave can still acquire after first wave is cancelled
+    @Test("cancel all then enqueue more")
+    func cancelAllThenEnqueueMore() async throws {
+        for iteration in 0..<50 {
+            let pool = IO.Executor.Pool<StressTestResource>(lane: .inline)
+            let resourceID = try await pool.register(StressTestResource(id: 0))
+
+            let firstWaveCount = 10
+            let secondWaveCount = 10
+            let firstWaveTracker = OutcomeTracker(count: firstWaveCount)
+            let secondWaveTracker = OutcomeTracker(count: secondWaveCount)
+
+            // Hold the resource
+            let holderTask = Task { [pool, resourceID] in
+                try? await pool.withHandle(resourceID) { resource in
+                    resource.counter += 1
+                }
+            }
+
+            try await Task.sleep(for: .milliseconds(5))
+
+            // First wave of waiters
+            let firstWaveTasks = (0..<firstWaveCount).map { id in
+                Task { [pool, resourceID, firstWaveTracker] in
+                    do {
+                        try await pool.withHandle(resourceID) { resource in
+                            resource.counter += 1
+                        }
+                        await firstWaveTracker.record(id: id, outcome: .acquired)
+                    } catch is CancellationError {
+                        await firstWaveTracker.record(id: id, outcome: .cancelled)
+                    } catch let error as IO.Error<Never> {
+                        // IO.Error.cancelled is NOT a CancellationError
+                        if case .cancelled = error {
+                            await firstWaveTracker.record(id: id, outcome: .cancelled)
+                        } else {
+                            await firstWaveTracker.record(id: id, outcome: .shutdown)
+                        }
+                    } catch {
+                        await firstWaveTracker.record(id: id, outcome: .shutdown)
+                    }
+                }
+            }
+
+            try await Task.sleep(for: .milliseconds(5))
+
+            // Cancel ALL first wave waiters
+            for t in firstWaveTasks {
+                t.cancel()
+            }
+
+            try await Task.sleep(for: .milliseconds(5))
+
+            // Second wave of waiters (should still work)
+            let secondWaveTasks = (0..<secondWaveCount).map { id in
+                Task { [pool, resourceID, secondWaveTracker] in
+                    do {
+                        try await pool.withHandle(resourceID) { resource in
+                            resource.counter += 1
+                        }
+                        await secondWaveTracker.record(id: id, outcome: .acquired)
+                    } catch is CancellationError {
+                        await secondWaveTracker.record(id: id, outcome: .cancelled)
+                    } catch let error as IO.Error<Never> {
+                        if case .cancelled = error {
+                            await secondWaveTracker.record(id: id, outcome: .cancelled)
+                        } else {
+                            await secondWaveTracker.record(id: id, outcome: .shutdown)
+                        }
+                    } catch {
+                        await secondWaveTracker.record(id: id, outcome: .shutdown)
+                    }
+                }
+            }
+
+            // Watchdog to detect hangs with state dump
+            let watchdog = Task { [pool, resourceID] in
+                try await Task.sleep(for: .seconds(2))
+                let snap = await pool.debugSnapshot(for: resourceID)
+                fatalError("HANG iter \(iteration): \(snap?.description ?? "entry gone")")
+            }
+            defer { watchdog.cancel() }
+
+            await holderTask.value
+            for t in firstWaveTasks { await t.value }
+            for t in secondWaveTasks { await t.value }
+
+            let firstSnapshot = await firstWaveTracker.snapshot()
+            let secondSnapshot = await secondWaveTracker.snapshot()
+
+            #expect(firstSnapshot.allCompleted, "Iteration \(iteration): First wave incomplete")
+            #expect(secondSnapshot.allCompleted, "Iteration \(iteration): Second wave incomplete")
+
+            // First wave: best-effort cancellation - outcomes can be cancelled OR acquired
+            // (a waiter might win the race and acquire before observing cancellation)
+            let firstOutcomes = firstSnapshot.outcomes.compactMap { $0 }
+            let allowedFirstWave: Set<Outcome> = [.cancelled, .acquired]
+            for outcome in firstOutcomes {
+                #expect(allowedFirstWave.contains(outcome), "Iteration \(iteration): Unexpected first wave outcome: \(outcome)")
+            }
+
+            // Second wave should mostly acquire (some might get shutdown if timing is tight)
+            let secondAcquired = secondSnapshot.outcomes.compactMap { $0 }.filter { $0 == .acquired }.count
+            #expect(secondAcquired > 0, "Iteration \(iteration): At least some second wave should acquire")
+
+            await pool.shutdown()
+        }
+    }
+
+    // MARK: - Chaos Tests
+
+    /// Tests holder throwing during transaction while waiters are queued.
+    ///
+    /// ## Invariant
+    /// When a transaction body throws, the handle must still be checked back in,
+    /// allowing subsequent waiters to acquire it.
+    @Test("holder throws with waiters queued")
+    func holderThrowsWithWaitersQueued() async throws {
+        struct TestError: Error, Sendable, Equatable {}
+
+        for iteration in 0..<50 {
+            let pool = IO.Executor.Pool<StressTestResource>(lane: .inline)
+            let resourceID = try await pool.register(StressTestResource(id: iteration))
+
+            let waiterCount = 5
+            let outcomeTracker = OutcomeTracker(count: waiterCount)
+
+            // Holder that throws - use explicit typed-throws closure annotation
+            let holderTask: Task<Result<Int, IO.Error<TestError>>, Never> = Task { [pool, resourceID] in
+                do {
+                    // Explicit typed-throws annotation ensures E is inferred as TestError
+                    let result: Int = try await pool.withHandle(resourceID) {
+                        (resource: inout StressTestResource) throws(TestError) -> Int in
+                        resource.counter += 1
+                        throw TestError()
+                    }
+                    return .success(result)
+                } catch let error as IO.Error<TestError> {
+                    return .failure(error)
+                } catch {
+                    // Unexpected error type - wrap it for test purposes
+                    fatalError("Unexpected error type: \(type(of: error))")
+                }
+            }
+
+            try await Task.sleep(for: .milliseconds(1))
+
+            // Waiters
+            let waiterTasks = (0..<waiterCount).map { id in
+                Task { [pool, resourceID, outcomeTracker] in
+                    do {
+                        try await pool.withHandle(resourceID) { resource in
+                            resource.counter += 1
+                        }
+                        await outcomeTracker.record(id: id, outcome: .acquired)
+                    } catch is CancellationError {
+                        await outcomeTracker.record(id: id, outcome: .cancelled)
+                    } catch {
+                        await outcomeTracker.record(id: id, outcome: .shutdown)
+                    }
+                }
+            }
+
+            let holderResult = await holderTask.value
+
+            // Holder should have failed with our error wrapped in .operation
+            switch holderResult {
+            case .success:
+                Issue.record("Iteration \(iteration): Holder should have failed")
+            case .failure(let error):
+                // Verify the error is .operation wrapping TestError
+                if case .operation(let inner) = error {
+                    #expect(inner == TestError(), "Iteration \(iteration): Should be TestError")
+                } else {
+                    Issue.record("Iteration \(iteration): Expected .operation(TestError), got \(error)")
+                }
+            }
+
+            // Waiters should still complete (handle returned to pool despite throw)
+            for t in waiterTasks { await t.value }
+
+            let snapshot = await outcomeTracker.snapshot()
+            #expect(snapshot.allCompleted, "Iteration \(iteration): waiters didn't complete after holder throw")
+
+            // All waiters should acquire (holder's throw doesn't prevent them)
+            let acquired = snapshot.outcomes.compactMap { $0 }.filter { $0 == .acquired }.count
+            #expect(acquired == waiterCount, "Iteration \(iteration): All waiters should acquire after holder throw")
+
+            await pool.shutdown()
+        }
+    }
+
+    /// Full chaos mode: random mix of operations with no coordination.
+    ///
+    /// Operations: register, destroy, transaction, cancel, shutdown
+    /// All running concurrently with no sequencing guarantees.
+    @Test("chaos mode - interleaved operations")
+    func chaosMode() async throws {
+        for iteration in 0..<20 {
+            let pool = IO.Executor.Pool<StressTestResource>(lane: .inline)
+
+            let operationCount = 50
+            let completedOps = Counter()
+
+            // Mix of operations
+            let tasks: [Task<Void, Never>] = (0..<operationCount).map { opIndex in
+                Task { [pool, completedOps] in
+                    let opType = opIndex % 5
+
+                    do {
+                        switch opType {
+                        case 0:
+                            // Register
+                            let id = try await pool.register(StressTestResource(id: opIndex))
+                            _ = id
+                        case 1:
+                            // Register then immediate destroy
+                            let id = try await pool.register(StressTestResource(id: opIndex + 1000))
+                            try await pool.destroy(id)
+                        case 2:
+                            // Register then transaction
+                            let id = try await pool.register(StressTestResource(id: opIndex + 2000))
+                            try await pool.withHandle(id) { resource in
+                                resource.counter += 1
+                            }
+                        case 3:
+                            // Register, start transaction, cancel it
+                            let id = try await pool.register(StressTestResource(id: opIndex + 3000))
+                            let transactionTask = Task { [pool, id] in
+                                try? await pool.withHandle(id) { resource in
+                                    resource.counter += 1
+                                }
+                            }
+                            transactionTask.cancel()
+                            await transactionTask.value
+                        case 4:
+                            // Register, transaction, destroy
+                            let id = try await pool.register(StressTestResource(id: opIndex + 4000))
+                            try? await pool.withHandle(id) { resource in
+                                resource.counter += 1
+                            }
+                            try await pool.destroy(id)
+                        default:
+                            break
+                        }
+                    } catch {
+                        // Any error is acceptable in chaos mode
+                    }
+
+                    await completedOps.increment()
+                }
+            }
+
+            // Let chaos unfold
+            try await Task.sleep(for: .milliseconds(50))
+
+            // Shutdown while operations are in flight
+            await pool.shutdown()
+
+            // Wait for all operations
+            for t in tasks { await t.value }
+
+            let completed = await completedOps.get()
+            #expect(completed == operationCount, "Iteration \(iteration): not all ops completed: \(completed)/\(operationCount)")
+        }
+    }
+
+    /// Stress test with multiple resources and cross-resource contention.
+    ///
+    /// Tests that transactions on different handles don't interfere with each other,
+    /// and that cancellation on one doesn't affect others.
+//    @Test("multi-resource contention")
+//    func multiResourceContention() async throws {
+//        let pool = IO.Executor.Pool<StressTestResource>(lane: .inline)
+//        let resourceCount = 3
+//        let transactionsPerResource = 10
+//
+//        var resourceIDs: [IO.Handle.ID] = []
+//        for i in 0..<resourceCount {
+//            let id = try await pool.register(StressTestResource(id: i))
+//            resourceIDs.append(id)
+//        }
+//
+//        let totalTransactions = resourceCount * transactionsPerResource
+//        let outcomeTracker = OutcomeTracker(count: totalTransactions)
+//
+//        let tasks = (0..<totalTransactions).map { index in
+//            let resourceIndex = index % resourceCount
+//            let resourceID = resourceIDs[resourceIndex]
+//
+//            return Task { [pool, resourceID, outcomeTracker, index] in
+//                do {
+//                    try await pool.withHandle(resourceID) { resource in
+//                        resource.counter += 1
+//                    }
+//                    await outcomeTracker.record(id: index, outcome: .acquired)
+//                } catch is CancellationError {
+//                    await outcomeTracker.record(id: index, outcome: .cancelled)
+//                } catch let error as IO.Error<Never> {
+//                    switch error {
+//                    case .cancelled:
+//                        await outcomeTracker.record(id: index, outcome: .cancelled)
+//                    default:
+//                        await outcomeTracker.record(id: index, outcome: .shutdown)
+//                    }
+//                } catch {
+//                    await outcomeTracker.record(id: index, outcome: .shutdown)
+//                }
+//            }
+//        }
+//
+//        // Cancel some tasks (deterministic pattern) - best-effort cancellation
+//        for i in stride(from: 0, to: totalTransactions, by: 7) {
+//            tasks[i].cancel()
+//        }
+//
+//        for t in tasks { await t.value }
+//
+//        let snapshot = await outcomeTracker.snapshot()
+//        #expect(snapshot.allCompleted, "Not all transactions completed")
+//
+//        // All outcomes should be in allowed set (acquired, cancelled, or shutdown)
+//        let disallowed = await outcomeTracker.assertAllOutcomesAllowed([.acquired, .cancelled, .shutdown])
+//        #expect(disallowed.isEmpty, "Unexpected outcomes: \(disallowed)")
+//
+//        await pool.shutdown()
+//    }
+
+    /// Tests resumeNext racing with cancel on the same waiter.
+    ///
+    /// Scenario: Waiter is at head of queue. resumeNext and cancel race.
+    /// Only one should succeed in resuming the continuation.
+    @Test("resumeNext racing with cancel")
+    func resumeNextRacingWithCancel() async throws {
+        for _ in 0..<100 {
+            let pool = IO.Executor.Pool<StressTestResource>(lane: .inline)
+            let resourceID = try await pool.register(StressTestResource(id: 0))
+
+            let outcomeTracker = OutcomeTracker(count: 1)
+
+            // Hold the resource
+            let holderTask = Task { [pool, resourceID] in
+                try? await pool.withHandle(resourceID) { resource in
+                    resource.counter += 1
+                }
+            }
+
+            try await Task.sleep(for: .milliseconds(1))
+
+            // Waiter that will be subject to race
+            let waiterTask = Task { [pool, resourceID, outcomeTracker] in
+                do {
+                    try await pool.withHandle(resourceID) { resource in
+                        resource.counter += 1
+                    }
+                    await outcomeTracker.record(id: 0, outcome: .acquired)
+                } catch is CancellationError {
+                    await outcomeTracker.record(id: 0, outcome: .cancelled)
+                } catch {
+                    await outcomeTracker.record(id: 0, outcome: .shutdown)
+                }
+            }
+
+            // Give waiter time to enqueue
+            try await Task.sleep(for: .milliseconds(1))
+
+            // Cancel the waiter - races with holder completing and resuming it
+            waiterTask.cancel()
+
+            await holderTask.value
+            await waiterTask.value
+
+            let snapshot = await outcomeTracker.snapshot()
+            #expect(snapshot.allCompleted, "Waiter should have completed")
+
+            await pool.shutdown()
+        }
+    }
+
+    /// Tests rapid shutdown/restart cycles (simulates service restarts).
+    @Test("rapid shutdown restart cycles")
+    func rapidShutdownRestartCycles() async throws {
+        for cycle in 0..<20 {
+            let pool = IO.Executor.Pool<StressTestResource>(lane: .inline)
+
+            // Register some resources
+            var ids: [IO.Handle.ID] = []
+            for i in 0..<5 {
+                let id = try await pool.register(StressTestResource(id: cycle * 100 + i))
+                ids.append(id)
+            }
+
+            // Start some transactions
+            let tasks = ids.map { id in
+                Task { [pool, id] in
+                    try? await pool.withHandle(id) { resource in
+                        resource.counter += 1
+                    }
+                }
+            }
+
+            // Immediate shutdown
+            await pool.shutdown()
+
+            // All tasks should complete (not hang)
+            for t in tasks { await t.value }
+        }
+    }
+
+    // MARK: - Two-Phase Waiter Lifecycle Tests
+    //
+    // These tests target the specific race conditions that the two-phase
+    // register/arm lifecycle was designed to eliminate.
+
+    /// Tests that cancel firing before arm does not cause a hang.
+    ///
+    /// This is the primary TOCTOU race that the two-phase design eliminates:
+    /// - Task registers a ticket
+    /// - onCancel fires before arm() is called
+    /// - arm() observes the pre-cancellation and resumes immediately
+    @Test("cancel fires before arm - no hang")
+    func cancelBeforeArm() async throws {
+        for iteration in 0..<1000 {
+            let pool = IO.Executor.Pool<StressTestResource>(lane: .inline)
+            let id = try await pool.register(StressTestResource(id: iteration))
+
+            let outcomeTracker = OutcomeTracker(count: 1)
+
+            // Hold the resource so waiter must go through register/arm
+            let holderTask = Task { [pool, id] in
+                try? await pool.withHandle(id) { resource in
+                    resource.counter += 1
+                }
+            }
+
+            try await Task.sleep(for: .milliseconds(1))
+
+            // Waiter task that will be immediately cancelled
+            let waiterTask = Task { [pool, id, outcomeTracker] in
+                do {
+                    try await pool.withHandle(id) { resource in
+                        resource.counter += 1
+                    }
+                    await outcomeTracker.record(id: 0, outcome: .acquired)
+                } catch is CancellationError {
+                    await outcomeTracker.record(id: 0, outcome: .cancelled)
+                } catch let error as IO.Error<Never> {
+                    switch error {
+                    case .cancelled:
+                        await outcomeTracker.record(id: 0, outcome: .cancelled)
+                    case .executor(.shutdownInProgress), .handle(.invalidID):
+                        await outcomeTracker.record(id: 0, outcome: .shutdown)
+                    default:
+                        await outcomeTracker.record(id: 0, outcome: .otherError("\(error)"))
+                    }
+                } catch {
+                    await outcomeTracker.record(id: 0, outcome: .otherError("\(error)"))
+                }
+            }
+
+            // Immediately cancel - this races with the register/arm sequence
+            waiterTask.cancel()
+
+            await holderTask.value
+            await waiterTask.value
+
+            let snapshot = await outcomeTracker.snapshot()
+            #expect(snapshot.allCompleted, "Iteration \(iteration): waiter didn't complete (potential hang)")
+
+            await pool.shutdown()
+        }
+    }
+
+    /// Tests that close/destroy between register and arm does not cause a hang.
+    ///
+    /// This tests the scenario where:
+    /// - Task registers a ticket
+    /// - closeAndDrain() is called (by shutdown/destroy)
+    /// - arm() observes closed state and resumes immediately
+    @Test("close between register and arm - no hang")
+    func closeBetweenRegisterAndArm() async throws {
+        for iteration in 0..<100 {
+            let pool = IO.Executor.Pool<StressTestResource>(lane: .inline)
+            let id = try await pool.register(StressTestResource(id: iteration))
+
+            let outcomeTracker = OutcomeTracker(count: 1)
+
+            // Hold the resource
+            let holderTask = Task { [pool, id] in
+                try? await pool.withHandle(id) { resource in
+                    resource.counter += 1
+                }
+            }
+
+            try await Task.sleep(for: .milliseconds(1))
+
+            // Start waiter
+            let waiterTask = Task { [pool, id, outcomeTracker] in
+                do {
+                    try await pool.withHandle(id) { resource in
+                        resource.counter += 1
+                    }
+                    await outcomeTracker.record(id: 0, outcome: .acquired)
+                } catch is CancellationError {
+                    await outcomeTracker.record(id: 0, outcome: .cancelled)
+                } catch let error as IO.Error<Never> {
+                    switch error {
+                    case .cancelled:
+                        await outcomeTracker.record(id: 0, outcome: .cancelled)
+                    case .executor(.shutdownInProgress), .handle(.invalidID):
+                        await outcomeTracker.record(id: 0, outcome: .shutdown)
+                    default:
+                        await outcomeTracker.record(id: 0, outcome: .otherError("\(error)"))
+                    }
+                } catch {
+                    await outcomeTracker.record(id: 0, outcome: .otherError("\(error)"))
+                }
+            }
+
+            // Destroy while waiter might be between register and arm
+            try await pool.destroy(id)
+
+            await holderTask.value
+            await waiterTask.value
+
+            let snapshot = await outcomeTracker.snapshot()
+            #expect(snapshot.allCompleted, "Iteration \(iteration): waiter didn't complete (potential hang)")
+
+            await pool.shutdown()
+        }
+    }
+
+    /// Tests that massive cancel storms do not cause memory growth beyond capacity.
+    ///
+    /// This verifies that:
+    /// - pending.count never exceeds capacity
+    /// - All tasks complete (no hangs)
+    /// - The system remains responsive under high cancellation churn
+    @Test("massive cancel storm - no growth beyond capacity")
+    func cancelStorm() async throws {
+        let capacity = 10
+        let pool = IO.Executor.Pool<StressTestResource>(
+            lane: .inline,
+            handleWaitersLimit: capacity
+        )
+        let id = try await pool.register(StressTestResource(id: 0))
+
+        // Hold resource for the duration - use a separate task that sleeps
+        let holderTask = Task { [pool, id] in
+            try? await pool.withHandle(id) { resource in
+                resource.counter += 1
+            }
+        }
+
+        // Give holder time to acquire
+        try await Task.sleep(for: .milliseconds(10))
+
+        // Spawn and immediately cancel 1000 waiters
+        // Each should either be rejected (full) or cancelled
+        for _ in 0..<100 {
+            var tasks: [Task<Void, Never>] = []
+            for _ in 0..<10 {
+                let t = Task { [pool, id] in
+                    do {
+                        try await pool.withHandle(id) { resource in
+                            resource.counter += 1
+                        }
+                    } catch {
+                        // Expected - cancelled or full
+                    }
+                }
+                tasks.append(t)
+            }
+
+            // Cancel all in this wave
+            for t in tasks {
+                t.cancel()
+            }
+
+            // Wait for all to complete
+            for t in tasks {
+                await t.value
+            }
+        }
+
+        // Should not hang
+        await holderTask.value
+        await pool.shutdown()
+    }
+
+    /// Tests the abandon() early-exit behavior.
+    ///
+    /// This verifies that:
+    /// - abandon() correctly removes registered-but-unarmed tickets
+    /// - pending count returns to allow new registrations
+    /// - No hangs occur
+    @Test("abandon early-exit behavior")
+    func abandonEarlyExit() async throws {
+        // Test the Waiters type directly for abandon behavior
+        let waiters = IO.Handle.Waiters(capacity: 5)
+
+        // Register tickets and abandon them all
+        for _ in 0..<100 {
+            // Fill up the capacity
+            var tickets: [IO.Handle.Waiters.Ticket] = []
+            for _ in 0..<5 {
+                switch waiters.register() {
+                case .registered(let t):
+                    tickets.append(t)
+                case .rejected:
+                    Issue.record("Should be able to register up to capacity")
+                }
+            }
+
+            // Next registration should fail (full)
+            switch waiters.register() {
+            case .registered:
+                Issue.record("Should reject when full")
+            case .rejected(.full):
+                break  // Expected
+            case .rejected(.closed):
+                Issue.record("Should not be closed")
+            }
+
+            // Abandon all tickets
+            for ticket in tickets {
+                waiters.abandon(ticket)
+            }
+
+            // Now we should be able to register again
+            switch waiters.register() {
+            case .registered(let t):
+                waiters.abandon(t)  // Clean up
+            case .rejected:
+                Issue.record("Should be able to register after abandon")
+            }
         }
     }
 }

@@ -357,6 +357,44 @@ extension IO.Executor {
             return entry.isOpen
         }
 
+        // MARK: - Debug
+
+        /// Debug snapshot for diagnosing hangs.
+        public struct DebugSnapshot: Sendable, CustomStringConvertible {
+            public let state: String
+            public let hasResource: Bool
+            public let waitersClosed: Bool
+            public let waitersPermit: Bool
+            public let waitersPending: Int
+            public let waitersArmed: Int
+            public let waitersFifo: Int
+
+            public var description: String {
+                "Entry(state=\(state), hasResource=\(hasResource), waiters(closed=\(waitersClosed), permit=\(waitersPermit), pending=\(waitersPending), armed=\(waitersArmed), fifo=\(waitersFifo)))"
+            }
+        }
+
+        /// Returns a debug snapshot for the given handle ID.
+        public func debugSnapshot(for id: IO.Handle.ID) -> DebugSnapshot? {
+            guard let entry = entries[id] else { return nil }
+            let stateStr: String
+            switch entry.state {
+            case .present: stateStr = "present"
+            case .checkedOut: stateStr = "checkedOut"
+            case .destroyed: stateStr = "destroyed"
+            }
+            let ws = entry.waiters.debugSnapshot()
+            return DebugSnapshot(
+                state: stateStr,
+                hasResource: entry.resource != nil,
+                waitersClosed: ws.isClosed,
+                waitersPermit: ws.handleAvailable,
+                waitersPending: ws.pendingCount,
+                waitersArmed: ws.armedCount,
+                waitersFifo: ws.fifoCount
+            )
+        }
+
         // MARK: - Transaction API
 
         /// Executes a transaction with exclusive handle access and typed errors.
@@ -409,76 +447,82 @@ extension IO.Executor {
             // it can actually take the handle. A new transaction arriving during this
             // window could steal the handle (state = .present allows taking).
             //
-            // Solution: Loop and re-enqueue if the handle was stolen. This ensures
+            // Solution: Loop and re-register if the handle was stolen. This ensures
             // fairness - the waiter will eventually get the handle.
+            //
+            // ## Two-Phase Waiter Lifecycle
+            //
+            // The waiter protocol uses register() + arm() to eliminate the TOCTOU race
+            // where cancellation could fire before the continuation was enqueued:
+            // 1. register() creates a cancellable identity (Ticket) immediately
+            // 2. arm(ticket, continuation) attaches the continuation
+            // Cancellation can observe the ticket from the moment register() returns.
             var checkedOutHandle: Resource
-            while true {
+            acquireLoop: while true {
                 // Try to take the handle if available
                 if entry.state == .present, let h = entry.take() {
                     entry.state = .checkedOut
                     checkedOutHandle = h
-                    break
+                    break acquireLoop
                 }
 
-                // Handle is checked out or destroyed - wait for it
-                let token = entry.waiters.generateToken()
-
-                // Note: enqueueResult is mutated inside the withCheckedContinuation closure.
-                // This is safe because the closure runs synchronously before any suspension.
-                var enqueueResult: IO.Handle.Waiters.EnqueueResult = .stored
-
-                // Capture waiters reference for use in onCancel (Sendable)
+                // Handle is checked out or destroyed - register as waiter
                 let waiters = entry.waiters
 
+                // Phase 1: Register (cancellable identity now exists)
+                let ticket: IO.Handle.Waiters.Ticket
+                switch waiters.register() {
+                case .registered(let t):
+                    ticket = t
+                case .rejected(.closed):
+                    throw .handle(.invalidID)
+                case .rejected(.full):
+                    throw .handle(.waitersFull)
+                }
+
+                // Phase 2: Install cancellation handler and arm the ticket
                 await withTaskCancellationHandler {
-                    await withCheckedContinuation {
-                        (continuation: CheckedContinuation<Void, Never>) in
-                        // enqueue() atomically checks if the queue is closed (by shutdown/destroy)
-                        // and either stores or resumes immediately. This prevents the race where
-                        // shutdown drains an empty queue, then we enqueue into a dead queue.
-                        //
-                        // On .rejected(...), the continuation is resumed immediately.
-                        enqueueResult = waiters.enqueue(
-                            token: token,
-                            continuation: continuation
-                        )
+                    await withCheckedContinuation { continuation in
+                        switch waiters.arm(ticket, continuation) {
+                        case .stored:
+                            // Continuation stored - will be resumed by resumeNext() or closeAndDrain()
+                            return
+                        case .resumeNow:
+                            // Pre-cancelled or closed - resume immediately
+                            continuation.resume()
+                        }
                     }
                 } onCancel: {
                     // Synchronous cancellation - no Task needed.
                     // Waiters uses internal synchronization, so cancel() is safe to call
                     // from the @Sendable onCancel handler without actor isolation.
-                    // cancel() is idempotent - returns nil if token already drained/resumed.
-                    if let continuation = waiters.cancel(token: token) {
-                        continuation.resume()
+                    // cancel() returns the continuation if the ticket was armed.
+                    if let c = waiters.cancel(ticket) {
+                        c.resume()
                     }
                 }
 
-                // Handle enqueue result
-                switch enqueueResult {
-                case .stored:
-                    break  // Successfully stored and later resumed - continue to validation
-                case .rejected(.full):
-                    throw .handle(.waitersFull)
-                case .rejected(.closed):
-                    // Queue was closed (shutdown/destroy) - we were resumed immediately.
-                    // The loop will re-check entry state and throw appropriately.
-                    break
-                }
-
                 // Check cancellation after waking
-                do {
-                    try Task.checkCancellation()
-                } catch {
+                if Task.isCancelled {
+                    // We were woken but are cancelled.
+                    // Only pass wakeup to next waiter if handle is actually available.
+                    // This avoids spurious wakeups when cancelled during a wait where
+                    // the handle is still checked out or the queue was drained.
+                    if entry.state == .present {
+                        if let c = entry.waiters.resumeNext() { c.resume() }
+                    }
                     throw .lane(.cancelled)
                 }
 
                 // Re-validate after waiting - entry might be destroyed
+                // Also pass wakeup to prevent lost wakeups in destroy races
                 guard entries[id] != nil, entry.state != .destroyed else {
+                    if let c = entry.waiters.resumeNext() { c.resume() }
                     throw .handle(.invalidID)
                 }
 
                 // Loop will retry taking the handle
-                // If another task stole it, we'll re-enqueue and wait again
+                // If another task stole it, we'll re-register and wait again
             }
 
             // Step 4: Execute body on lane using slot pattern
@@ -537,10 +581,14 @@ extension IO.Executor {
                 entries.removeValue(forKey: id)
                 await _teardownResource(handle)
             } else {
-                // Sync path - store handle back and resume waiter
+                // Sync path - store handle back and signal availability
                 entry.resource = consume handle
                 entry.state = .present
-                entry.waiters.resumeNext()
+                // Use signalHandleAvailable() to either wake an armed waiter
+                // or record the availability permit for a future arm() call.
+                // This prevents the "lost baton" race where a waiter arms after
+                // resumeNext() returned nil but before it could be woken.
+                if let c = entry.waiters.signalHandleAvailable() { c.resume() }
             }
         }
 
