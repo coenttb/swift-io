@@ -1379,4 +1379,165 @@ struct IOExecutorPoolStressTests {
             }
         }
     }
+
+    // MARK: - Eager Cancellation Tests
+
+    /// Tests that cancelled waiters don't consume capacity.
+    ///
+    /// With eager ID-based cancellation, cancelled waiters are removed from
+    /// the armed queue immediately, freeing capacity for new registrations.
+    ///
+    /// ## Invariant
+    /// After N cancellations, N new registrations should succeed (not reject with .full).
+    @Test("cancelled waiters don't consume capacity", arguments: [4, 16, 32])
+    func cancelledWaitersDontConsumeCapacity(capacity: Int) async throws {
+        let pool = IO.Executor.Pool<StressTestResource>(
+            lane: .inline,
+            handleWaitersLimit: capacity
+        )
+        let resourceID = try await pool.register(StressTestResource(id: 0))
+
+        // Hold the resource to force waiters to queue
+        let holderTask = Task { [pool, resourceID] in
+            try? await pool.withHandle(resourceID) { resource in
+                resource.counter += 1
+            }
+        }
+
+        // Allow holder to acquire - use longer delay to ensure holder holds during waiter creation
+        try await Task.sleep(for: .milliseconds(1))
+
+        // Create capacity waiters while holder is active
+        let waiterTasks = (0..<capacity).map { id in
+            Task { [pool, resourceID] in
+                do {
+                    try await pool.withHandle(resourceID) { _ in }
+                    return "acquired"
+                } catch is CancellationError {
+                    return "cancelled"
+                } catch let error as IO.Error<Never> {
+                    if case .handle(.waitersFull) = error {
+                        return "waitersFull"
+                    }
+                    return "other: \(error)"
+                } catch {
+                    return "error: \(error)"
+                }
+            }
+        }
+
+        // Give waiters time to register+arm
+        try await Task.sleep(for: .milliseconds(5))
+
+        // Cancel all waiters
+        for t in waiterTasks {
+            t.cancel()
+        }
+
+        // Wait for all cancellations to complete
+        for t in waiterTasks {
+            _ = await t.value
+        }
+
+        // Wait for holder to complete
+        await holderTask.value
+
+        // Now register capacity MORE waiters - should all succeed (not .full)
+        // We need another holder to ensure waiters queue
+        let holder2Task = Task { [pool, resourceID] in
+            try? await pool.withHandle(resourceID) { resource in
+                resource.counter += 1
+            }
+        }
+
+        try await Task.sleep(for: .milliseconds(1))
+
+        let secondWaveTasks = (0..<capacity).map { id in
+            Task { [pool, resourceID] in
+                do {
+                    try await pool.withHandle(resourceID) { _ in }
+                    return "acquired"
+                } catch is CancellationError {
+                    return "cancelled"
+                } catch let error as IO.Error<Never> {
+                    if case .handle(.waitersFull) = error {
+                        return "waitersFull"
+                    }
+                    return "other: \(error)"
+                } catch {
+                    return "error: \(error)"
+                }
+            }
+        }
+
+        // Give second wave time to register
+        try await Task.sleep(for: .milliseconds(5))
+
+        await holder2Task.value
+
+        // Collect results
+        var waitersFull = 0
+        for t in secondWaveTasks {
+            let result = await t.value
+            if result == "waitersFull" {
+                waitersFull += 1
+            }
+        }
+
+        #expect(waitersFull == 0, "Cancelled waiters should not consume capacity - got \(waitersFull) waitersFull rejections")
+
+        await pool.shutdown()
+    }
+
+    /// Tests that cancellation between token.take() and arm() does not trap.
+    ///
+    /// With the timeless-first implementation, State.arm returns .resumeNow(.cancelled)
+    /// instead of preconditionFailure when the ticket was already cancelled by ID.
+    ///
+    /// ## Invariant
+    /// No precondition traps, all waiters complete, no leaked entries.
+    @Test("cancel between token-take and arm does not trap", arguments: [50, 100])
+    func cancelBetweenTakeAndArmNoTrap(iterations: Int) async throws {
+        let pool = IO.Executor.Pool<StressTestResource>(lane: .inline)
+        let resourceID = try await pool.register(StressTestResource(id: 0))
+
+        // Run multiple iterations to catch timing-dependent races
+        for iteration in 0..<iterations {
+            // Hold the resource briefly to force waiters to queue
+            let holderTask = Task { [pool, resourceID] in
+                try? await pool.withHandle(resourceID) { resource in
+                    resource.counter += 1
+                }
+            }
+
+            // Small delay to let holder acquire
+            try await Task.sleep(for: .milliseconds(1))
+
+            // Create waiter
+            let waiterTask = Task { [pool, resourceID] in
+                do {
+                    try await pool.withHandle(resourceID) { _ in }
+                    return "acquired"
+                } catch is CancellationError {
+                    return "cancelled"
+                } catch {
+                    return "error: \(error)"
+                }
+            }
+
+            // Rapidly cancel after minimal delay - trying to hit the token-take/arm race
+            try await Task.sleep(for: .microseconds(100 * (iteration % 10 + 1)))
+            waiterTask.cancel()
+
+            // Wait for holder to complete
+            await holderTask.value
+
+            // Wait for waiter to complete (should NOT trap)
+            let result = await waiterTask.value
+            #expect(result == "acquired" || result == "cancelled",
+                    "Iteration \(iteration): Unexpected result: \(result)")
+        }
+
+        await pool.shutdown()
+    }
 }

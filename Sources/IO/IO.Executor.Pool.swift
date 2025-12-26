@@ -500,10 +500,14 @@ extension IO.Executor {
                     }
                 } onCancel: {
                     // Synchronous cancellation - race for the token
-                    // If we win, cancel removes the entry (consume-on-cancel)
-                    // If normal path already took the token, this is a no-op
                     if let token = cell.take() {
+                        // Pre-arm race: cancellation won the token
                         if let resume = waiters.cancel(token) {
+                            resume.resume()
+                        }
+                    } else {
+                        // Post-arm: token already taken, cancel by ID for eager capacity reclaim
+                        if let resume = waiters.cancel(cell.id) {
                             resume.resume()
                         }
                     }
@@ -511,10 +515,11 @@ extension IO.Executor {
 
                 // Check cancellation after waking
                 if Task.isCancelled {
-                    // We were woken but are cancelled.
-                    // Only pass wakeup to next waiter if handle is actually available.
-                    // This avoids spurious wakeups when cancelled during a wait where
-                    // the handle is still checked out or the queue was drained.
+                    // Woken but cancelled. With eager ID-based cancellation, this path
+                    // handles the case where a waiter was woken by signalHandleAvailable()
+                    // or resumeNext() but then observed Task.isCancelled. Ghost waiters
+                    // (cancelled-but-enqueued) are now rare since onCancel eagerly removes
+                    // by ID. Pass fairness wakeup only if handle is actually available.
                     if entry.state == .present {
                         if let c = entry.waiters.resumeNext() { c.resume() }
                     }

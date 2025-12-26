@@ -130,7 +130,7 @@ extension IO.Handle {
 
                 enum Reason: Sendable, Equatable {
                     case closed
-                    case cancelled      // Kept for forward compatibility; unreachable with cell pattern
+                    case cancelled      // Returned when cancellation removed ticket between token.take() and arm()
                     case handleAvailable
                 }
             }
@@ -451,6 +451,20 @@ extension IO.Handle {
             return Resume.Token(continuation)
         }
 
+        /// Cancels a waiter by ID for eager capacity reclamation.
+        ///
+        /// Use this when the token has already been consumed by `arm()` but cancellation
+        /// needs to eagerly remove the waiter from the armed queue.
+        ///
+        /// - Parameter id: The ticket ID to cancel.
+        /// - Returns: A `Resume.Token` if the waiter was armed, nil if already consumed or not found.
+        func cancel(_ id: Ticket.ID) -> Resume.Token? {
+            guard let continuation = lock.withLock({ state in state.cancel(id) }) else {
+                return nil
+            }
+            return Resume.Token(continuation)
+        }
+
         /// Dequeues the next armed waiter in FIFO order.
         ///
         /// - Returns: A `Resume.Token` to resume, or nil if no armed waiters remain.
@@ -595,9 +609,10 @@ extension IO.Handle.Waiters {
                 return .resumeNow(continuation, .closed)
             }
 
-            // Consume from registering - must be present
+            // Consume from registering - if missing, cancellation already removed it
             guard registering.consumeForArm(id) else {
-                preconditionFailure("Waiters.arm called with an unknown or already-consumed ticket")
+                // Cancellation removed the ticket between token.take() and arm()
+                return .resumeNow(continuation, .cancelled)
             }
 
             // Check availability permit before storing
