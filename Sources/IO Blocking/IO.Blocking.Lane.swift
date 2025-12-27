@@ -18,15 +18,17 @@ extension IO.Blocking {
     /// (not a protocol) to avoid existential types for Swift Embedded compatibility.
     ///
     /// ## Error Handling Design
-    /// - Lane throws `Failure` for infrastructure failures (shutdown, timeout, etc.)
+    /// - Lane throws `IO.Lifecycle.Error<Failure>` for lifecycle and infrastructure failures
+    /// - Lifecycle conditions (shutdown) are `.lifecycle(.shutdownInProgress)`
+    /// - Infrastructure failures (timeout, etc.) are `.failure(leaf)`
     /// - Operation errors flow through `Result<T, E>` - never thrown
     /// - This enables typed error propagation without existentials
     ///
     /// ## Cancellation Contract
     /// - **Before acceptance**: If task is cancelled before the lane accepts the job,
-    ///   `run()` throws `.cancelled` immediately without enqueuing.
+    ///   `run()` throws `.failure(.cancelled)` immediately without enqueuing.
     /// - **After acceptance**: If `guaranteesRunOnceEnqueued` is true, the job runs
-    ///   to completion. The caller may observe `.cancelled` upon return,
+    ///   to completion. The caller may observe `.failure(.cancelled)` upon return,
     ///   but the operation's side effects occur.
     ///
     /// ## Cancellation Law
@@ -38,19 +40,19 @@ extension IO.Blocking {
     /// ## Deadline Contract
     /// - Deadlines bound acceptance time (waiting to enqueue), not execution time.
     /// - Lanes are not required to interrupt syscalls once executing.
-    /// - If deadline expires before acceptance, throw `.deadlineExceeded`.
+    /// - If deadline expires before acceptance, throw `.failure(.deadlineExceeded)`.
     public struct Lane: Sendable {
         /// The capabilities this lane provides.
         public let capabilities: Capabilities
 
         // The run implementation.
         // - Operation closure returns boxed value (never throws)
-        // - Lane throws only Failure for infrastructure failures
+        // - Lane throws IO.Lifecycle.Error<Failure> for lifecycle and infrastructure failures
         private let _run:
             @Sendable @concurrent (
                 Deadline?,
                 @Sendable @escaping () -> UnsafeMutableRawPointer  // Returns boxed value
-            ) async throws(Failure) -> UnsafeMutableRawPointer
+            ) async throws(IO.Lifecycle.Error<Failure>) -> UnsafeMutableRawPointer
 
         private let _shutdown: @Sendable @concurrent () async -> Void
 
@@ -60,7 +62,7 @@ extension IO.Blocking {
                 @escaping @Sendable @concurrent (
                     Deadline?,
                     @Sendable @escaping () -> UnsafeMutableRawPointer
-                ) async throws(Failure) -> UnsafeMutableRawPointer,
+                ) async throws(IO.Lifecycle.Error<Failure>) -> UnsafeMutableRawPointer,
             shutdown: @escaping @Sendable @concurrent () async -> Void
         ) {
             self.capabilities = capabilities
@@ -74,12 +76,12 @@ extension IO.Blocking {
         ///
         /// Core primitive - preserves typed error through Result without casting.
         /// Internal to force callers through the typed-throws run wrapper.
-        /// Lane only throws Failure for infrastructure failures.
+        /// Lane throws `IO.Lifecycle.Error<Failure>` for lifecycle and infrastructure failures.
         @concurrent
         internal func runResult<T: Sendable, E: Swift.Error & Sendable>(
             deadline: Deadline?,
             _ operation: @Sendable @escaping () -> Result<T, E>
-        ) async throws(Failure) -> Result<T, E> {
+        ) async throws(IO.Lifecycle.Error<Failure>) -> Result<T, E> {
             let ptr = try await _run(deadline) {
                 let result = operation()
                 return IO.Blocking.Box.make(result)
@@ -100,7 +102,7 @@ extension IO.Blocking {
         public func run<T: Sendable, E: Swift.Error & Sendable>(
             deadline: Deadline?,
             _ operation: @Sendable @escaping () throws(E) -> T
-        ) async throws(Failure) -> Result<T, E> {
+        ) async throws(IO.Lifecycle.Error<Failure>) -> Result<T, E> {
             try await runResult(deadline: deadline) {
                 do {
                     return .success(try operation())
@@ -127,7 +129,7 @@ extension IO.Blocking {
         public func run<T: Sendable>(
             deadline: Deadline?,
             _ operation: @Sendable @escaping () -> T
-        ) async throws(Failure) -> T {
+        ) async throws(IO.Lifecycle.Error<Failure>) -> T {
             let ptr = try await _run(deadline) {
                 let result = operation()
                 return IO.Blocking.Box.makeValue(result)

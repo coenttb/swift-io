@@ -15,11 +15,8 @@ extension IO.Blocking.Failure {
 // MARK: - Unit Tests
 
 extension IO.Blocking.Failure.Test.Unit {
-    @Test("shutdown case exists")
-    func shutdownCase() {
-        let failure = IO.Blocking.Failure.shutdown
-        #expect(failure == .shutdown)
-    }
+    // Note: shutdown is no longer a case of IO.Blocking.Failure.
+    // Lifecycle conditions are expressed via IO.Lifecycle.Error at API boundaries.
 
     @Test("queueFull case exists")
     func queueFullCase() {
@@ -47,21 +44,21 @@ extension IO.Blocking.Failure.Test.Unit {
 
     @Test("Equatable conformance")
     func equatableConformance() {
-        #expect(IO.Blocking.Failure.shutdown == IO.Blocking.Failure.shutdown)
-        #expect(IO.Blocking.Failure.shutdown != IO.Blocking.Failure.queueFull)
+        #expect(IO.Blocking.Failure.queueFull == IO.Blocking.Failure.queueFull)
+        #expect(IO.Blocking.Failure.queueFull != IO.Blocking.Failure.cancelled)
     }
 
     @Test("Sendable conformance")
     func sendableConformance() async {
-        let failure = IO.Blocking.Failure.shutdown
+        let failure = IO.Blocking.Failure.queueFull
         await Task {
-            #expect(failure == .shutdown)
+            #expect(failure == .queueFull)
         }.value
     }
 
     @Test("Error conformance")
     func errorConformance() {
-        let failure: any Error = IO.Blocking.Failure.shutdown
+        let failure: any Error = IO.Blocking.Failure.queueFull
         #expect(failure is IO.Blocking.Failure)
     }
 }
@@ -72,11 +69,11 @@ extension IO.Blocking.Failure.Test.EdgeCase {
     @Test("all cases are distinct")
     func allCasesDistinct() {
         let cases: [IO.Blocking.Failure] = [
-            .shutdown,
             .queueFull,
             .deadlineExceeded,
             .cancelled,
             .overloaded,
+            .internalInvariantViolation,
         ]
         for (i, case1) in cases.enumerated() {
             for (j, case2) in cases.enumerated() {

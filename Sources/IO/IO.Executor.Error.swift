@@ -7,10 +7,10 @@
 
 extension IO.Executor {
     /// Errors specific to the executor.
+    ///
+    /// - Note: Shutdown is not represented here. Lifecycle conditions
+    ///   are expressed via `IO.Lifecycle.Error<...>` at API boundaries.
     public enum Error: Swift.Error, Sendable, Equatable {
-        /// The executor has been shut down.
-        case shutdownInProgress
-
         /// The ID's scope doesn't match this executor.
         case scopeMismatch
 

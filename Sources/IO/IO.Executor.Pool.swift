@@ -128,45 +128,48 @@ extension IO.Executor {
         /// capturing I/O infrastructure errors in `IO.Error<E>`.
         ///
         /// ## Cancellation Semantics
-        /// - Cancellation before acceptance → `.cancelled`
-        /// - Cancellation after acceptance → operation completes, then `.cancelled`
+        /// - Cancellation before acceptance → `.failure(.cancelled)`
+        /// - Cancellation after acceptance → operation completes, then `.failure(.cancelled)`
         ///
         /// - Parameter operation: The blocking operation to execute.
         /// - Returns: The result of the operation.
-        /// - Throws: `IO.Error<E>` with the specific operation error or infrastructure error.
+        /// - Throws: `IO.Lifecycle.Error<IO.Error<E>>` with lifecycle or operation/infrastructure error.
         public func run<T: Sendable, E: Swift.Error & Sendable>(
             _ operation: @Sendable @escaping () throws(E) -> T
-        ) async throws(IO.Error<E>) -> T {
+        ) async throws(IO.Lifecycle.Error<IO.Error<E>>) -> T {
             guard !isShutdown else {
-                throw .executor(.shutdownInProgress)
+                throw .lifecycle(.shutdownInProgress)
             }
 
-            // Lane.run throws(Failure) and returns Result<T, E>
+            // Lane.run throws(IO.Lifecycle.Error<Failure>) and returns Result<T, E>
             let result: Result<T, E>
             do {
                 result = try await lane.run(deadline: nil, operation)
             } catch {
-                // error is statically Failure due to typed throws
+                // error is IO.Lifecycle.Error<IO.Blocking.Failure>
                 switch error {
-                case .shutdown:
-                    throw .executor(.shutdownInProgress)
-                case .queueFull:
-                    throw .lane(.queueFull)
-                case .deadlineExceeded:
-                    throw .lane(.deadlineExceeded)
-                case .cancelled:
-                    throw .cancelled
-                case .overloaded:
-                    throw .lane(.overloaded)
-                case .internalInvariantViolation:
-                    throw .lane(.internalInvariantViolation)
+                case .lifecycle(let lifecycle):
+                    throw .lifecycle(lifecycle)
+                case .failure(let laneFailure):
+                    switch laneFailure {
+                    case .queueFull:
+                        throw .failure(.lane(.queueFull))
+                    case .deadlineExceeded:
+                        throw .failure(.lane(.deadlineExceeded))
+                    case .cancelled:
+                        throw .failure(.cancelled)
+                    case .overloaded:
+                        throw .failure(.lane(.overloaded))
+                    case .internalInvariantViolation:
+                        throw .failure(.lane(.internalInvariantViolation))
+                    }
                 }
             }
             switch result {
             case .success(let value):
                 return value
             case .failure(let error):
-                throw .operation(error)
+                throw .failure(.operation(error))
             }
         }
 
@@ -233,12 +236,12 @@ extension IO.Executor {
         ///
         /// - Parameter resource: The resource to register (ownership transferred).
         /// - Returns: A unique handle ID for future operations.
-        /// - Throws: `Executor.Error.shutdownInProgress` if executor is shut down.
+        /// - Throws: `IO.Lifecycle.Error` with `.lifecycle(.shutdownInProgress)` if executor is shut down.
         public func register(
             _ resource: consuming Resource
-        ) throws(IO.Executor.Error) -> IO.Handle.ID {
+        ) throws(IO.Lifecycle.Error<IO.Executor.Error>) -> IO.Handle.ID {
             guard !isShutdown else {
-                throw .shutdownInProgress
+                throw .lifecycle(.shutdownInProgress)
             }
             let id = generateHandleID()
             entries[id] = IO.Executor.Handle.Entry(
@@ -266,12 +269,12 @@ extension IO.Executor {
         ///
         /// - Parameter make: Factory closure that creates the resource (runs on lane).
         /// - Returns: A unique handle ID for future operations.
-        /// - Throws: `IO.Error<E>` on factory error or registration failure.
+        /// - Throws: `IO.Lifecycle.Error<IO.Error<E>>` on lifecycle, factory, or infrastructure failure.
         public func register<E: Swift.Error & Sendable>(
             _ make: @Sendable @escaping () throws(E) -> Resource
-        ) async throws(IO.Error<E>) -> IO.Handle.ID {
+        ) async throws(IO.Lifecycle.Error<IO.Error<E>>) -> IO.Handle.ID {
             guard !isShutdown else {
-                throw .executor(.shutdownInProgress)
+                throw .lifecycle(.shutdownInProgress)
             }
 
             // Allocate slot for ~Copyable resource transport
@@ -287,20 +290,23 @@ extension IO.Executor {
                 }
             } catch {
                 slot.deallocateRawOnly()
-                // error is IO.Blocking.Failure due to typed throws
+                // error is IO.Lifecycle.Error<IO.Blocking.Failure>
                 switch error {
-                case .shutdown:
-                    throw .executor(.shutdownInProgress)
-                case .queueFull:
-                    throw .lane(.queueFull)
-                case .deadlineExceeded:
-                    throw .lane(.deadlineExceeded)
-                case .cancelled:
-                    throw .cancelled
-                case .overloaded:
-                    throw .lane(.overloaded)
-                case .internalInvariantViolation:
-                    throw .lane(.internalInvariantViolation)
+                case .lifecycle(let lifecycle):
+                    throw .lifecycle(lifecycle)
+                case .failure(let laneFailure):
+                    switch laneFailure {
+                    case .queueFull:
+                        throw .failure(.lane(.queueFull))
+                    case .deadlineExceeded:
+                        throw .failure(.lane(.deadlineExceeded))
+                    case .cancelled:
+                        throw .failure(.cancelled)
+                    case .overloaded:
+                        throw .failure(.lane(.overloaded))
+                    case .internalInvariantViolation:
+                        throw .failure(.lane(.internalInvariantViolation))
+                    }
                 }
             }
 
@@ -310,7 +316,7 @@ extension IO.Executor {
                 break
             case .failure(let factoryError):
                 slot.deallocateRawOnly()
-                throw .operation(factoryError)
+                throw .failure(.operation(factoryError))
             }
 
             // Take resource from slot and register
@@ -413,24 +419,24 @@ extension IO.Executor {
         public func transaction<T: Sendable, E: Swift.Error & Sendable>(
             _ id: IO.Handle.ID,
             _ body: @Sendable @escaping (inout Resource) throws(E) -> T
-        ) async throws(Transaction.Error<E>) -> T {
+        ) async throws(IO.Lifecycle.Error<Transaction.Error<E>>) -> T {
             // Step 1: Check shutdown - reject new transactions immediately
             guard !isShutdown else {
-                throw .lane(.shutdown)
+                throw .lifecycle(.shutdownInProgress)
             }
 
             // Step 2: Validate scope
             guard id.scope == scope else {
-                throw .handle(.scopeMismatch)
+                throw .failure(.handle(.scopeMismatch))
             }
 
             // Step 3: Checkout handle (with waiting if needed)
             guard let entry = entries[id] else {
-                throw .handle(.invalidID)
+                throw .failure(.handle(.invalidID))
             }
 
             if entry.state == .destroyed {
-                throw .handle(.invalidID)
+                throw .failure(.handle(.invalidID))
             }
 
             // Step 3: Acquire handle (with waiting loop if needed)
@@ -469,9 +475,9 @@ extension IO.Executor {
                 case .registered(let c):
                     cell = c
                 case .rejected(.closed):
-                    throw .handle(.invalidID)
+                    throw .failure(.handle(.invalidID))
                 case .rejected(.full):
-                    throw .handle(.waitersFull)
+                    throw .failure(.handle(.waitersFull))
                 }
 
                 // Phase 2: Race for token between normal path and cancellation handler
@@ -519,14 +525,14 @@ extension IO.Executor {
                     if entry.state == .present {
                         if let c = entry.waiters.resumeNext() { c.resume() }
                     }
-                    throw .lane(.cancelled)
+                    throw .failure(.lane(.cancelled))
                 }
 
                 // Re-validate after waiting - entry might be destroyed
                 // Also pass wakeup to prevent lost wakeups in destroy races
                 guard entries[id] != nil, entry.state != .destroyed else {
                     if let c = entry.waiters.resumeNext() { c.resume() }
-                    throw .handle(.invalidID)
+                    throw .failure(.handle(.invalidID))
                 }
 
                 // Loop will retry taking the handle
@@ -548,10 +554,15 @@ extension IO.Executor {
                     }
                 }
             } catch {
-                // error is statically IO.Blocking.Failure due to typed throws
+                // error is IO.Lifecycle.Error<IO.Blocking.Failure>
                 await _checkInHandle(slot.take(), for: id, entry: entry)
                 slot.deallocateRawOnly()
-                throw .lane(error)
+                switch error {
+                case .lifecycle(let lifecycle):
+                    throw .lifecycle(lifecycle)
+                case .failure(let laneFailure):
+                    throw .failure(.lane(laneFailure))
+                }
             }
 
             // Check if task was cancelled during execution
@@ -566,7 +577,7 @@ extension IO.Executor {
 
             // Handle cancellation
             if wasCancelled {
-                throw .lane(.cancelled)
+                throw .failure(.lane(.cancelled))
             }
 
             // Return result or throw body error
@@ -574,7 +585,7 @@ extension IO.Executor {
             case .success(let value):
                 return value
             case .failure(let bodyError):
-                throw .body(bodyError)
+                throw .failure(.body(bodyError))
             }
         }
 
@@ -606,30 +617,33 @@ extension IO.Executor {
         public func withHandle<T: Sendable, E: Swift.Error & Sendable>(
             _ id: IO.Handle.ID,
             _ body: @Sendable @escaping (inout Resource) throws(E) -> T
-        ) async throws(IO.Error<E>) -> T {
+        ) async throws(IO.Lifecycle.Error<IO.Error<E>>) -> T {
             do {
                 return try await transaction(id, body)
             } catch {
                 switch error {
-                case .lane(let error):
-                    switch error {
-                    case .shutdown:
-                        throw .executor(.shutdownInProgress)
-                    case .queueFull:
-                        throw .lane(.queueFull)
-                    case .deadlineExceeded:
-                        throw .lane(.deadlineExceeded)
-                    case .cancelled:
-                        throw .cancelled
-                    case .overloaded:
-                        throw .lane(.overloaded)
-                    case .internalInvariantViolation:
-                        throw .lane(.internalInvariantViolation)
+                case .lifecycle(let lifecycle):
+                    throw .lifecycle(lifecycle)
+                case .failure(let transactionError):
+                    switch transactionError {
+                    case .lane(let laneFailure):
+                        switch laneFailure {
+                        case .queueFull:
+                            throw .failure(.lane(.queueFull))
+                        case .deadlineExceeded:
+                            throw .failure(.lane(.deadlineExceeded))
+                        case .cancelled:
+                            throw .failure(.cancelled)
+                        case .overloaded:
+                            throw .failure(.lane(.overloaded))
+                        case .internalInvariantViolation:
+                            throw .failure(.lane(.internalInvariantViolation))
+                        }
+                    case .handle(let handleError):
+                        throw .failure(.handle(handleError))
+                    case .body(let bodyError):
+                        throw .failure(.operation(bodyError))
                     }
-                case .handle(let handleError):
-                    throw .handle(handleError)
-                case .body(let bodyError):
-                    throw .operation(bodyError)
                 }
             }
         }

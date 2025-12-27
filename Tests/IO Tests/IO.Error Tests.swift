@@ -42,9 +42,11 @@ extension IO.Error<TestOperationError>.Test.Unit {
 
     @Test("executor case wraps executor error")
     func executorCase() {
-        let error = IO.Error<TestOperationError>.executor(.shutdownInProgress)
+        // Note: shutdownInProgress is no longer a case of IO.Executor.Error.
+        // Lifecycle conditions are expressed via IO.Lifecycle.Error at API boundaries.
+        let error = IO.Error<TestOperationError>.executor(.scopeMismatch)
         if case .executor(let inner) = error {
-            #expect(inner == .shutdownInProgress)
+            #expect(inner == .scopeMismatch)
         } else {
             Issue.record("Expected executor case")
         }
@@ -106,7 +108,7 @@ extension IO.Error<TestOperationError>.Test.EdgeCase {
     func allCasesDistinct() {
         let operation: IO.Error<TestOperationError> = .operation(TestOperationError(message: ""))
         let handle: IO.Error<TestOperationError> = .handle(.invalidID)
-        let executor: IO.Error<TestOperationError> = .executor(.shutdownInProgress)
+        let executor: IO.Error<TestOperationError> = .executor(.scopeMismatch)
         let lane: IO.Error<TestOperationError> = .lane(.cancelled)
         let cancelled: IO.Error<TestOperationError> = .cancelled
 

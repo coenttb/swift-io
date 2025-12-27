@@ -64,7 +64,7 @@ extension IO.Blocking.Lane.Test.EdgeCase {
             let _: Int = try await lane.run(deadline: expiredDeadline) { 42 }
             Issue.record("Expected deadlineExceeded error")
         } catch {
-            #expect(error == .deadlineExceeded)
+            #expect(error == .failure(.deadlineExceeded))
         }
     }
 

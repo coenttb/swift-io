@@ -91,13 +91,17 @@ extension IO.Blocking.Threads {
         func boxed(
             deadline: IO.Blocking.Deadline?,
             _ operation: @Sendable @escaping () -> UnsafeMutableRawPointer
-        ) async throws(IO.Blocking.Failure) -> UnsafeMutableRawPointer {
-            // Stage 1: Acceptance
+        ) async throws(IO.Lifecycle.Error<IO.Blocking.Failure>) -> UnsafeMutableRawPointer {
+            // Stage 1: Acceptance (can throw lifecycle or leaf failure)
             let ticket = try await threads.awaitAcceptance(deadline: deadline, operation: operation)
 
-            // Stage 2: Completion
-            let boxPointer = try await threads.awaitCompletion(ticket: ticket)
-            return boxPointer.raw
+            // Stage 2: Completion (only throws leaf failure, wrap it)
+            do {
+                let boxPointer = try await threads.awaitCompletion(ticket: ticket)
+                return boxPointer.raw
+            } catch {
+                throw .failure(error)
+            }
         }
     }
 }
@@ -107,16 +111,19 @@ extension IO.Blocking.Threads {
 extension IO.Blocking.Threads {
     /// Stage 1: Waits for acceptance (may suspend if queue is full).
     ///
-    /// Uses `withCheckedContinuation` with `Result<Ticket, Failure>` instead of
+    /// Uses `withCheckedContinuation` with `Result<Ticket, IO.Lifecycle.Error<Failure>>` instead of
     /// `withCheckedThrowingContinuation` to preserve typed throws throughout.
     /// No `any Error` appears in this code path.
+    ///
+    /// Lifecycle conditions (shutdown) are expressed via `IO.Lifecycle.Error`,
+    /// keeping the leaf `Failure` type free of lifecycle concerns.
     private func awaitAcceptance(
         deadline: IO.Blocking.Deadline?,
         operation: @Sendable @escaping () -> UnsafeMutableRawPointer
-    ) async throws(IO.Blocking.Failure) -> Ticket {
+    ) async throws(IO.Lifecycle.Error<IO.Blocking.Failure>) -> Ticket {
         // Check cancellation upfront
         if Task.isCancelled {
-            throw .cancelled
+            throw .failure(.cancelled)
         }
 
         // Lazy start workers
@@ -128,14 +135,14 @@ extension IO.Blocking.Threads {
         // Generate ticket under lock
         let ticket: Ticket = state.lock.withLock { state.makeTicket() }
 
-        let outcome: Acceptance.Waiter.Outcome = await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: Acceptance.Waiter.Continuation) in
+        let outcome: Result<Ticket, IO.Lifecycle.Error<IO.Blocking.Failure>> = await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Result<Ticket, IO.Lifecycle.Error<IO.Blocking.Failure>>, Never>) in
                 state.lock.lock()
 
                 // Check shutdown
                 if state.isShutdown {
                     state.lock.unlock()
-                    continuation.resume(returning: .failure(.shutdown))
+                    continuation.resume(returning: .failure(.lifecycle(.shutdownInProgress)))
                     return
                 }
 
@@ -167,7 +174,7 @@ extension IO.Blocking.Threads {
                 switch options.policy.behavior.onQueueFull(queueFullContext) {
                 case .fail(let failure):
                     state.lock.unlock()
-                    continuation.resume(returning: .failure(failure))
+                    continuation.resume(returning: .failure(.failure(failure)))
 
                 case .wait:
                     // Register acceptance waiter
@@ -188,7 +195,7 @@ extension IO.Blocking.Threads {
                         )
                         let error = options.policy.behavior.onAcceptanceOverflow(overflowContext)
                         state.lock.unlock()
-                        continuation.resume(returning: .failure(error))
+                        continuation.resume(returning: .failure(.failure(error)))
                         return
                     }
                     // Signal deadline manager if waiter has a deadline
@@ -315,7 +322,7 @@ extension IO.Blocking.Threads {
         // Resume acceptance waiters with shutdown (outside lock)
         for var waiter in waitersToResume {
             if !waiter.resumed {
-                waiter.resume(with: .failure(.shutdown))
+                waiter.resume(with: .lifecycle(.shutdownInProgress))
             }
         }
 
@@ -355,7 +362,7 @@ extension IO.Blocking.Lane {
                 (
                     deadline: IO.Blocking.Deadline?,
                     operation: @Sendable @escaping () -> UnsafeMutableRawPointer
-                ) async throws(IO.Blocking.Failure) -> UnsafeMutableRawPointer in
+                ) async throws(IO.Lifecycle.Error<IO.Blocking.Failure>) -> UnsafeMutableRawPointer in
                 try await impl.run.boxed(deadline: deadline, operation)
             },
             shutdown: { await impl.shutdown() }

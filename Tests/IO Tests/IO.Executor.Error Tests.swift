@@ -15,11 +15,8 @@ extension IO.Executor.Error {
 // MARK: - Unit Tests
 
 extension IO.Executor.Error.Test.Unit {
-    @Test("shutdownInProgress case exists")
-    func shutdownInProgressCase() {
-        let error = IO.Executor.Error.shutdownInProgress
-        #expect(error == .shutdownInProgress)
-    }
+    // Note: shutdownInProgress is no longer a case of IO.Executor.Error.
+    // Lifecycle conditions are expressed via IO.Lifecycle.Error at API boundaries.
 
     @Test("scopeMismatch case exists")
     func scopeMismatchCase() {
@@ -41,21 +38,21 @@ extension IO.Executor.Error.Test.Unit {
 
     @Test("Equatable conformance")
     func equatableConformance() {
-        #expect(IO.Executor.Error.shutdownInProgress == .shutdownInProgress)
-        #expect(IO.Executor.Error.shutdownInProgress != .scopeMismatch)
+        #expect(IO.Executor.Error.scopeMismatch == .scopeMismatch)
+        #expect(IO.Executor.Error.scopeMismatch != .handleNotFound)
     }
 
     @Test("Sendable conformance")
     func sendableConformance() async {
-        let error = IO.Executor.Error.shutdownInProgress
+        let error = IO.Executor.Error.scopeMismatch
         await Task {
-            #expect(error == .shutdownInProgress)
+            #expect(error == .scopeMismatch)
         }.value
     }
 
     @Test("Error conformance")
     func errorConformance() {
-        let error: any Error = IO.Executor.Error.shutdownInProgress
+        let error: any Error = IO.Executor.Error.scopeMismatch
         #expect(error is IO.Executor.Error)
     }
 }
@@ -66,7 +63,6 @@ extension IO.Executor.Error.Test.EdgeCase {
     @Test("all cases are distinct")
     func allCasesDistinct() {
         let cases: [IO.Executor.Error] = [
-            .shutdownInProgress,
             .scopeMismatch,
             .handleNotFound,
             .invalidState,

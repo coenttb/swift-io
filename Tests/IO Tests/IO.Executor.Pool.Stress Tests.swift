@@ -177,13 +177,13 @@ struct IOExecutorPoolStressTests {
                     await outcomeTracker.record(id: id, outcome: .acquired)
                 } catch is CancellationError {
                     await outcomeTracker.record(id: id, outcome: .cancelled)
-                } catch let error as IO.Error<Never> {
+                } catch let error as IO.Lifecycle.Error<IO.Error<Never>> {
                     switch error {
-                    case .cancelled:
-                        await outcomeTracker.record(id: id, outcome: .cancelled)
-                    case .executor(.shutdownInProgress):
+                    case .lifecycle(.shutdownInProgress):
                         await outcomeTracker.record(id: id, outcome: .shutdown)
-                    case .handle(.invalidID):
+                    case .failure(.cancelled):
+                        await outcomeTracker.record(id: id, outcome: .cancelled)
+                    case .failure(.handle(.invalidID)):
                         // Handle destroyed during wait - treat as shutdown
                         await outcomeTracker.record(id: id, outcome: .shutdown)
                     default:
@@ -373,11 +373,13 @@ struct IOExecutorPoolStressTests {
                     await outcomeTracker.record(id: id, outcome: .acquired)
                 } catch is CancellationError {
                     await outcomeTracker.record(id: id, outcome: .cancelled)
-                } catch let error as IO.Error<Never> {
+                } catch let error as IO.Lifecycle.Error<IO.Error<Never>> {
                     switch error {
-                    case .cancelled:
+                    case .lifecycle(.shutdownInProgress):
+                        await outcomeTracker.record(id: id, outcome: .shutdown)
+                    case .failure(.cancelled):
                         await outcomeTracker.record(id: id, outcome: .cancelled)
-                    case .executor(.shutdownInProgress), .handle(.invalidID):
+                    case .failure(.handle(.invalidID)):
                         await outcomeTracker.record(id: id, outcome: .shutdown)
                     default:
                         await outcomeTracker.record(id: id, outcome: .otherError("\(error)"))
@@ -453,11 +455,13 @@ struct IOExecutorPoolStressTests {
                         await outcomeTracker.record(id: id, outcome: .acquired)
                     } catch is CancellationError {
                         await outcomeTracker.record(id: id, outcome: .cancelled)
-                    } catch let error as IO.Error<Never> {
+                    } catch let error as IO.Lifecycle.Error<IO.Error<Never>> {
                         switch error {
-                        case .cancelled:
+                        case .lifecycle(.shutdownInProgress):
+                            await outcomeTracker.record(id: id, outcome: .shutdown)
+                        case .failure(.cancelled):
                             await outcomeTracker.record(id: id, outcome: .cancelled)
-                        case .executor(.shutdownInProgress), .handle(.invalidID):
+                        case .failure(.handle(.invalidID)):
                             await outcomeTracker.record(id: id, outcome: .shutdown)
                         default:
                             await outcomeTracker.record(id: id, outcome: .otherError("\(error)"))
@@ -522,11 +526,13 @@ struct IOExecutorPoolStressTests {
                     await outcomeTracker.record(id: 0, outcome: .acquired)
                 } catch is CancellationError {
                     await outcomeTracker.record(id: 0, outcome: .cancelled)
-                } catch let error as IO.Error<Never> {
+                } catch let error as IO.Lifecycle.Error<IO.Error<Never>> {
                     switch error {
-                    case .cancelled:
+                    case .lifecycle(.shutdownInProgress):
+                        await outcomeTracker.record(id: 0, outcome: .shutdown)
+                    case .failure(.cancelled):
                         await outcomeTracker.record(id: 0, outcome: .cancelled)
-                    case .executor(.shutdownInProgress), .handle(.invalidID):
+                    case .failure(.handle(.invalidID)):
                         await outcomeTracker.record(id: 0, outcome: .shutdown)
                     default:
                         await outcomeTracker.record(id: 0, outcome: .otherError("\(error)"))
@@ -864,7 +870,7 @@ struct IOExecutorPoolStressTests {
             let outcomeTracker = OutcomeTracker(count: waiterCount)
 
             // Holder that throws - use explicit typed-throws closure annotation
-            let holderTask: Task<Result<Int, IO.Error<TestError>>, Never> = Task { [pool, resourceID] in
+            let holderTask: Task<Result<Int, IO.Lifecycle.Error<IO.Error<TestError>>>, Never> = Task { [pool, resourceID] in
                 do {
                     // Explicit typed-throws annotation ensures E is inferred as TestError
                     let result: Int = try await pool.withHandle(resourceID) {
@@ -873,7 +879,7 @@ struct IOExecutorPoolStressTests {
                         throw TestError()
                     }
                     return .success(result)
-                } catch let error as IO.Error<TestError> {
+                } catch let error as IO.Lifecycle.Error<IO.Error<TestError>> {
                     return .failure(error)
                 } catch {
                     // Unexpected error type - wrap it for test purposes
@@ -901,16 +907,16 @@ struct IOExecutorPoolStressTests {
 
             let holderResult = await holderTask.value
 
-            // Holder should have failed with our error wrapped in .operation
+            // Holder should have failed with our error wrapped in .failure(.operation(...))
             switch holderResult {
             case .success:
                 Issue.record("Iteration \(iteration): Holder should have failed")
             case .failure(let error):
-                // Verify the error is .operation wrapping TestError
-                if case .operation(let inner) = error {
+                // Verify the error is .failure(.operation(TestError))
+                if case .failure(.operation(let inner)) = error {
                     #expect(inner == TestError(), "Iteration \(iteration): Should be TestError")
                 } else {
-                    Issue.record("Iteration \(iteration): Expected .operation(TestError), got \(error)")
+                    Issue.record("Iteration \(iteration): Expected .failure(.operation(TestError)), got \(error)")
                 }
             }
 
@@ -1182,11 +1188,13 @@ struct IOExecutorPoolStressTests {
                     await outcomeTracker.record(id: 0, outcome: .acquired)
                 } catch is CancellationError {
                     await outcomeTracker.record(id: 0, outcome: .cancelled)
-                } catch let error as IO.Error<Never> {
+                } catch let error as IO.Lifecycle.Error<IO.Error<Never>> {
                     switch error {
-                    case .cancelled:
+                    case .lifecycle(.shutdownInProgress):
+                        await outcomeTracker.record(id: 0, outcome: .shutdown)
+                    case .failure(.cancelled):
                         await outcomeTracker.record(id: 0, outcome: .cancelled)
-                    case .executor(.shutdownInProgress), .handle(.invalidID):
+                    case .failure(.handle(.invalidID)):
                         await outcomeTracker.record(id: 0, outcome: .shutdown)
                     default:
                         await outcomeTracker.record(id: 0, outcome: .otherError("\(error)"))
@@ -1241,11 +1249,13 @@ struct IOExecutorPoolStressTests {
                     await outcomeTracker.record(id: 0, outcome: .acquired)
                 } catch is CancellationError {
                     await outcomeTracker.record(id: 0, outcome: .cancelled)
-                } catch let error as IO.Error<Never> {
+                } catch let error as IO.Lifecycle.Error<IO.Error<Never>> {
                     switch error {
-                    case .cancelled:
+                    case .lifecycle(.shutdownInProgress):
+                        await outcomeTracker.record(id: 0, outcome: .shutdown)
+                    case .failure(.cancelled):
                         await outcomeTracker.record(id: 0, outcome: .cancelled)
-                    case .executor(.shutdownInProgress), .handle(.invalidID):
+                    case .failure(.handle(.invalidID)):
                         await outcomeTracker.record(id: 0, outcome: .shutdown)
                     default:
                         await outcomeTracker.record(id: 0, outcome: .otherError("\(error)"))

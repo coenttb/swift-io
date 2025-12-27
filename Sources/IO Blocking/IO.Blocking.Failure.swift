@@ -11,6 +11,9 @@ extension IO.Blocking {
     /// Operation errors are returned in the boxed `Result`, not thrown.
     /// Lane only throws `Failure` for infrastructure-level issues.
     ///
+    /// - Note: Shutdown is not represented here. Lifecycle conditions
+    ///   are expressed via `IO.Lifecycle.Error<...>` at API boundaries.
+    ///
     /// ## Forward Compatibility
     /// This enum is intentionally not `@frozen`. New cases may be added
     /// in future versions. Clients should use `@unknown default` in
@@ -19,13 +22,12 @@ extension IO.Blocking {
     /// ```swift
     /// switch failure {
     /// case .cancelled: ...
-    /// case .shutdown: ...
+    /// case .queueFull: ...
     /// // ... other cases ...
     /// @unknown default: handleUnknownFailure(failure)
     /// }
     /// ```
     public enum Failure: Swift.Error, Sendable, Equatable {
-        case shutdown
         case queueFull
         case deadlineExceeded
         case cancelled

@@ -81,8 +81,8 @@ extension IO.Blocking.Threads.Thread.Worker {
         /// ## Lazy Expiry
         /// Expired waiters are resumed with `.deadlineExceeded` and their slots reclaimed.
         /// This ensures non-expired waiters behind expired ones are not starved.
-        func promoteAcceptanceWaiters() -> [(IO.Blocking.Threads.Acceptance.Waiter, Result<IO.Blocking.Threads.Ticket, IO.Blocking.Failure>)] {
-            var toResume: [(IO.Blocking.Threads.Acceptance.Waiter, Result<IO.Blocking.Threads.Ticket, IO.Blocking.Failure>)] = []
+        func promoteAcceptanceWaiters() -> [(IO.Blocking.Threads.Acceptance.Waiter, Result<IO.Blocking.Threads.Ticket, IO.Lifecycle.Error<IO.Blocking.Failure>>)] {
+            var toResume: [(IO.Blocking.Threads.Acceptance.Waiter, Result<IO.Blocking.Threads.Ticket, IO.Lifecycle.Error<IO.Blocking.Failure>>)] = []
 
             while !queue.isFull, !acceptanceWaiters.isEmpty {
                 if isShutdown { break }
@@ -92,7 +92,7 @@ extension IO.Blocking.Threads.Thread.Worker {
 
                 // Check deadline (lazy expiry)
                 if let deadline = waiter.deadline, deadline.hasExpired {
-                    toResume.append((waiter, .failure(.deadlineExceeded)))
+                    toResume.append((waiter, .failure(.failure(.deadlineExceeded))))
                     continue
                 }
 
@@ -112,7 +112,7 @@ extension IO.Blocking.Threads.Thread.Worker {
                     // Couldn't enqueue - can't put back in ring buffer easily
                     // This shouldn't happen since we checked !queue.isFull
                     // If it does, resume with failure
-                    toResume.append((waiter, .failure(.queueFull)))
+                    toResume.append((waiter, .failure(.failure(.queueFull))))
                     break
                 }
             }
