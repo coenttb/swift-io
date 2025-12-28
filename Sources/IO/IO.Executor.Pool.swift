@@ -302,10 +302,16 @@ extension IO.Executor {
         /// 5. Check-in: restore handle or close if destroyed
         /// 6. Resume next non-cancelled waiter
         ///
-        /// ## Cancellation Semantics
-        /// - Cancellation while waiting: waiter marked cancelled, resumes, throws `.cancelled`
+        /// ## Cancellation Semantics (Synchronous State Flip, Actor Drains on Next Touch)
+        ///
+        /// - `onCancel` handler only flips a cancelled bit synchronously (no Task, no resume)
+        /// - The actor drains cancelled waiters during `resumeNext()` (on handle check-in)
+        /// - Cancelled waiters wake, observe `wasCancelled`, and throw `.cancelled`
         /// - Cancellation after checkout: lane operation completes (if guaranteed),
         ///   handle is checked in, then `.cancelled` is thrown
+        ///
+        /// INVARIANT: All continuation resumption happens on the actor executor.
+        /// No continuations are resumed from `onCancel` or while holding locks.
         public func transaction<T: Sendable, E: Swift.Error & Sendable>(
             _ id: IO.Handle.ID,
             _ body: @Sendable @escaping (inout Resource) throws(E) -> T
@@ -343,22 +349,25 @@ extension IO.Executor {
 
                 let token = entry.waiters.generateToken()
                 var enqueueFailed = false
+                var waiter: IO.Handle.Waiter!
 
                 await withTaskCancellationHandler {
                     await withCheckedContinuation {
                         (continuation: CheckedContinuation<Void, Never>) in
-                        if !entry.waiters.enqueue(token: token, continuation: continuation) {
+                        waiter = IO.Handle.Waiter(token: token, continuation: continuation)
+                        if !entry.waiters.enqueue(waiter) {
                             // Queue filled between check and enqueue (rare race)
                             enqueueFailed = true
-                            continuation.resume()  // Resume immediately
+                            // Drain immediately - we're on actor, this is safe
+                            if let result = waiter.takeForResume() {
+                                result.continuation.resume()
+                            }
                         }
                     }
-                } onCancel: { [executor = self._executor] in
-                    // Immediate task: starts synchronously on caller's context,
-                    // avoiding scheduling delay for cancellation cleanup.
-                    Task.immediate(executorPreference: executor) {
-                        await self._cancelWaiter(token: token, for: id)
-                    }
+                } onCancel: {
+                    // Synchronous state flip - NO Task, NO continuation resume.
+                    // Actor drains cancelled waiters on next touch (resumeNext).
+                    waiter.cancel()
                 }
 
                 // Handle enqueue failure
@@ -366,8 +375,8 @@ extension IO.Executor {
                     throw .failure(.handle(.waitersFull))
                 }
 
-                // Check cancellation after waking
-                if Task.isCancelled {
+                // Check if we were cancelled (waiter knows, or use Task.isCancelled)
+                if waiter.wasCancelled {
                     throw .cancelled
                 }
 
@@ -462,14 +471,6 @@ extension IO.Executor {
                 entry.handle = consume handle
                 entry.state = .present
                 entry.waiters.resumeNext()
-            }
-        }
-
-        /// Cancel a waiter (called from cancellation handler).
-        private func _cancelWaiter(token: UInt64, for id: IO.Handle.ID) {
-            guard let entry = handles[id] else { return }
-            if let continuation = entry.waiters.cancel(token: token) {
-                continuation.resume()
             }
         }
 
