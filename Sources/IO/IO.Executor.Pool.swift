@@ -38,8 +38,8 @@ extension IO.Executor {
     /// actor scheduling, but the implementation does not reorder waiters.
     ///
     /// **Cancellation Semantics**:
-    /// - Waiting cancelled: Waiter is marked cancelled, resumes, throws `CancellationError`
-    /// - Checked out + cancelled: Operation completes, handle checked in, then throws
+    /// - Waiting cancelled: Waiter is marked cancelled, resumes, throws `.failure(.cancelled)`
+    /// - Checked out + cancelled: Operation completes, handle checked in, then throws `.failure(.cancelled)`
     /// - Cancellation never abandons a resource in an inconsistent state
     ///
     /// **Shutdown Semantics**:
@@ -55,7 +55,8 @@ extension IO.Executor {
         /// The lane for executing blocking operations.
         ///
         /// This is `nonisolated` because `Lane` is Sendable and immutable after init.
-        public nonisolated let lane: IO.Blocking.Lane
+        /// Package-scoped to enforce single submission funnel through pool API.
+        package nonisolated let lane: IO.Blocking.Lane
 
         /// Unique scope identifier for this executor instance.
         public nonisolated let scope: UInt64
@@ -413,9 +414,9 @@ extension IO.Executor {
         /// 6. Resume next non-cancelled waiter
         ///
         /// ## Cancellation Semantics
-        /// - Cancellation while waiting: waiter marked cancelled, resumes, throws CancellationError
+        /// - Cancellation while waiting: waiter marked cancelled, resumes, throws `.failure(.cancelled)`
         /// - Cancellation after checkout: lane operation completes (if guaranteed),
-        ///   handle is checked in, then CancellationError is thrown
+        ///   handle is checked in, then `.failure(.cancelled)` is thrown
         public func transaction<T: Sendable, E: Swift.Error & Sendable>(
             _ id: IO.Handle.ID,
             _ body: @Sendable @escaping (inout Resource) throws(E) -> T
@@ -528,7 +529,15 @@ extension IO.Executor {
                     throw .failure(.lane(.cancelled))
                 }
 
-                // Re-validate after waiting - entry might be destroyed
+                // Check shutdown after waking - takes precedence over destroyed state.
+                // Symmetric with destroyed-guard wakeup pass-through; expected to return
+                // nil after closeAndDrain() has drained all armed waiters.
+                if isShutdown {
+                    if let c = entry.waiters.resumeNext() { c.resume() }
+                    throw .lifecycle(.shutdownInProgress)
+                }
+
+                // Re-validate after waiting - entry might be destroyed (non-shutdown path)
                 // Also pass wakeup to prevent lost wakeups in destroy races
                 guard entries[id] != nil, entry.state != .destroyed else {
                     if let c = entry.waiters.resumeNext() { c.resume() }
@@ -543,6 +552,15 @@ extension IO.Executor {
             var slot = IO.Executor.Slot.Container<Resource>.allocate()
             slot.initialize(with: checkedOutHandle)
             let address = slot.address
+
+            // Gate submission: shutdown wins the race against late submit.
+            // Use .shutdown mode to avoid signaling waiters (shutdown drains them).
+            if isShutdown {
+                let handle = slot.take()
+                slot.deallocateRawOnly()
+                await _checkInHandle(handle, for: id, entry: entry, mode: .shutdown)
+                throw .lifecycle(.shutdownInProgress)
+            }
 
             let operationResult: Result<T, E>
             do {
@@ -589,25 +607,59 @@ extension IO.Executor {
             }
         }
 
+        /// Check-in mode controls signaling behavior.
+        private enum CheckIn {
+            /// Normal check-in: signal availability to wake waiters.
+            case normal
+            /// Shutdown check-in: no signaling (shutdown drains waiters).
+            case shutdown
+        }
+
         /// Check-in a handle after transaction.
+        ///
+        /// - Parameters:
+        ///   - handle: The resource to check in (ownership transferred).
+        ///   - id: The handle ID.
+        ///   - entry: The handle entry.
+        ///   - mode: Check-in mode. Use `.shutdown` when shutdown has begun
+        ///     to avoid inconsistent waiter signaling.
+        ///
+        /// ## Invariant
+        /// Callers must pass `.shutdown` if `isShutdown` is true, to prevent
+        /// post-shutdown signaling. Work acceptance is solely guarded by `isShutdown`
+        /// at the submission funnel, not by `entry.state`.
         private func _checkInHandle(
             _ handle: consuming Resource,
             for id: IO.Handle.ID,
-            entry: IO.Executor.Handle.Entry<Resource>
+            entry: IO.Executor.Handle.Entry<Resource>,
+            mode: CheckIn = .normal
         ) async {
             if entry.state == .destroyed {
                 // Entry marked for destruction - remove from registry first
                 entries.removeValue(forKey: id)
                 await _teardownResource(handle)
             } else {
-                // Sync path - store handle back and signal availability
+                // Store handle back
                 entry.resource = consume handle
-                entry.state = .present
-                // Use signalHandleAvailable() to either wake an armed waiter
-                // or record the availability permit for a future arm() call.
-                // This prevents the "lost baton" race where a waiter arms after
-                // resumeNext() returned nil but before it could be woken.
-                if let c = entry.waiters.signalHandleAvailable() { c.resume() }
+
+                switch mode {
+                case .normal:
+                    // Normal path: update state and signal availability
+                    entry.state = .present
+                    // Use signalHandleAvailable() to either wake an armed waiter
+                    // or record the availability permit for a future arm() call.
+                    // This prevents the "lost baton" race where a waiter arms after
+                    // resumeNext() returned nil but before it could be woken.
+                    if let c = entry.waiters.signalHandleAvailable() { c.resume() }
+
+                case .shutdown:
+                    // Shutdown path: store resource only, do not change state.
+                    // - No signaling: shutdown drains waiters via closeAndDrain().
+                    // - No state change: avoids coupling state transitions with work
+                    //   acceptance. Shutdown will set .destroyed when it processes
+                    //   this entry; we just ensure the resource is findable.
+                    break
+                }
             }
         }
 

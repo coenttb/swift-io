@@ -166,31 +166,29 @@ struct IOExecutorPoolStressTests {
         // Give holders a head start
         try await Task.sleep(for: .milliseconds(10))
 
+        
+        
         // Start waiter tasks
         let waiterTasks: [Task<Void, Never>] = (0..<waiterCount).map { id in
             Task { [pool, resourceID, outcomeTracker] in
-                do {
+                do throws(IO.Lifecycle.Error<IO.Error<Never>>) {
                     try await pool.withHandle(resourceID) { resource in
                         resource.counter += 1
                     }
                     // Acquired and completed
                     await outcomeTracker.record(id: id, outcome: .acquired)
-                } catch is CancellationError {
-                    await outcomeTracker.record(id: id, outcome: .cancelled)
-                } catch let error as IO.Lifecycle.Error<IO.Error<Never>> {
+                } catch {
                     switch error {
                     case .lifecycle(.shutdownInProgress):
                         await outcomeTracker.record(id: id, outcome: .shutdown)
                     case .failure(.cancelled):
                         await outcomeTracker.record(id: id, outcome: .cancelled)
                     case .failure(.handle(.invalidID)):
-                        // Handle destroyed during wait - treat as shutdown
-                        await outcomeTracker.record(id: id, outcome: .shutdown)
-                    default:
-                        await outcomeTracker.record(id: id, outcome: .otherError("\(error)"))
+                        // This should only happen for explicit destroy(), not shutdown
+                        await outcomeTracker.record(id: id, outcome: .otherError("invalidID"))
+                    case .failure(let other):
+                        await outcomeTracker.record(id: id, outcome: .otherError("\(other)"))
                     }
-                } catch {
-                    await outcomeTracker.record(id: id, outcome: .otherError("\(error)"))
                 }
             }
         }
@@ -366,26 +364,23 @@ struct IOExecutorPoolStressTests {
         // Start waiters that will enqueue
         let waiterTasks = (0..<waiterCount).map { id in
             Task { [pool, resourceID, outcomeTracker] in
-                do {
+                do throws(IO.Lifecycle.Error<IO.Error<Never>>) {
                     try await pool.withHandle(resourceID) { resource in
                         resource.counter += 1
                     }
                     await outcomeTracker.record(id: id, outcome: .acquired)
-                } catch is CancellationError {
-                    await outcomeTracker.record(id: id, outcome: .cancelled)
-                } catch let error as IO.Lifecycle.Error<IO.Error<Never>> {
+                } catch {
                     switch error {
                     case .lifecycle(.shutdownInProgress):
                         await outcomeTracker.record(id: id, outcome: .shutdown)
                     case .failure(.cancelled):
                         await outcomeTracker.record(id: id, outcome: .cancelled)
                     case .failure(.handle(.invalidID)):
-                        await outcomeTracker.record(id: id, outcome: .shutdown)
-                    default:
-                        await outcomeTracker.record(id: id, outcome: .otherError("\(error)"))
+                        // This should only happen for explicit destroy(), not shutdown
+                        await outcomeTracker.record(id: id, outcome: .otherError("invalidID"))
+                    case .failure(let other):
+                        await outcomeTracker.record(id: id, outcome: .otherError("\(other)"))
                     }
-                } catch {
-                    await outcomeTracker.record(id: id, outcome: .otherError("\(error)"))
                 }
             }
         }
@@ -448,26 +443,23 @@ struct IOExecutorPoolStressTests {
             // Start waiters that will enqueue while holder has the resource
             let waiterTasks = (0..<waiterCount).map { id in
                 Task { [pool, resourceID, outcomeTracker] in
-                    do {
+                    do throws(IO.Lifecycle.Error<IO.Error<Never>>) {
                         try await pool.withHandle(resourceID) { resource in
                             resource.counter += 1
                         }
                         await outcomeTracker.record(id: id, outcome: .acquired)
-                    } catch is CancellationError {
-                        await outcomeTracker.record(id: id, outcome: .cancelled)
-                    } catch let error as IO.Lifecycle.Error<IO.Error<Never>> {
+                    } catch {
                         switch error {
                         case .lifecycle(.shutdownInProgress):
                             await outcomeTracker.record(id: id, outcome: .shutdown)
                         case .failure(.cancelled):
                             await outcomeTracker.record(id: id, outcome: .cancelled)
                         case .failure(.handle(.invalidID)):
-                            await outcomeTracker.record(id: id, outcome: .shutdown)
-                        default:
-                            await outcomeTracker.record(id: id, outcome: .otherError("\(error)"))
+                            // This should only happen for explicit destroy(), not shutdown
+                            await outcomeTracker.record(id: id, outcome: .otherError("invalidID"))
+                        case .failure(let other):
+                            await outcomeTracker.record(id: id, outcome: .otherError("\(other)"))
                         }
-                    } catch {
-                        await outcomeTracker.record(id: id, outcome: .otherError("\(error)"))
                     }
                 }
             }
@@ -519,26 +511,23 @@ struct IOExecutorPoolStressTests {
 
             // Start waiter that will be immediately cancelled
             let waiterTask = Task { [pool, resourceID, outcomeTracker] in
-                do {
+                do throws(IO.Lifecycle.Error<IO.Error<Never>>) {
                     try await pool.withHandle(resourceID) { resource in
                         resource.counter += 1
                     }
                     await outcomeTracker.record(id: 0, outcome: .acquired)
-                } catch is CancellationError {
-                    await outcomeTracker.record(id: 0, outcome: .cancelled)
-                } catch let error as IO.Lifecycle.Error<IO.Error<Never>> {
+                } catch {
                     switch error {
                     case .lifecycle(.shutdownInProgress):
                         await outcomeTracker.record(id: 0, outcome: .shutdown)
                     case .failure(.cancelled):
                         await outcomeTracker.record(id: 0, outcome: .cancelled)
                     case .failure(.handle(.invalidID)):
-                        await outcomeTracker.record(id: 0, outcome: .shutdown)
-                    default:
-                        await outcomeTracker.record(id: 0, outcome: .otherError("\(error)"))
+                        // This should only happen for explicit destroy(), not shutdown
+                        await outcomeTracker.record(id: 0, outcome: .otherError("invalidID"))
+                    case .failure(let other):
+                        await outcomeTracker.record(id: 0, outcome: .otherError("\(other)"))
                     }
-                } catch {
-                    await outcomeTracker.record(id: 0, outcome: .otherError("\(error)"))
                 }
             }
 
@@ -579,15 +568,23 @@ struct IOExecutorPoolStressTests {
 
             let waiterTasks = (0..<waiterCount).map { id in
                 Task { [pool, resourceID, outcomeTracker] in
-                    do {
+                    do throws(IO.Lifecycle.Error<IO.Error<Never>>) {
                         try await pool.withHandle(resourceID) { resource in
                             resource.counter += 1
                         }
                         await outcomeTracker.record(id: id, outcome: .acquired)
-                    } catch is CancellationError {
-                        await outcomeTracker.record(id: id, outcome: .cancelled)
                     } catch {
-                        await outcomeTracker.record(id: id, outcome: .shutdown)
+                        switch error {
+                        case .lifecycle(.shutdownInProgress):
+                            await outcomeTracker.record(id: id, outcome: .shutdown)
+                        case .failure(.cancelled):
+                            await outcomeTracker.record(id: id, outcome: .cancelled)
+                        case .failure(.handle(.invalidID)):
+                            // This should only happen for explicit destroy(), not shutdown
+                            await outcomeTracker.record(id: id, outcome: .otherError("invalidID"))
+                        case .failure(let other):
+                            await outcomeTracker.record(id: id, outcome: .otherError("\(other)"))
+                        }
                     }
                 }
             }
@@ -660,21 +657,25 @@ struct IOExecutorPoolStressTests {
 
         let waiterTasks = (0..<waiterCount).map { id in
             Task { [pool, resourceID, outcomeTracker] in
-                do {
+                do throws(IO.Lifecycle.Error<IO.Error<Never>>) {
                     try await pool.withHandle(resourceID) { resource in
                         resource.counter += 1
                     }
                     await outcomeTracker.record(id: id, outcome: .acquired)
-                } catch is CancellationError {
-                    await outcomeTracker.record(id: id, outcome: .cancelled)
-                } catch let error as IO.Error<Never> {
-                    if case .handle(.waitersFull) = error {
-                        await outcomeTracker.record(id: id, outcome: .otherError("waitersFull"))
-                    } else {
-                        await outcomeTracker.record(id: id, outcome: .shutdown)
-                    }
                 } catch {
-                    await outcomeTracker.record(id: id, outcome: .otherError("\(error)"))
+                    switch error {
+                    case .lifecycle(.shutdownInProgress):
+                        await outcomeTracker.record(id: id, outcome: .shutdown)
+                    case .failure(.cancelled):
+                        await outcomeTracker.record(id: id, outcome: .cancelled)
+                    case .failure(.handle(.waitersFull)):
+                        await outcomeTracker.record(id: id, outcome: .otherError("waitersFull"))
+                    case .failure(.handle(.invalidID)):
+                        // This should only happen for explicit destroy(), not shutdown
+                        await outcomeTracker.record(id: id, outcome: .otherError("invalidID"))
+                    case .failure(let other):
+                        await outcomeTracker.record(id: id, outcome: .otherError("\(other)"))
+                    }
                 }
             }
         }
@@ -710,15 +711,23 @@ struct IOExecutorPoolStressTests {
         // Two waiters competing
         let waiterTasks = (0..<2).map { id in
             Task { [pool, resourceID, outcomeTracker] in
-                do {
+                do throws(IO.Lifecycle.Error<IO.Error<Never>>) {
                     try await pool.withHandle(resourceID) { resource in
                         resource.counter += 1
                     }
                     await outcomeTracker.record(id: id, outcome: .acquired)
-                } catch is CancellationError {
-                    await outcomeTracker.record(id: id, outcome: .cancelled)
                 } catch {
-                    await outcomeTracker.record(id: id, outcome: .shutdown)
+                    switch error {
+                    case .lifecycle(.shutdownInProgress):
+                        await outcomeTracker.record(id: id, outcome: .shutdown)
+                    case .failure(.cancelled):
+                        await outcomeTracker.record(id: id, outcome: .cancelled)
+                    case .failure(.handle(.invalidID)):
+                        // This should only happen for explicit destroy(), not shutdown
+                        await outcomeTracker.record(id: id, outcome: .otherError("invalidID"))
+                    case .failure(let other):
+                        await outcomeTracker.record(id: id, outcome: .otherError("\(other)"))
+                    }
                 }
             }
         }
@@ -766,22 +775,23 @@ struct IOExecutorPoolStressTests {
             // First wave of waiters
             let firstWaveTasks = (0..<firstWaveCount).map { id in
                 Task { [pool, resourceID, firstWaveTracker] in
-                    do {
+                    do throws(IO.Lifecycle.Error<IO.Error<Never>>) {
                         try await pool.withHandle(resourceID) { resource in
                             resource.counter += 1
                         }
                         await firstWaveTracker.record(id: id, outcome: .acquired)
-                    } catch is CancellationError {
-                        await firstWaveTracker.record(id: id, outcome: .cancelled)
-                    } catch let error as IO.Error<Never> {
-                        // IO.Error.cancelled is NOT a CancellationError
-                        if case .cancelled = error {
-                            await firstWaveTracker.record(id: id, outcome: .cancelled)
-                        } else {
-                            await firstWaveTracker.record(id: id, outcome: .shutdown)
-                        }
                     } catch {
-                        await firstWaveTracker.record(id: id, outcome: .shutdown)
+                        switch error {
+                        case .lifecycle(.shutdownInProgress):
+                            await firstWaveTracker.record(id: id, outcome: .shutdown)
+                        case .failure(.cancelled):
+                            await firstWaveTracker.record(id: id, outcome: .cancelled)
+                        case .failure(.handle(.invalidID)):
+                            // This should only happen for explicit destroy(), not shutdown
+                            await firstWaveTracker.record(id: id, outcome: .otherError("invalidID"))
+                        case .failure(let other):
+                            await firstWaveTracker.record(id: id, outcome: .otherError("\(other)"))
+                        }
                     }
                 }
             }
@@ -798,21 +808,23 @@ struct IOExecutorPoolStressTests {
             // Second wave of waiters (should still work)
             let secondWaveTasks = (0..<secondWaveCount).map { id in
                 Task { [pool, resourceID, secondWaveTracker] in
-                    do {
+                    do throws(IO.Lifecycle.Error<IO.Error<Never>>) {
                         try await pool.withHandle(resourceID) { resource in
                             resource.counter += 1
                         }
                         await secondWaveTracker.record(id: id, outcome: .acquired)
-                    } catch is CancellationError {
-                        await secondWaveTracker.record(id: id, outcome: .cancelled)
-                    } catch let error as IO.Error<Never> {
-                        if case .cancelled = error {
-                            await secondWaveTracker.record(id: id, outcome: .cancelled)
-                        } else {
-                            await secondWaveTracker.record(id: id, outcome: .shutdown)
-                        }
                     } catch {
-                        await secondWaveTracker.record(id: id, outcome: .shutdown)
+                        switch error {
+                        case .lifecycle(.shutdownInProgress):
+                            await secondWaveTracker.record(id: id, outcome: .shutdown)
+                        case .failure(.cancelled):
+                            await secondWaveTracker.record(id: id, outcome: .cancelled)
+                        case .failure(.handle(.invalidID)):
+                            // This should only happen for explicit destroy(), not shutdown
+                            await secondWaveTracker.record(id: id, outcome: .otherError("invalidID"))
+                        case .failure(let other):
+                            await secondWaveTracker.record(id: id, outcome: .otherError("\(other)"))
+                        }
                     }
                 }
             }
@@ -871,7 +883,7 @@ struct IOExecutorPoolStressTests {
 
             // Holder that throws - use explicit typed-throws closure annotation
             let holderTask: Task<Result<Int, IO.Lifecycle.Error<IO.Error<TestError>>>, Never> = Task { [pool, resourceID] in
-                do {
+                do throws(IO.Lifecycle.Error<IO.Error<TestError>>) {
                     // Explicit typed-throws annotation ensures E is inferred as TestError
                     let result: Int = try await pool.withHandle(resourceID) {
                         (resource: inout StressTestResource) throws(TestError) -> Int in
@@ -879,11 +891,8 @@ struct IOExecutorPoolStressTests {
                         throw TestError()
                     }
                     return .success(result)
-                } catch let error as IO.Lifecycle.Error<IO.Error<TestError>> {
-                    return .failure(error)
                 } catch {
-                    // Unexpected error type - wrap it for test purposes
-                    fatalError("Unexpected error type: \(type(of: error))")
+                    return .failure(error)
                 }
             }
 
@@ -892,15 +901,23 @@ struct IOExecutorPoolStressTests {
             // Waiters
             let waiterTasks = (0..<waiterCount).map { id in
                 Task { [pool, resourceID, outcomeTracker] in
-                    do {
+                    do throws(IO.Lifecycle.Error<IO.Error<Never>>) {
                         try await pool.withHandle(resourceID) { resource in
                             resource.counter += 1
                         }
                         await outcomeTracker.record(id: id, outcome: .acquired)
-                    } catch is CancellationError {
-                        await outcomeTracker.record(id: id, outcome: .cancelled)
                     } catch {
-                        await outcomeTracker.record(id: id, outcome: .shutdown)
+                        switch error {
+                        case .lifecycle(.shutdownInProgress):
+                            await outcomeTracker.record(id: id, outcome: .shutdown)
+                        case .failure(.cancelled):
+                            await outcomeTracker.record(id: id, outcome: .cancelled)
+                        case .failure(.handle(.invalidID)):
+                            // This should only happen for explicit destroy(), not shutdown
+                            await outcomeTracker.record(id: id, outcome: .otherError("invalidID"))
+                        case .failure(let other):
+                            await outcomeTracker.record(id: id, outcome: .otherError("\(other)"))
+                        }
                     }
                 }
             }
@@ -1033,22 +1050,23 @@ struct IOExecutorPoolStressTests {
             let resourceID = resourceIDs[resourceIndex]
 
             return Task { [pool, resourceID, outcomeTracker, index] in
-                do {
+                do throws(IO.Lifecycle.Error<IO.Error<Never>>) {
                     try await pool.withHandle(resourceID) { resource in
                         resource.counter += 1
                     }
                     await outcomeTracker.record(id: index, outcome: .acquired)
-                } catch is CancellationError {
-                    await outcomeTracker.record(id: index, outcome: .cancelled)
-                } catch let error as IO.Error<Never> {
-                    switch error {
-                    case .cancelled:
-                        await outcomeTracker.record(id: index, outcome: .cancelled)
-                    default:
-                        await outcomeTracker.record(id: index, outcome: .shutdown)
-                    }
                 } catch {
-                    await outcomeTracker.record(id: index, outcome: .shutdown)
+                    switch error {
+                    case .lifecycle(.shutdownInProgress):
+                        await outcomeTracker.record(id: index, outcome: .shutdown)
+                    case .failure(.cancelled):
+                        await outcomeTracker.record(id: index, outcome: .cancelled)
+                    case .failure(.handle(.invalidID)):
+                        // This should only happen for explicit destroy(), not shutdown
+                        await outcomeTracker.record(id: index, outcome: .otherError("invalidID"))
+                    case .failure(let other):
+                        await outcomeTracker.record(id: index, outcome: .otherError("\(other)"))
+                    }
                 }
             }
         }
@@ -1093,15 +1111,23 @@ struct IOExecutorPoolStressTests {
 
             // Waiter that will be subject to race
             let waiterTask = Task { [pool, resourceID, outcomeTracker] in
-                do {
+                do throws(IO.Lifecycle.Error<IO.Error<Never>>) {
                     try await pool.withHandle(resourceID) { resource in
                         resource.counter += 1
                     }
                     await outcomeTracker.record(id: 0, outcome: .acquired)
-                } catch is CancellationError {
-                    await outcomeTracker.record(id: 0, outcome: .cancelled)
                 } catch {
-                    await outcomeTracker.record(id: 0, outcome: .shutdown)
+                    switch error {
+                    case .lifecycle(.shutdownInProgress):
+                        await outcomeTracker.record(id: 0, outcome: .shutdown)
+                    case .failure(.cancelled):
+                        await outcomeTracker.record(id: 0, outcome: .cancelled)
+                    case .failure(.handle(.invalidID)):
+                        // This should only happen for explicit destroy(), not shutdown
+                        await outcomeTracker.record(id: 0, outcome: .otherError("invalidID"))
+                    case .failure(let other):
+                        await outcomeTracker.record(id: 0, outcome: .otherError("\(other)"))
+                    }
                 }
             }
 
@@ -1181,26 +1207,23 @@ struct IOExecutorPoolStressTests {
 
             // Waiter task that will be immediately cancelled
             let waiterTask = Task { [pool, id, outcomeTracker] in
-                do {
+                do throws(IO.Lifecycle.Error<IO.Error<Never>>) {
                     try await pool.withHandle(id) { resource in
                         resource.counter += 1
                     }
                     await outcomeTracker.record(id: 0, outcome: .acquired)
-                } catch is CancellationError {
-                    await outcomeTracker.record(id: 0, outcome: .cancelled)
-                } catch let error as IO.Lifecycle.Error<IO.Error<Never>> {
+                } catch {
                     switch error {
                     case .lifecycle(.shutdownInProgress):
                         await outcomeTracker.record(id: 0, outcome: .shutdown)
                     case .failure(.cancelled):
                         await outcomeTracker.record(id: 0, outcome: .cancelled)
                     case .failure(.handle(.invalidID)):
-                        await outcomeTracker.record(id: 0, outcome: .shutdown)
-                    default:
-                        await outcomeTracker.record(id: 0, outcome: .otherError("\(error)"))
+                        // This should only happen for explicit destroy(), not shutdown
+                        await outcomeTracker.record(id: 0, outcome: .otherError("invalidID"))
+                    case .failure(let other):
+                        await outcomeTracker.record(id: 0, outcome: .otherError("\(other)"))
                     }
-                } catch {
-                    await outcomeTracker.record(id: 0, outcome: .otherError("\(error)"))
                 }
             }
 
@@ -1242,26 +1265,23 @@ struct IOExecutorPoolStressTests {
 
             // Start waiter
             let waiterTask = Task { [pool, id, outcomeTracker] in
-                do {
+                do throws(IO.Lifecycle.Error<IO.Error<Never>>) {
                     try await pool.withHandle(id) { resource in
                         resource.counter += 1
                     }
                     await outcomeTracker.record(id: 0, outcome: .acquired)
-                } catch is CancellationError {
-                    await outcomeTracker.record(id: 0, outcome: .cancelled)
-                } catch let error as IO.Lifecycle.Error<IO.Error<Never>> {
+                } catch {
                     switch error {
                     case .lifecycle(.shutdownInProgress):
                         await outcomeTracker.record(id: 0, outcome: .shutdown)
                     case .failure(.cancelled):
                         await outcomeTracker.record(id: 0, outcome: .cancelled)
                     case .failure(.handle(.invalidID)):
-                        await outcomeTracker.record(id: 0, outcome: .shutdown)
-                    default:
-                        await outcomeTracker.record(id: 0, outcome: .otherError("\(error)"))
+                        // This should only happen for explicit destroy(), not shutdown
+                        await outcomeTracker.record(id: 0, outcome: .otherError("invalidID"))
+                    case .failure(let other):
+                        await outcomeTracker.record(id: 0, outcome: .otherError("\(other)"))
                     }
-                } catch {
-                    await outcomeTracker.record(id: 0, outcome: .otherError("\(error)"))
                 }
             }
 
@@ -1425,18 +1445,20 @@ struct IOExecutorPoolStressTests {
         // Create capacity waiters while holder is active
         let waiterTasks = (0..<capacity).map { _ in
             Task { [pool, resourceID] in
-                do {
+                do throws(IO.Lifecycle.Error<IO.Error<Never>>) {
                     try await pool.withHandle(resourceID) { _ in }
                     return "acquired"
-                } catch is CancellationError {
-                    return "cancelled"
-                } catch let error as IO.Error<Never> {
-                    if case .handle(.waitersFull) = error {
-                        return "waitersFull"
-                    }
-                    return "other: \(error)"
                 } catch {
-                    return "error: \(error)"
+                    switch error {
+                    case .lifecycle(.shutdownInProgress):
+                        return "shutdown"
+                    case .failure(.cancelled):
+                        return "cancelled"
+                    case .failure(.handle(.waitersFull)):
+                        return "waitersFull"
+                    case .failure(let other):
+                        return "other: \(other)"
+                    }
                 }
             }
         }
@@ -1469,18 +1491,20 @@ struct IOExecutorPoolStressTests {
 
         let secondWaveTasks = (0..<capacity).map { _ in
             Task { [pool, resourceID] in
-                do {
+                do throws(IO.Lifecycle.Error<IO.Error<Never>>) {
                     try await pool.withHandle(resourceID) { _ in }
                     return "acquired"
-                } catch is CancellationError {
-                    return "cancelled"
-                } catch let error as IO.Error<Never> {
-                    if case .handle(.waitersFull) = error {
-                        return "waitersFull"
-                    }
-                    return "other: \(error)"
                 } catch {
-                    return "error: \(error)"
+                    switch error {
+                    case .lifecycle(.shutdownInProgress):
+                        return "shutdown"
+                    case .failure(.cancelled):
+                        return "cancelled"
+                    case .failure(.handle(.waitersFull)):
+                        return "waitersFull"
+                    case .failure(let other):
+                        return "other: \(other)"
+                    }
                 }
             }
         }
@@ -1530,13 +1554,18 @@ struct IOExecutorPoolStressTests {
 
             // Create waiter
             let waiterTask = Task { [pool, resourceID] in
-                do {
+                do throws(IO.Lifecycle.Error<IO.Error<Never>>) {
                     try await pool.withHandle(resourceID) { _ in }
                     return "acquired"
-                } catch is CancellationError {
-                    return "cancelled"
                 } catch {
-                    return "error: \(error)"
+                    switch error {
+                    case .lifecycle(.shutdownInProgress):
+                        return "shutdown"
+                    case .failure(.cancelled):
+                        return "cancelled"
+                    case .failure(let other):
+                        return "error: \(other)"
+                    }
                 }
             }
 
@@ -1556,5 +1585,145 @@ struct IOExecutorPoolStressTests {
         }
 
         await pool.shutdown()
+    }
+
+    // MARK: - Lifecycle Invariant Tests
+    //
+    // These tests verify the strict lifecycle error invariant:
+    // Once shutdown begins, all submissions must fail with
+    // .lifecycle(.shutdownInProgress), never .handle(.invalidID).
+
+    /// Tests that submit after shutdown rejects immediately with lifecycle error.
+    ///
+    /// This is the deterministic base case: no races, just verify that
+    /// after shutdown completes, all public entry points reject with lifecycle.
+    @Test("submit after shutdown rejects immediately with lifecycle error")
+    func submitAfterShutdownRejectsImmediately() async throws {
+        let pool = IO.Executor.Pool<StressTestResource>(lane: .inline)
+        let id = try await pool.register(StressTestResource(id: 0))
+
+        // Shutdown first
+        await pool.shutdown()
+
+        // withHandle must reject with lifecycle
+        do throws(IO.Lifecycle.Error<IO.Error<Never>>) {
+            try await pool.withHandle(id) { _ in }
+            Issue.record("withHandle should have thrown")
+        } catch {
+            switch error {
+            case .lifecycle(.shutdownInProgress):
+                break // Correct
+            case let other:
+                Issue.record("Expected .lifecycle(.shutdownInProgress) from withHandle, got \(other)")
+            }
+        }
+
+        // run must reject with lifecycle
+        do throws(IO.Lifecycle.Error<IO.Error<Never>>) {
+            _ = try await pool.run { StressTestResource(id: 1) }
+            Issue.record("run should have thrown")
+        } catch {
+            switch error {
+            case .lifecycle(.shutdownInProgress):
+                break // Correct
+            case let other:
+                Issue.record("Expected .lifecycle(.shutdownInProgress) from run, got \(other)")
+            }
+        }
+
+        // register must reject with lifecycle
+        do throws(IO.Lifecycle.Error<IO.Executor.Error>) {
+            _ = try await pool.register(StressTestResource(id: 2))
+            Issue.record("register should have thrown")
+        } catch {
+            switch error {
+            case .lifecycle(.shutdownInProgress):
+                break // Correct
+            case let other:
+                Issue.record("Expected .lifecycle(.shutdownInProgress) from register, got \(other)")
+            }
+        }
+    }
+
+    /// Tests that shutdown while waiting yields lifecycle error, not invalidID.
+    ///
+    /// This is the key regression test for the lifecycle invariant bug:
+    /// When shutdown occurs while a waiter is waiting for a handle,
+    /// the waiter must receive .lifecycle(.shutdownInProgress), NOT
+    /// .failure(.handle(.invalidID)).
+    ///
+    /// The bug path was:
+    /// 1. shutdown() sets isShutdown = true
+    /// 2. shutdown() calls closeAndDrain() which resumes waiters
+    /// 3. shutdown() sets entry.state = .destroyed
+    /// 4. Resumed waiter sees destroyed entry
+    /// 5. BUG: Throws .failure(.handle(.invalidID)) instead of .lifecycle(.shutdownInProgress)
+    @Test("shutdown while waiting yields lifecycle error")
+    func shutdownWhileWaitingYieldsLifecycleError() async throws {
+        // Uses same pattern as "shutdown wakes all waiters" test
+        // The key assertion: waiters should never see .handle(.invalidID) when shutdown is the cause
+
+        for iteration in 0..<50 {
+            let pool = IO.Executor.Pool<StressTestResource>(lane: .inline)
+            let resourceID = try await pool.register(StressTestResource(id: 0))
+
+            let waiterCount = 5
+            let outcomeTracker = OutcomeTracker(count: waiterCount)
+
+            // Start a holder that briefly holds the resource
+            let holderTask = Task { [pool, resourceID] in
+                try? await pool.withHandle(resourceID) { resource in
+                    resource.counter += 1
+                }
+            }
+
+            // Give holder time to acquire
+            try await Task.sleep(for: .milliseconds(5))
+
+            // Start waiters that will enqueue
+            // Note: We do NOT cancel any tasks in this test, so .cancelled is unexpected.
+            let waiterTasks = (0..<waiterCount).map { id in
+                Task { [pool, resourceID, outcomeTracker] in
+                    do throws(IO.Lifecycle.Error<IO.Error<Never>>) {
+                        try await pool.withHandle(resourceID) { resource in
+                            resource.counter += 1
+                        }
+                        await outcomeTracker.record(id: id, outcome: .acquired)
+                    } catch {
+                        switch error {
+                        case .lifecycle(.shutdownInProgress):
+                            await outcomeTracker.record(id: id, outcome: .shutdown)
+                        case .failure(.cancelled):
+                            // No explicit cancellation in this test - treat as failure
+                            Issue.record("Iteration \(iteration), waiter \(id): Got .cancelled without explicit cancellation")
+                            await outcomeTracker.record(id: id, outcome: .otherError("unexpected-cancelled"))
+                        case .failure(.handle(.invalidID)):
+                            // This is the key assertion: invalidID during shutdown is the bug
+                            Issue.record("Iteration \(iteration), waiter \(id): Got .handle(.invalidID) instead of .lifecycle(.shutdownInProgress)")
+                            await outcomeTracker.record(id: id, outcome: .otherError("invalidID-during-shutdown"))
+                        case .failure(let other):
+                            await outcomeTracker.record(id: id, outcome: .otherError("\(other)"))
+                        }
+                    }
+                }
+            }
+
+            // Give waiters time to enqueue
+            try await Task.sleep(for: .milliseconds(10))
+
+            // Shutdown while waiters are waiting
+            await pool.shutdown()
+
+            // Wait for all tasks
+            await holderTask.value
+            for t in waiterTasks { await t.value }
+
+            // Verify all waiters completed exactly once
+            let snapshot = await outcomeTracker.snapshot()
+            #expect(
+                snapshot.allCompleted,
+                "Iteration \(iteration): Not all waiters completed (\(snapshot.completedCount)/\(waiterCount))"
+            )
+        }
     }
 }
