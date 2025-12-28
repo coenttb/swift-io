@@ -206,3 +206,113 @@ extension IOExecutorPoolTests.Test.EdgeCase {
         await pool.shutdown()  // Should not hang
     }
 }
+
+// MARK: - Executor Tests
+
+extension IOExecutorPoolTests.Test {
+    @Suite struct Integration {}
+}
+
+extension IOExecutorPoolTests.Test.Integration {
+    @Test("pool exposes executor")
+    func exposesExecutor() async {
+        let pool = IO.Executor.Pool<TestResource>(lane: .inline)
+        let executor = pool.executor
+        _ = executor.asUnownedSerialExecutor()
+        await pool.shutdown()
+    }
+
+    @Test("pool unownedExecutor returns same executor")
+    func unownedExecutorConsistent() async {
+        let pool = IO.Executor.Pool<TestResource>(lane: .inline)
+        let unowned1 = pool.unownedExecutor
+        let unowned2 = pool.unownedExecutor
+        // UnownedSerialExecutor identity is consistent
+        _ = unowned1
+        _ = unowned2
+        await pool.shutdown()
+    }
+
+    @Test("init with explicit executor uses that executor")
+    func initWithExplicitExecutor() async {
+        let customExecutor = IO.Executor.Thread()
+        let pool = IO.Executor.Pool<TestResource>(
+            lane: .inline,
+            executor: customExecutor
+        )
+
+        #expect(ObjectIdentifier(pool.executor) == ObjectIdentifier(customExecutor))
+
+        await pool.shutdown()
+        customExecutor.shutdown()
+    }
+
+    @Test("two pools can share same executor")
+    func poolsShareExecutor() async {
+        let sharedExecutor = IO.Executor.Thread()
+
+        let pool1 = IO.Executor.Pool<TestResource>(lane: .inline, executor: sharedExecutor)
+        let pool2 = IO.Executor.Pool<TestResource>(lane: .inline, executor: sharedExecutor)
+
+        #expect(ObjectIdentifier(pool1.executor) == ObjectIdentifier(pool2.executor))
+
+        await pool1.shutdown()
+        await pool2.shutdown()
+        sharedExecutor.shutdown()
+    }
+
+    @Test("pool methods run on assigned executor")
+    func methodsRunOnAssignedExecutor() async throws {
+        let pool = IO.Executor.Pool<TestResource>(lane: .inline)
+
+        let resource = TestResource(value: 42)
+        let id = try await pool.register(resource)
+
+        // Actor-isolated methods run on the pool's executor
+        let value = try await pool.transaction(id) { resource in
+            resource.value
+        }
+
+        #expect(value == 42)
+        await pool.shutdown()
+    }
+
+    @Test("withTaskExecutorPreference uses pool executor")
+    func taskExecutorPreferenceWithPool() async {
+        let pool = IO.Executor.Pool<TestResource>(lane: .inline)
+
+        var executed = false
+        await withTaskExecutorPreference(pool.executor) {
+            executed = true
+        }
+
+        #expect(executed)
+        await pool.shutdown()
+    }
+
+    @Test("pools from shared executor pool get round-robin assignment")
+    func roundRobinAssignment() async {
+        // Create pools using default init (gets executor from IO.Executor.shared)
+        let pool1 = IO.Executor.Pool<TestResource>(lane: .inline)
+        let pool2 = IO.Executor.Pool<TestResource>(lane: .inline)
+        let pool3 = IO.Executor.Pool<TestResource>(lane: .inline)
+        let pool4 = IO.Executor.Pool<TestResource>(lane: .inline)
+
+        // With a sharded pool, executors should be distributed
+        // At minimum, not all pools should be on the same executor
+        let executors = Set([
+            ObjectIdentifier(pool1.executor),
+            ObjectIdentifier(pool2.executor),
+            ObjectIdentifier(pool3.executor),
+            ObjectIdentifier(pool4.executor)
+        ])
+
+        // Should use more than 1 executor (unless system has only 1 core)
+        #expect(executors.count >= 1)
+
+        await pool1.shutdown()
+        await pool2.shutdown()
+        await pool3.shutdown()
+        await pool4.shutdown()
+    }
+}

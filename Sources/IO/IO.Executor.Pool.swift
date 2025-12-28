@@ -26,7 +26,18 @@ extension IO.Executor {
     /// ## Generic over Resource
     /// The pool is generic over `Resource: ~Copyable & Sendable`.
     /// This allows reuse for files, sockets, database connections, etc.
+    ///
+    /// ## Executor Pinning
+    /// Each Pool runs on a dedicated executor thread from a shared sharded pool.
+    /// This provides predictable scheduling and avoids interference with Swift's
+    /// cooperative thread pool.
     public actor Pool<Resource: ~Copyable & Sendable> {
+        /// The executor this pool runs on.
+        ///
+        /// INVARIANT: Immutable for the lifetime of this actor. Rebinding is forbidden.
+        /// `UnownedSerialExecutor` does not retain; executor must outlive actor.
+        private let _executor: IO.Executor.Thread
+
         /// The lane for executing blocking operations.
         public let lane: IO.Blocking.Lane
 
@@ -46,9 +57,29 @@ extension IO.Executor {
         /// Each entry holds a Resource (or nil if checked out) plus waiters.
         private var handles: [IO.Handle.ID: IO.Executor.Handle.Entry<Resource>] = [:]
 
+        // MARK: - Custom Executor
+
+        /// Returns the executor this actor runs on.
+        ///
+        /// This pins the actor to a specific executor thread from the shared pool,
+        /// ensuring predictable scheduling behavior.
+        public nonisolated var unownedExecutor: UnownedSerialExecutor {
+            _executor.asUnownedSerialExecutor()
+        }
+
+        /// The executor this pool runs on.
+        ///
+        /// Use with `withTaskExecutorPreference` to keep related work co-located
+        /// on the same executor shard, reducing scheduling overhead.
+        public nonisolated var executor: IO.Executor.Thread {
+            _executor
+        }
+
         // MARK: - Initializers
 
         /// Creates an executor with the given lane and backpressure policy.
+        ///
+        /// Uses round-robin assignment to select an executor from the shared pool.
         ///
         /// Executors created with this initializer **must** be shut down
         /// when no longer needed using `shutdown()`.
@@ -57,12 +88,35 @@ extension IO.Executor {
         ///   - lane: The lane for executing blocking operations.
         ///   - policy: Backpressure policy (default: `.default`).
         public init(lane: IO.Blocking.Lane, policy: IO.Backpressure.Policy = .default) {
+            self._executor = IO.Executor.shared.next()
+            self.lane = lane
+            self.handleWaitersLimit = policy.handleWaitersLimit
+            self.scope = IO.Executor.scopeCounter.next()
+        }
+
+        /// Creates an executor with the given lane, policy, and explicit executor.
+        ///
+        /// Use this initializer when you need explicit control over which executor
+        /// thread the pool runs on.
+        ///
+        /// - Parameters:
+        ///   - lane: The lane for executing blocking operations.
+        ///   - policy: Backpressure policy (default: `.default`).
+        ///   - executor: The executor thread to run on.
+        public init(
+            lane: IO.Blocking.Lane,
+            policy: IO.Backpressure.Policy = .default,
+            executor: IO.Executor.Thread
+        ) {
+            self._executor = executor
             self.lane = lane
             self.handleWaitersLimit = policy.handleWaitersLimit
             self.scope = IO.Executor.scopeCounter.next()
         }
 
         /// Creates an executor with default Threads lane options.
+        ///
+        /// Uses round-robin assignment to select an executor from the shared pool.
         ///
         /// This is a convenience initializer equivalent to:
         /// ```swift
@@ -71,6 +125,7 @@ extension IO.Executor {
         ///
         /// - Parameter options: Options for the Threads lane.
         public init(_ options: IO.Blocking.Threads.Options = .init()) {
+            self._executor = IO.Executor.shared.next()
             self.lane = .threads(options)
             self.handleWaitersLimit = options.policy.handleWaitersLimit
             self.scope = IO.Executor.scopeCounter.next()
@@ -268,8 +323,10 @@ extension IO.Executor {
                             continuation.resume()  // Resume immediately
                         }
                     }
-                } onCancel: {
-                    Task { await self._cancelWaiter(token: token, for: id) }
+                } onCancel: { [executor = self._executor] in
+                    Task(executorPreference: executor) {
+                        await self._cancelWaiter(token: token, for: id)
+                    }
                 }
 
                 // Handle enqueue failure
