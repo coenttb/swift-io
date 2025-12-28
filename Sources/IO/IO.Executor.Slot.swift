@@ -11,6 +11,17 @@ extension IO.Executor {
     /// Slots provide internal bridging for ~Copyable resources across await
     /// boundaries via lane.run.
     ///
+    /// ## Relationship to IO.Handoff
+    /// Both Slot and `IO.Handoff` solve "cross Sendable boundary" problems using
+    /// the same core pattern: convert pointer to UInt, cross the boundary, reconstruct.
+    ///
+    /// - **IO.Handoff.Cell**: Simple one-shot ownership transfer (init → token → take)
+    /// - **IO.Executor.Slot.Container**: Two-phase lane execution pattern with
+    ///   separate allocation, initialization, and consumption phases
+    ///
+    /// Slot has richer lifecycle semantics because lane workers may initialize
+    /// the resource (not just receive it), and cleanup must handle partial failures.
+    ///
     /// ## Key Design: Integer Address Capture
     /// UnsafeMutableRawPointer is not Sendable in Swift 6, but UInt is.
     /// We expose `slot.address` as a typed `Address` and reconstruct the pointer
