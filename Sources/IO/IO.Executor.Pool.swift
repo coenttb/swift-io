@@ -62,6 +62,19 @@ extension IO.Executor {
         /// Whether shutdown has been initiated.
         private var isShutdown: Bool = false
 
+        // MARK: - Submission Gate
+
+        /// Single submission boundary gate.
+        ///
+        /// INVARIANT: All public methods that accept work (`run`, `register`, `transaction`)
+        /// MUST check this at their start and reject immediately if false.
+        ///
+        /// This ensures:
+        /// - Consistent rejection behavior across all entry points
+        /// - Fail-fast before any expensive validation or state changes
+        /// - Single point for future extensions (rate limiting, capacity checks)
+        private var isAcceptingWork: Bool { !isShutdown }
+
         /// Actor-owned handle registry.
         /// Each entry holds a Resource (or nil if checked out) plus waiters.
         private var handles: [IO.Handle.ID: IO.Executor.Handle.Entry<Resource>] = [:]
@@ -157,7 +170,7 @@ extension IO.Executor {
         public func run<T: Sendable, E: Swift.Error & Sendable>(
             _ operation: @Sendable @escaping () throws(E) -> T
         ) async throws(IO.Lifecycle.Error<IO.Error<E>>) -> T {
-            guard !isShutdown else {
+            guard isAcceptingWork else {
                 throw .shutdownInProgress
             }
 
@@ -236,7 +249,7 @@ extension IO.Executor {
         public func register(
             _ resource: consuming Resource
         ) throws(IO.Lifecycle.Error<IO.Handle.Error>) -> IO.Handle.ID {
-            guard !isShutdown else {
+            guard isAcceptingWork else {
                 throw .shutdownInProgress
             }
             let id = generateHandleID()
@@ -297,6 +310,11 @@ extension IO.Executor {
             _ id: IO.Handle.ID,
             _ body: @Sendable @escaping (inout Resource) throws(E) -> T
         ) async throws(IO.Lifecycle.Error<Transaction.Error<E>>) -> T {
+            // Submission gate: reject immediately if shutdown
+            guard isAcceptingWork else {
+                throw .shutdownInProgress
+            }
+
             // Step 1: Validate scope
             guard id.scope == scope else {
                 throw .failure(.handle(.scopeMismatch))

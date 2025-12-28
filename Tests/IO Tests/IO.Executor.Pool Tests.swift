@@ -144,6 +144,32 @@ extension IOExecutorPoolTests.Test.EdgeCase {
         }
     }
 
+    @Test("transaction after shutdown throws immediately")
+    func transactionAfterShutdown() async throws {
+        let pool = IO.Executor.Pool<TestResource>(lane: .inline)
+
+        // Register a handle before shutdown
+        let resource = TestResource(value: 100)
+        let id = try await pool.register(resource)
+
+        await pool.shutdown()
+
+        do {
+            _ = try await pool.transaction(id) { $0.value }
+            Issue.record("Expected shutdownInProgress error")
+        } catch let error {
+            // Must be shutdownInProgress, not a handle or lane error
+            switch error {
+            case .shutdownInProgress:
+                #expect(true, "transaction correctly rejects at submission gate")
+            case .cancelled:
+                Issue.record("shutdown should not surface as cancelled")
+            case .failure:
+                Issue.record("shutdown should reject at gate, not as failure")
+            }
+        }
+    }
+
     @Test("transaction with invalid ID throws")
     func transactionInvalidID() async {
         let pool = IO.Executor.Pool<TestResource>(lane: .inline)
