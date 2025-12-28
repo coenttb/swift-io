@@ -333,7 +333,9 @@ extension IO.Executor {
                         }
                     }
                 } onCancel: { [executor = self._executor] in
-                    Task(executorPreference: executor) {
+                    // Immediate task: starts synchronously on caller's context,
+                    // avoiding scheduling delay for cancellation cleanup.
+                    Task.immediate(executorPreference: executor) {
                         await self._cancelWaiter(token: token, for: id)
                     }
                 }
