@@ -31,10 +31,11 @@ extension IO.Blocking.Threads.Acceptance {
         let operation: @Sendable () -> UnsafeMutableRawPointer
 
         /// The continuation to resume when accepted or failed.
-        let continuation: CheckedContinuation<
-            Result<IO.Blocking.Threads.Ticket, IO.Lifecycle.Error<IO.Blocking.Failure>>,
-            Never
-        >
+        let continuation:
+            CheckedContinuation<
+                Result<IO.Blocking.Threads.Ticket, IO.Lifecycle.Error<IO.Blocking.Failure>>,
+                Never
+            >
 
         /// Whether this waiter has been resumed. Used for DEBUG assertions.
         var resumed: Bool

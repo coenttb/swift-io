@@ -166,8 +166,6 @@ struct IOExecutorPoolStressTests {
         // Give holders a head start
         try await Task.sleep(for: .milliseconds(10))
 
-        
-        
         // Start waiter tasks
         let waiterTasks: [Task<Void, Never>] = (0..<waiterCount).map { id in
             Task { [pool, resourceID, outcomeTracker] in
@@ -1612,7 +1610,7 @@ struct IOExecutorPoolStressTests {
         } catch {
             switch error {
             case .lifecycle(.shutdownInProgress):
-                break // Correct
+                break  // Correct
             case let other:
                 Issue.record("Expected .lifecycle(.shutdownInProgress) from withHandle, got \(other)")
             }
@@ -1625,7 +1623,7 @@ struct IOExecutorPoolStressTests {
         } catch {
             switch error {
             case .lifecycle(.shutdownInProgress):
-                break // Correct
+                break  // Correct
             case let other:
                 Issue.record("Expected .lifecycle(.shutdownInProgress) from run, got \(other)")
             }
@@ -1638,7 +1636,7 @@ struct IOExecutorPoolStressTests {
         } catch {
             switch error {
             case .lifecycle(.shutdownInProgress):
-                break // Correct
+                break  // Correct
             case let other:
                 Issue.record("Expected .lifecycle(.shutdownInProgress) from register, got \(other)")
             }
