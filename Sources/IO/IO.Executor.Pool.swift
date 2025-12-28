@@ -178,9 +178,9 @@ extension IO.Executor {
             let result: Result<T, E>
             do {
                 result = try await lane.run(deadline: nil, operation)
-            } catch let failure {
+            } catch {
                 // Map lane failures to lifecycle or operational errors
-                switch failure {
+                switch error {
                 case .shutdown:
                     throw .shutdownInProgress
                 case .cancellationRequested:
@@ -194,9 +194,6 @@ extension IO.Executor {
                 case .internalInvariantViolation:
                     throw .failure(.lane(.internalInvariantViolation))
                 }
-            } catch {
-                // Unreachable with typed throws - trap to surface violations
-                preconditionFailure("Pool.run: unexpected error type from lane: \(error)")
             }
             switch result {
             case .success(let value):
@@ -406,11 +403,11 @@ extension IO.Executor {
                         try body(&resource)
                     }
                 }
-            } catch let failure {
+            } catch {
                 // Map lane failures to lifecycle or operational errors
                 _checkInHandle(slot.take(), for: id, entry: entry)
                 slot.deallocateRawOnly()
-                switch failure {
+                switch error {
                 case .shutdown:
                     throw .shutdownInProgress
                 case .cancellationRequested:
@@ -424,11 +421,6 @@ extension IO.Executor {
                 case .internalInvariantViolation:
                     throw .failure(.lane(.internalInvariantViolation))
                 }
-            } catch {
-                // Unreachable with typed throws - trap to surface violations
-                _checkInHandle(slot.take(), for: id, entry: entry)
-                slot.deallocateRawOnly()
-                preconditionFailure("Pool.transaction: unexpected error type from lane: \(error)")
             }
 
             // Check if task was cancelled during execution
@@ -483,7 +475,7 @@ extension IO.Executor {
         ) async throws(IO.Lifecycle.Error<IO.Error<E>>) -> T {
             do {
                 return try await transaction(id, body)
-            } catch let error {
+            } catch {
                 // Map transaction errors to IO.Error
                 switch error {
                 case .shutdownInProgress:
@@ -500,9 +492,6 @@ extension IO.Executor {
                         throw .failure(.leaf(bodyError))
                     }
                 }
-            } catch {
-                // Unreachable with typed throws
-                preconditionFailure("Pool.withHandle: unexpected error type: \(error)")
             }
         }
 
