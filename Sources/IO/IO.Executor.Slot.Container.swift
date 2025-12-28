@@ -19,15 +19,15 @@ extension IO.Executor.Slot {
         private var isInitialized: Bool = false
         private var isConsumed: Bool = false
 
-        /// The address of the allocated memory as a typed capability.
+        /// The address of the allocated memory as an opaque capability token.
         ///
         /// This is Sendable and can be captured in @Sendable closures.
-        /// Use `address.pointer` inside the closure to reconstruct.
+        /// Pass to static methods like `withResource(at:)` or `initializeMemory(at:with:)`.
         public var address: Address {
             guard let raw = raw else {
                 preconditionFailure("Slot already deallocated")
             }
-            return Address(UInt(bitPattern: raw))
+            return Address(bits: UInt(bitPattern: raw))
         }
 
         /// Allocates a slot with storage for one Resource.
@@ -66,24 +66,30 @@ extension IO.Executor.Slot {
         /// Execute a closure with inout access to the resource.
         ///
         /// **Must only be called from within the lane closure.**
-        /// The `raw` pointer must be reconstructed from address inside the closure.
+        ///
+        /// - Parameters:
+        ///   - address: The opaque address token from `slot.address`.
+        ///   - body: Closure receiving inout access to the resource.
         public static func withResource<T, E: Swift.Error>(
-            at raw: UnsafeMutableRawPointer,
+            at address: Address,
             _ body: (inout Resource) throws(E) -> T
         ) throws(E) -> T {
-            let typed = raw.assumingMemoryBound(to: Resource.self)
+            let typed = address._pointer.assumingMemoryBound(to: Resource.self)
             return try body(&typed.pointee)
         }
 
-        /// Initialize memory at the raw pointer location.
+        /// Initialize memory at the address location.
         ///
         /// **Must only be called from within the lane closure.**
-        /// The `raw` pointer must be reconstructed from address inside the closure.
+        ///
+        /// - Parameters:
+        ///   - address: The opaque address token from `slot.address`.
+        ///   - resource: The resource to store, ownership transferred.
         public static func initializeMemory(
-            at raw: UnsafeMutableRawPointer,
+            at address: Address,
             with resource: consuming Resource
         ) {
-            raw.initializeMemory(as: Resource.self, to: resource)
+            address._pointer.initializeMemory(as: Resource.self, to: resource)
         }
 
         /// Takes the resource out of the slot, consuming it.

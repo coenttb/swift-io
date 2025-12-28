@@ -145,7 +145,7 @@ extension IO.Executor {
         /// Execute a blocking operation on the lane with typed throws.
         ///
         /// This method preserves the operation's specific error type while also
-        /// capturing I/O infrastructure errors in `IO.Error<E>`.
+        /// capturing I/O infrastructure errors in `IO.Lifecycle.Error<IO.Error<E>>`.
         ///
         /// ## Cancellation Semantics
         /// - Cancellation before acceptance → `.cancelled`
@@ -153,40 +153,43 @@ extension IO.Executor {
         ///
         /// - Parameter operation: The blocking operation to execute.
         /// - Returns: The result of the operation.
-        /// - Throws: `IO.Error<E>` with the specific operation error or infrastructure error.
+        /// - Throws: `IO.Lifecycle.Error<IO.Error<E>>` with lifecycle or operation errors.
         public func run<T: Sendable, E: Swift.Error & Sendable>(
             _ operation: @Sendable @escaping () throws(E) -> T
-        ) async throws(IO.Error<E>) -> T {
+        ) async throws(IO.Lifecycle.Error<IO.Error<E>>) -> T {
             guard !isShutdown else {
-                throw .executor(.shutdownInProgress)
+                throw .shutdownInProgress
             }
 
             // Lane.run throws(Failure) and returns Result<T, E>
             let result: Result<T, E>
             do {
                 result = try await lane.run(deadline: nil, operation)
-            } catch {
-                // error is statically Failure due to typed throws
-                switch error {
+            } catch let failure as IO.Blocking.Failure {
+                // Map lane failures to lifecycle or operational errors
+                switch failure {
                 case .shutdown:
-                    throw .executor(.shutdownInProgress)
-                case .queueFull:
-                    throw .lane(.queueFull)
-                case .deadlineExceeded:
-                    throw .lane(.deadlineExceeded)
-                case .cancelled:
+                    throw .shutdownInProgress
+                case .cancellationRequested:
                     throw .cancelled
+                case .queueFull:
+                    throw .failure(.lane(.queueFull))
+                case .deadlineExceeded:
+                    throw .failure(.lane(.deadlineExceeded))
                 case .overloaded:
-                    throw .lane(.overloaded)
+                    throw .failure(.lane(.overloaded))
                 case .internalInvariantViolation:
-                    throw .lane(.internalInvariantViolation)
+                    throw .failure(.lane(.internalInvariantViolation))
                 }
+            } catch {
+                // Unreachable with typed throws - trap to surface violations
+                preconditionFailure("Pool.run: unexpected error type from lane: \(error)")
             }
             switch result {
             case .success(let value):
                 return value
             case .failure(let error):
-                throw .operation(error)
+                throw .failure(.leaf(error))
             }
         }
 
@@ -229,10 +232,10 @@ extension IO.Executor {
         ///
         /// - Parameter resource: The resource to register (ownership transferred).
         /// - Returns: A unique handle ID for future operations.
-        /// - Throws: `Executor.Error.shutdownInProgress` if executor is shut down.
+        /// - Throws: `IO.Lifecycle.Error.shutdownInProgress` if executor is shut down.
         public func register(
             _ resource: consuming Resource
-        ) throws(IO.Executor.Error) -> IO.Handle.ID {
+        ) throws(IO.Lifecycle.Error<IO.Handle.Error>) -> IO.Handle.ID {
             guard !isShutdown else {
                 throw .shutdownInProgress
             }
@@ -287,25 +290,25 @@ extension IO.Executor {
         /// 6. Resume next non-cancelled waiter
         ///
         /// ## Cancellation Semantics
-        /// - Cancellation while waiting: waiter marked cancelled, resumes, throws CancellationError
+        /// - Cancellation while waiting: waiter marked cancelled, resumes, throws `.cancelled`
         /// - Cancellation after checkout: lane operation completes (if guaranteed),
-        ///   handle is checked in, then CancellationError is thrown
+        ///   handle is checked in, then `.cancelled` is thrown
         public func transaction<T: Sendable, E: Swift.Error & Sendable>(
             _ id: IO.Handle.ID,
             _ body: @Sendable @escaping (inout Resource) throws(E) -> T
-        ) async throws(Transaction.Error<E>) -> T {
+        ) async throws(IO.Lifecycle.Error<Transaction.Error<E>>) -> T {
             // Step 1: Validate scope
             guard id.scope == scope else {
-                throw .handle(.scopeMismatch)
+                throw .failure(.handle(.scopeMismatch))
             }
 
             // Step 2: Checkout handle (with waiting if needed)
             guard let entry = handles[id] else {
-                throw .handle(.invalidID)
+                throw .failure(.handle(.invalidID))
             }
 
             if entry.state == .destroyed {
-                throw .handle(.invalidID)
+                throw .failure(.handle(.invalidID))
             }
 
             // If handle is available, take it
@@ -317,7 +320,7 @@ extension IO.Executor {
                 // Step 3: Handle is checked out - wait for it
                 // Check if waiter queue has capacity
                 if entry.waiters.isFull {
-                    throw .handle(.waitersFull)
+                    throw .failure(.handle(.waitersFull))
                 }
 
                 let token = entry.waiters.generateToken()
@@ -342,23 +345,21 @@ extension IO.Executor {
 
                 // Handle enqueue failure
                 if enqueueFailed {
-                    throw .handle(.waitersFull)
+                    throw .failure(.handle(.waitersFull))
                 }
 
                 // Check cancellation after waking
-                do {
-                    try Task.checkCancellation()
-                } catch {
-                    throw .lane(.cancelled)
+                if Task.isCancelled {
+                    throw .cancelled
                 }
 
                 // Re-validate after waiting
                 guard let entry = handles[id], entry.state != .destroyed else {
-                    throw .handle(.invalidID)
+                    throw .failure(.handle(.invalidID))
                 }
 
                 guard entry.state == .present, let h = entry.take() else {
-                    throw .handle(.invalidID)
+                    throw .failure(.handle(.invalidID))
                 }
 
                 entry.state = .checkedOut
@@ -373,17 +374,34 @@ extension IO.Executor {
             let operationResult: Result<T, E>
             do {
                 operationResult = try await lane.run(deadline: nil) { () throws(E) -> T in
-                    let raw = address.pointer
-                    return try IO.Executor.Slot.Container<Resource>.withResource(at: raw) {
+                    try IO.Executor.Slot.Container<Resource>.withResource(at: address) {
                         (resource: inout Resource) throws(E) -> T in
                         try body(&resource)
                     }
                 }
-            } catch {
-                // error is statically IO.Blocking.Failure due to typed throws
+            } catch let failure as IO.Blocking.Failure {
+                // Map lane failures to lifecycle or operational errors
                 _checkInHandle(slot.take(), for: id, entry: entry)
                 slot.deallocateRawOnly()
-                throw .lane(error)
+                switch failure {
+                case .shutdown:
+                    throw .shutdownInProgress
+                case .cancellationRequested:
+                    throw .cancelled
+                case .queueFull:
+                    throw .failure(.lane(.queueFull))
+                case .deadlineExceeded:
+                    throw .failure(.lane(.deadlineExceeded))
+                case .overloaded:
+                    throw .failure(.lane(.overloaded))
+                case .internalInvariantViolation:
+                    throw .failure(.lane(.internalInvariantViolation))
+                }
+            } catch {
+                // Unreachable with typed throws - trap to surface violations
+                _checkInHandle(slot.take(), for: id, entry: entry)
+                slot.deallocateRawOnly()
+                preconditionFailure("Pool.transaction: unexpected error type from lane: \(error)")
             }
 
             // Check if task was cancelled during execution
@@ -398,7 +416,7 @@ extension IO.Executor {
 
             // Handle cancellation
             if wasCancelled {
-                throw .lane(.cancelled)
+                throw .cancelled
             }
 
             // Return result or throw body error
@@ -406,7 +424,7 @@ extension IO.Executor {
             case .success(let value):
                 return value
             case .failure(let bodyError):
-                throw .body(bodyError)
+                throw .failure(.body(bodyError))
             }
         }
 
@@ -443,31 +461,29 @@ extension IO.Executor {
         public func withHandle<T: Sendable, E: Swift.Error & Sendable>(
             _ id: IO.Handle.ID,
             _ body: @Sendable @escaping (inout Resource) throws(E) -> T
-        ) async throws(IO.Error<E>) -> T {
+        ) async throws(IO.Lifecycle.Error<IO.Error<E>>) -> T {
             do {
                 return try await transaction(id, body)
-            } catch {
+            } catch let error as IO.Lifecycle.Error<Transaction.Error<E>> {
+                // Map transaction errors to IO.Error
                 switch error {
-                case .lane(let error):
-                    switch error {
-                    case .shutdown:
-                        throw .executor(.shutdownInProgress)
-                    case .queueFull:
-                        throw .lane(.queueFull)
-                    case .deadlineExceeded:
-                        throw .lane(.deadlineExceeded)
-                    case .cancelled:
-                        throw .cancelled
-                    case .overloaded:
-                        throw .lane(.overloaded)
-                    case .internalInvariantViolation:
-                        throw .lane(.internalInvariantViolation)
+                case .shutdownInProgress:
+                    throw .shutdownInProgress
+                case .cancelled:
+                    throw .cancelled
+                case .failure(let transactionError):
+                    switch transactionError {
+                    case .lane(let laneError):
+                        throw .failure(.lane(laneError))
+                    case .handle(let handleError):
+                        throw .failure(.handle(handleError))
+                    case .body(let bodyError):
+                        throw .failure(.leaf(bodyError))
                     }
-                case .handle(let handleError):
-                    throw .handle(handleError)
-                case .body(let bodyError):
-                    throw .operation(bodyError)
                 }
+            } catch {
+                // Unreachable with typed throws
+                preconditionFailure("Pool.withHandle: unexpected error type: \(error)")
             }
         }
 

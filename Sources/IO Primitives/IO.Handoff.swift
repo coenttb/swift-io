@@ -40,17 +40,34 @@ extension IO {
 // MARK: - Token
 
 extension IO.Handoff {
-    /// Sendable capability token representing exclusive ownership of a pending value.
+    /// Sendable capability token representing an address-sized value.
     ///
-    /// This is an opaque ownership token, not a pointer to be manipulated.
-    /// The only valid operation is to pass it to `Cell.take(_:)`.
+    /// ## Semantic Contract
+    /// - Token is an opaque capability that encodes an address-sized bit pattern
+    /// - Valid only within the process and lifetime defined by the producing subsystem
+    /// - Not intended for persistence or round-tripping
+    /// - The only public operation is passing it to the subsystem that created it
+    ///
+    /// ## Usage
+    /// Tokens are created by subsystems (`Cell.token()`, `Slot.Container.address`)
+    /// and consumed by those same subsystems. Do not attempt to forge or inspect.
     public struct Token: Sendable {
         @usableFromInline
-        let bits: UInt
+        package let bits: UInt
 
         @usableFromInline
-        init(bits: UInt) {
+        package init(bits: UInt) {
             self.bits = bits
+        }
+
+        /// Package-internal pointer reconstruction.
+        ///
+        /// Only subsystems that own the lifetime invariant should use this.
+        /// The caller must guarantee the memory is still allocated.
+        @usableFromInline
+        package var _pointer: UnsafeMutableRawPointer {
+            precondition(bits != 0, "Token used after deallocation or with null address")
+            return UnsafeMutableRawPointer(bitPattern: Int(bits))!
         }
     }
 }
