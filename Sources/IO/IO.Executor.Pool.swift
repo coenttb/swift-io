@@ -31,6 +31,15 @@ extension IO.Executor {
     /// Each Pool runs on a dedicated executor thread from a shared sharded pool.
     /// This provides predictable scheduling and avoids interference with Swift's
     /// cooperative thread pool.
+    ///
+    /// ## Execution Model Invariants
+    /// - **Actor pinning**: All actor-isolated state transitions run on the assigned executor
+    /// - **Executor lifetime**: The executor must outlive the actor (`UnownedSerialExecutor`
+    ///   does not retain). The shared executor pool outlives any Pool instance.
+    /// - **Lane separation**: The Lane handles blocking syscalls only. Actor work (state
+    ///   transitions, waiter management, continuation resumes) never goes through the Lane.
+    /// - **Full isolation**: All async methods are actor-isolated. No `nonisolated async`
+    ///   surfaces that could hop to the global executor.
     public actor Pool<Resource: ~Copyable & Sendable> {
         /// The executor this pool runs on.
         ///
