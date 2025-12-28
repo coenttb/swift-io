@@ -55,7 +55,7 @@ extension IO.Executor.Transaction.Error<TestTransactionError>.Test.Unit {
         let error = IO.Executor.Transaction.Error<TestTransactionError>.lane(.cancelled)
         await Task {
             if case .lane = error {
-                #expect(true)
+                #expect(Bool(true))
             } else {
                 Issue.record("Expected lane case")
             }
@@ -74,19 +74,19 @@ extension IO.Executor.Transaction.Error<TestTransactionError>.Test.EdgeCase {
 
         // Verify each case matches expected pattern
         if case .lane = lane {
-            #expect(true)
+            #expect(Bool(true))
         } else {
             Issue.record("lane should be .lane case")
         }
 
         if case .handle = handle {
-            #expect(true)
+            #expect(Bool(true))
         } else {
             Issue.record("handle should be .handle case")
         }
 
         if case .body = body {
-            #expect(true)
+            #expect(Bool(true))
         } else {
             Issue.record("body should be .body case")
         }

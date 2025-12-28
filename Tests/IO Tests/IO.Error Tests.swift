@@ -66,7 +66,7 @@ extension IO.Error<TestOperationError>.Test.Unit {
     func cancelledCase() {
         let error = IO.Error<TestOperationError>.cancelled
         if case .cancelled = error {
-            #expect(true)
+            #expect(Bool(true))
         } else {
             Issue.record("Expected cancelled case")
         }
@@ -88,7 +88,7 @@ extension IO.Error<TestOperationError>.Test.Unit {
         let error = IO.Error<TestOperationError>.cancelled
         let mapped = error.mapOperation { _ in TestOperationError(message: "should not be called") }
         if case .cancelled = mapped {
-            #expect(true)
+            #expect(Bool(true))
         } else {
             Issue.record("Expected cancelled case preserved")
         }
@@ -114,31 +114,31 @@ extension IO.Error<TestOperationError>.Test.EdgeCase {
 
         // Verify each case matches expected pattern
         if case .operation = operation {
-            #expect(true)
+            #expect(Bool(true))
         } else {
             Issue.record("operation should be .operation case")
         }
 
         if case .handle = handle {
-            #expect(true)
+            #expect(Bool(true))
         } else {
             Issue.record("handle should be .handle case")
         }
 
         if case .executor = executor {
-            #expect(true)
+            #expect(Bool(true))
         } else {
             Issue.record("executor should be .executor case")
         }
 
         if case .lane = lane {
-            #expect(true)
+            #expect(Bool(true))
         } else {
             Issue.record("lane should be .lane case")
         }
 
         if case .cancelled = cancelled {
-            #expect(true)
+            #expect(Bool(true))
         } else {
             Issue.record("cancelled should be .cancelled case")
         }
