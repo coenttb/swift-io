@@ -113,7 +113,6 @@ extension IO.Executor {
         ///
         /// - Parameter body: The async work to execute.
         /// - Returns: The result of the body closure.
-        @inlinable
         public nonisolated func withExecutorPreference<T: Sendable>(
             _ body: @Sendable () async throws -> T
         ) async rethrows -> T {
@@ -369,12 +368,12 @@ extension IO.Executor {
 
                 let token = entry.waiters.generateToken()
                 var enqueueFailed = false
-                var waiter: IO.Handle.Waiter!
+                let waiter = IO.Handle.Waiter(token: token)
 
                 await withTaskCancellationHandler {
                     await withCheckedContinuation {
                         (continuation: CheckedContinuation<Void, Never>) in
-                        waiter = IO.Handle.Waiter(token: token, continuation: continuation)
+                        waiter.arm(continuation: continuation)
                         if !entry.waiters.enqueue(waiter) {
                             // Queue filled between check and enqueue (rare race)
                             enqueueFailed = true

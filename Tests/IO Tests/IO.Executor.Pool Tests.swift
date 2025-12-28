@@ -363,12 +363,11 @@ extension IOExecutorPoolTests.Test.Integration {
     func taskExecutorPreferenceWithPool() async {
         let pool = IO.Executor.Pool<TestResource>(lane: .inline)
 
-        var executed = false
-        await withTaskExecutorPreference(pool.executor) {
-            executed = true
+        let result = await withTaskExecutorPreference(pool.executor) {
+            42
         }
 
-        #expect(executed)
+        #expect(result == 42)
         await pool.shutdown()
     }
 
@@ -376,12 +375,12 @@ extension IOExecutorPoolTests.Test.Integration {
     func withExecutorPreferenceConvenience() async {
         let pool = IO.Executor.Pool<TestResource>(lane: .inline)
 
-        var executed = false
-        await pool.withExecutorPreference {
-            executed = true
+        // Verify the method completes without throwing
+        let result = await pool.withExecutorPreference {
+            42
         }
 
-        #expect(executed)
+        #expect(result == 42)
         await pool.shutdown()
     }
 

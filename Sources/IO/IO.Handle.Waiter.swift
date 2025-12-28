@@ -22,16 +22,33 @@ extension IO.Handle {
     /// - No "resume under lock" hazards
     /// - No continuation resumed from arbitrary cancellation threads
     ///
+    /// ## Two-Phase Initialization
+    ///
+    /// The waiter supports late-binding of the continuation to enable safe capture
+    /// in `@Sendable` closures:
+    /// ```swift
+    /// let waiter = Waiter(token: token)  // Create before closure
+    /// await withTaskCancellationHandler {
+    ///     await withCheckedContinuation { continuation in
+    ///         waiter.arm(continuation: continuation)  // Bind continuation
+    ///         // enqueue waiter
+    ///     }
+    /// } onCancel: {
+    ///     waiter.cancel()  // Safe: captures immutable `let waiter`
+    /// }
+    /// ```
+    ///
     /// ## State Machine
     /// ```
-    /// armed ──cancel()──▶ cancelled
-    ///   │                    │
-    ///   │                    │
-    ///   ▼                    ▼
-    /// takeForResume()    takeForResume()
-    ///   │                    │
-    ///   ▼                    ▼
-    /// drained            drained
+    /// unarmed ─────arm()─────▶ armed ──cancel()──▶ armedCancelled
+    ///    │                       │                      │
+    ///    │cancel()               │                      │
+    ///    ▼                       ▼                      ▼
+    /// cancelledUnarmed       takeForResume()       takeForResume()
+    ///    │                       │                      │
+    ///    │arm()                  ▼                      ▼
+    ///    ▼                    drained            cancelledDrained
+    /// armedCancelled
     /// ```
     ///
     /// ## Thread Safety
@@ -41,17 +58,21 @@ extension IO.Handle {
         ///
         /// Uses bit patterns for atomic operations:
         /// - Bit 0: cancelled flag
-        /// - Bit 1: drained flag (continuation taken)
+        /// - Bit 1: armed flag (continuation bound)
+        /// - Bit 2: drained flag (continuation taken)
         private struct State: RawRepresentable, AtomicRepresentable, Equatable {
             var rawValue: UInt8
 
-            static let armed = State(rawValue: 0b00)
-            static let cancelled = State(rawValue: 0b01)
-            static let drained = State(rawValue: 0b10)
-            static let cancelledAndDrained = State(rawValue: 0b11)
+            static let unarmed = State(rawValue: 0b000)
+            static let cancelledUnarmed = State(rawValue: 0b001)
+            static let armed = State(rawValue: 0b010)
+            static let armedCancelled = State(rawValue: 0b011)
+            static let drained = State(rawValue: 0b110)
+            static let cancelledDrained = State(rawValue: 0b111)
 
-            var isCancelled: Bool { rawValue & 0b01 != 0 }
-            var isDrained: Bool { rawValue & 0b10 != 0 }
+            var isCancelled: Bool { rawValue & 0b001 != 0 }
+            var isArmed: Bool { rawValue & 0b010 != 0 }
+            var isDrained: Bool { rawValue & 0b100 != 0 }
 
             init(rawValue: UInt8) {
                 self.rawValue = rawValue
@@ -59,23 +80,62 @@ extension IO.Handle {
         }
 
         /// Atomic state for lock-free cancellation.
-        private let state = Atomic<State>(.armed)
+        private let state = Atomic<State>(.unarmed)
 
-        /// The continuation. Only accessed after state transition under atomic guard.
-        /// Set once during init, cleared once during takeForResume.
+        /// The continuation. Set once during arm(), cleared once during takeForResume().
+        /// Access is protected by state machine transitions.
         private var continuation: CheckedContinuation<Void, Never>?
 
         /// Unique token for identification in the waiter queue.
         public let token: UInt64
 
-        /// Creates an armed waiter ready to be enqueued.
+        /// Creates an unarmed waiter ready to be captured and later armed.
         ///
-        /// - Parameters:
-        ///   - token: Unique identifier for this waiter.
-        ///   - continuation: The continuation to resume when drained.
-        public init(token: UInt64, continuation: CheckedContinuation<Void, Never>) {
+        /// The waiter must be armed with `arm(continuation:)` before it can be drained.
+        ///
+        /// - Parameter token: Unique identifier for this waiter.
+        public init(token: UInt64) {
             self.token = token
-            self.continuation = continuation
+        }
+
+        /// Arm the waiter with a continuation. One-shot, thread-safe.
+        ///
+        /// This method binds the continuation to the waiter. It is safe to call
+        /// even if `cancel()` was called first (cancel-before-arm race).
+        ///
+        /// - Parameter continuation: The continuation to resume when drained.
+        /// - Returns: `true` if successfully armed, `false` if already armed.
+        @discardableResult
+        public func arm(continuation: CheckedContinuation<Void, Never>) -> Bool {
+            // Try: unarmed → armed
+            var (exchanged, current) = state.compareExchange(
+                expected: .unarmed,
+                desired: .armed,
+                ordering: .acquiringAndReleasing
+            )
+
+            if exchanged {
+                self.continuation = continuation
+                return true
+            }
+
+            // Try: cancelledUnarmed → armedCancelled (cancel-before-arm case)
+            if current == .cancelledUnarmed {
+                (exchanged, _) = state.compareExchange(
+                    expected: .cancelledUnarmed,
+                    desired: .armedCancelled,
+                    ordering: .acquiringAndReleasing
+                )
+                if exchanged {
+                    self.continuation = continuation
+                    return true
+                }
+                // Retry if race
+                return arm(continuation: continuation)
+            }
+
+            // Already armed or drained
+            return false
         }
 
         /// Mark this waiter as cancelled. Synchronous, lock-free.
@@ -83,17 +143,32 @@ extension IO.Handle {
         /// This method can be called from any thread, including `onCancel` handlers.
         /// It does NOT resume the continuation - that happens during actor drain.
         ///
-        /// - Returns: `true` if successfully transitioned to cancelled state.
+        /// Safe to call before or after `arm()`.
+        ///
+        /// - Returns: `true` if successfully set cancelled flag.
         ///   `false` if already cancelled or already drained.
         @discardableResult
         public func cancel() -> Bool {
-            // Try: armed -> cancelled
-            let (exchanged, original) = state.compareExchange(
-                expected: .armed,
-                desired: .cancelled,
-                ordering: .acquiringAndReleasing
-            )
-            return exchanged
+            while true {
+                let current = state.load(ordering: .acquiring)
+
+                // Already cancelled or drained
+                if current.isCancelled || current.isDrained {
+                    return false
+                }
+
+                let desired: State = current.isArmed ? .armedCancelled : .cancelledUnarmed
+                let (exchanged, _) = state.compareExchange(
+                    expected: current,
+                    desired: desired,
+                    ordering: .acquiringAndReleasing
+                )
+
+                if exchanged {
+                    return true
+                }
+                // Retry on race
+            }
         }
 
         /// Check if this waiter was cancelled.
@@ -101,6 +176,13 @@ extension IO.Handle {
         /// Safe to call from any thread.
         public var wasCancelled: Bool {
             state.load(ordering: .acquiring).isCancelled
+        }
+
+        /// Check if this waiter has been armed (continuation bound).
+        ///
+        /// Safe to call from any thread.
+        public var isArmed: Bool {
+            state.load(ordering: .acquiring).isArmed
         }
 
         /// Check if this waiter has been drained (continuation taken).
@@ -116,35 +198,36 @@ extension IO.Handle {
         /// continuation. The actor must resume the returned continuation.
         ///
         /// - Returns: The continuation if available, along with cancellation status.
-        ///   Returns `nil` if already drained.
+        ///   Returns `nil` if not yet armed or already drained.
         public func takeForResume() -> (continuation: CheckedContinuation<Void, Never>, wasCancelled: Bool)? {
-            let currentState = state.load(ordering: .acquiring)
+            while true {
+                let current = state.load(ordering: .acquiring)
 
-            // Already drained - nothing to do
-            if currentState.isDrained {
-                return nil
+                // Not armed yet or already drained
+                if !current.isArmed || current.isDrained {
+                    return nil
+                }
+
+                let desired: State = current.isCancelled ? .cancelledDrained : .drained
+                let (exchanged, _) = state.compareExchange(
+                    expected: current,
+                    desired: desired,
+                    ordering: .acquiringAndReleasing
+                )
+
+                guard exchanged else {
+                    // Race - retry
+                    continue
+                }
+
+                // Take the continuation (only one caller can reach here per waiter)
+                guard let c = continuation else {
+                    preconditionFailure("Waiter armed but continuation was nil")
+                }
+                continuation = nil
+
+                return (c, current.isCancelled)
             }
-
-            // Transition to drained state
-            let newState: State = currentState.isCancelled ? .cancelledAndDrained : .drained
-            let (exchanged, _) = state.compareExchange(
-                expected: currentState,
-                desired: newState,
-                ordering: .acquiringAndReleasing
-            )
-
-            guard exchanged else {
-                // Race with cancel() - retry
-                return takeForResume()
-            }
-
-            // Take the continuation (only one caller can reach here per waiter)
-            guard let c = continuation else {
-                preconditionFailure("Waiter drained but continuation was nil")
-            }
-            continuation = nil
-
-            return (c, currentState.isCancelled)
         }
     }
 }
