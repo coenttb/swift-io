@@ -81,10 +81,10 @@ extension IO.Blocking.Lane.Test.EdgeCase {
 
         do {
             _ = try await task.value
-            Issue.record("Expected cancelled error")
+            Issue.record("Expected cancellationRequested error")
         } catch {
             // Cancellation should be detected - either CancellationError or lane failure
-            #expect(error is CancellationError || (error as? IO.Blocking.Failure) == .cancelled)
+            #expect(error is CancellationError || (error as? IO.Blocking.Failure) == .cancellationRequested)
         }
     }
 }

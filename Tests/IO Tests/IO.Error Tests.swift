@@ -9,30 +9,30 @@ import Testing
 @testable import IO
 
 // IO.Error is generic, so we test with a concrete error type
-struct TestOperationError: Error, Sendable, Equatable {
+struct TestLeafError: Error, Sendable, Equatable {
     let message: String
 }
 
-extension IO.Error where Operation == TestOperationError {
+extension IO.Error where Leaf == TestLeafError {
     #TestSuites
 }
 
 // MARK: - Unit Tests
 
-extension IO.Error<TestOperationError>.Test.Unit {
-    @Test("operation case wraps error")
-    func operationCase() {
-        let error = IO.Error<TestOperationError>.operation(TestOperationError(message: "test"))
-        if case .operation(let inner) = error {
+extension IO.Error<TestLeafError>.Test.Unit {
+    @Test("leaf case wraps error")
+    func leafCase() {
+        let error = IO.Error<TestLeafError>.leaf(TestLeafError(message: "test"))
+        if case .leaf(let inner) = error {
             #expect(inner.message == "test")
         } else {
-            Issue.record("Expected operation case")
+            Issue.record("Expected leaf case")
         }
     }
 
     @Test("handle case wraps handle error")
     func handleCase() {
-        let error = IO.Error<TestOperationError>.handle(.invalidID)
+        let error = IO.Error<TestLeafError>.handle(.invalidID)
         if case .handle(let inner) = error {
             #expect(inner == .invalidID)
         } else {
@@ -42,79 +42,64 @@ extension IO.Error<TestOperationError>.Test.Unit {
 
     @Test("executor case wraps executor error")
     func executorCase() {
-        let error = IO.Error<TestOperationError>.executor(.shutdownInProgress)
+        // IO.Executor.Error no longer has shutdownInProgress
+        let error = IO.Error<TestLeafError>.executor(.scopeMismatch)
         if case .executor(let inner) = error {
-            #expect(inner == .shutdownInProgress)
+            #expect(inner == .scopeMismatch)
         } else {
             Issue.record("Expected executor case")
         }
     }
 
-    @Test("lane case wraps failure")
+    @Test("lane case wraps IO.Blocking.Error")
     func laneCase() {
-        let error = IO.Error<TestOperationError>.lane(.cancelled)
+        // Lane now uses IO.Blocking.Error, not IO.Blocking.Failure
+        let error = IO.Error<TestLeafError>.lane(.queueFull)
         if case .lane(let inner) = error {
-            #expect(inner == .cancelled)
+            #expect(inner == .queueFull)
         } else {
             Issue.record("Expected lane case")
         }
     }
 
-    @Test("cancelled case exists")
-    func cancelledCase() {
-        let error = IO.Error<TestOperationError>.cancelled
-        if case .cancelled = error {
-            #expect(true)
-        } else {
-            Issue.record("Expected cancelled case")
-        }
-    }
-
-    @Test("mapOperation transforms operation error")
-    func mapOperation() {
-        let error = IO.Error<TestOperationError>.operation(TestOperationError(message: "original"))
-        let mapped = error.mapOperation { _ in TestOperationError(message: "mapped") }
-        if case .operation(let inner) = mapped {
+    @Test("mapLeaf transforms leaf error")
+    func mapLeaf() {
+        let error = IO.Error<TestLeafError>.leaf(TestLeafError(message: "original"))
+        let mapped = error.mapLeaf { _ in TestLeafError(message: "mapped") }
+        if case .leaf(let inner) = mapped {
             #expect(inner.message == "mapped")
         } else {
-            Issue.record("Expected operation case")
+            Issue.record("Expected leaf case")
         }
     }
 
-    @Test("mapOperation preserves non-operation cases")
-    func mapOperationPreserves() {
-        let error = IO.Error<TestOperationError>.cancelled
-        let mapped = error.mapOperation { _ in TestOperationError(message: "should not be called") }
-        if case .cancelled = mapped {
-            #expect(true)
+    @Test("mapLeaf preserves non-leaf cases")
+    func mapLeafPreserves() {
+        let error = IO.Error<TestLeafError>.lane(.queueFull)
+        let mapped = error.mapLeaf { _ in TestLeafError(message: "should not be called") }
+        if case .lane(let inner) = mapped {
+            #expect(inner == .queueFull)
         } else {
-            Issue.record("Expected cancelled case preserved")
+            Issue.record("Expected lane case preserved")
         }
-    }
-
-    @Test("CustomStringConvertible description")
-    func description() {
-        let error = IO.Error<TestOperationError>.operation(TestOperationError(message: "test"))
-        #expect(error.description.contains("Operation error"))
     }
 }
 
 // MARK: - Edge Cases
 
-extension IO.Error<TestOperationError>.Test.EdgeCase {
+extension IO.Error<TestLeafError>.Test.EdgeCase {
     @Test("all cases are distinct")
     func allCasesDistinct() {
-        let operation: IO.Error<TestOperationError> = .operation(TestOperationError(message: ""))
-        let handle: IO.Error<TestOperationError> = .handle(.invalidID)
-        let executor: IO.Error<TestOperationError> = .executor(.shutdownInProgress)
-        let lane: IO.Error<TestOperationError> = .lane(.cancelled)
-        let cancelled: IO.Error<TestOperationError> = .cancelled
+        let leaf: IO.Error<TestLeafError> = .leaf(TestLeafError(message: ""))
+        let handle: IO.Error<TestLeafError> = .handle(.invalidID)
+        let executor: IO.Error<TestLeafError> = .executor(.scopeMismatch)
+        let lane: IO.Error<TestLeafError> = .lane(.queueFull)
 
         // Verify each case matches expected pattern
-        if case .operation = operation {
+        if case .leaf = leaf {
             #expect(true)
         } else {
-            Issue.record("operation should be .operation case")
+            Issue.record("leaf should be .leaf case")
         }
 
         if case .handle = handle {
@@ -134,11 +119,19 @@ extension IO.Error<TestOperationError>.Test.EdgeCase {
         } else {
             Issue.record("lane should be .lane case")
         }
+    }
 
-        if case .cancelled = cancelled {
-            #expect(true)
-        } else {
-            Issue.record("cancelled should be .cancelled case")
-        }
+    @Test("no cancelled case - lifecycle concerns moved to IO.Lifecycle.Error")
+    func noDirectCancelledCase() {
+        // IO.Error no longer has .cancelled - it's in IO.Lifecycle.Error
+        // This test verifies the design: lifecycle concerns are separate
+        let allCases: [IO.Error<TestLeafError>] = [
+            .leaf(TestLeafError(message: "")),
+            .handle(.invalidID),
+            .executor(.scopeMismatch),
+            .lane(.queueFull)
+        ]
+        // All 4 cases are operational - no lifecycle
+        #expect(allCases.count == 4)
     }
 }

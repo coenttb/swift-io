@@ -12,7 +12,7 @@ extension IO.Blocking.Threads.Completion {
     ///
     /// ## Continuation Resumption Invariant
     /// The continuation MUST be resumed exactly once. This is enforced by:
-    /// - Cancellation path: removes waiter from dictionary and resumes with `.cancelled`
+    /// - Cancellation path: removes waiter from dictionary and resumes with `.cancellationRequested`
     /// - Completion path: removes waiter from dictionary and resumes with box
     ///
     /// Because both paths remove the waiter under lock before resuming,

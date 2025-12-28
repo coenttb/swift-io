@@ -41,7 +41,7 @@ extension IO.Blocking.Lane {
                 ) async throws(IO.Blocking.Failure) -> UnsafeMutableRawPointer in
                 // Check cancellation before execution
                 if Task.isCancelled {
-                    throw .cancelled
+                    throw .cancellationRequested
                 }
                 // Check deadline (one-time check, no queue)
                 if let deadline, deadline.hasExpired {

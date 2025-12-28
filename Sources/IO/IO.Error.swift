@@ -6,24 +6,28 @@
 //
 
 extension IO {
-    /// Generic error type for async I/O operations.
+    /// IO domain failure sum type for operations.
     ///
-    /// This type preserves the specific operation error type while also capturing
-    /// I/O infrastructure errors (executor, lane, cancellation).
+    /// This type preserves the specific leaf error type while also capturing
+    /// I/O infrastructure errors (executor, handle, lane).
+    ///
+    /// ## Design
+    /// - Lifecycle concerns (shutdown, cancellation) are NOT in this type.
+    /// - They are surfaced through `IO.Lifecycle.Error` at the Pool boundary.
+    /// - This ensures wrong-category errors are statically unrepresentable.
     ///
     /// ## Usage
-    /// Async methods throw `IO.Error<SpecificError>` where `SpecificError` is
-    /// the error type from the underlying sync primitive:
+    /// Pool methods throw `IO.Lifecycle.Error<IO.Error<LeafError>>`:
     /// ```swift
-    /// func read() async throws(IO.Error<ReadError>) -> [UInt8]
+    /// func read() async throws(IO.Lifecycle.Error<IO.Error<ReadError>>) -> [UInt8]
     /// ```
     ///
     /// ## No Equatable Constraint
-    /// The Operation type only requires `Error & Sendable` - no `Equatable` constraint.
+    /// The Leaf type only requires `Error & Sendable` - no `Equatable` constraint.
     /// This enables maximum flexibility.
-    public enum Error<Operation: Swift.Error & Sendable>: Swift.Error, Sendable {
-        /// The operation-specific error from the underlying primitive.
-        case operation(Operation)
+    public enum Error<Leaf: Swift.Error & Sendable>: Swift.Error, Sendable {
+        /// The leaf error from the underlying operation.
+        case leaf(Leaf)
 
         /// Handle-related errors.
         case handle(IO.Handle.Error)
@@ -31,34 +35,29 @@ extension IO {
         /// Executor-related errors.
         case executor(IO.Executor.Error)
 
-        /// Lane infrastructure errors.
-        case lane(IO.Blocking.Failure)
-
-        /// The operation was cancelled.
-        case cancelled
+        /// Lane infrastructure errors (excludes lifecycle concerns).
+        case lane(IO.Blocking.Error)
     }
 }
 
 // MARK: - Mapping
 
 extension IO.Error {
-    /// Maps the operation error to a different type.
+    /// Maps the leaf error to a different type.
     ///
-    /// Non-operation cases are preserved as-is.
-    public func mapOperation<NewOperation: Swift.Error & Sendable>(
-        _ transform: (Operation) -> NewOperation
-    ) -> IO.Error<NewOperation> {
+    /// Non-leaf cases are preserved as-is.
+    public func mapLeaf<NewLeaf: Swift.Error & Sendable>(
+        _ transform: (Leaf) -> NewLeaf
+    ) -> IO.Error<NewLeaf> {
         switch self {
-        case .operation(let op):
-            return .operation(transform(op))
+        case .leaf(let e):
+            return .leaf(transform(e))
         case .handle(let error):
             return .handle(error)
         case .executor(let error):
             return .executor(error)
-        case .lane(let failure):
-            return .lane(failure)
-        case .cancelled:
-            return .cancelled
+        case .lane(let error):
+            return .lane(error)
         }
     }
 }
@@ -68,16 +67,14 @@ extension IO.Error {
 extension IO.Error: CustomStringConvertible {
     public var description: String {
         switch self {
-        case .operation(let error):
-            return "Operation error: \(error)"
+        case .leaf(let error):
+            return "Leaf error: \(error)"
         case .handle(let error):
             return "Handle error: \(error)"
         case .executor(let error):
             return "Executor error: \(error)"
-        case .lane(let failure):
-            return "Lane failure: \(failure)"
-        case .cancelled:
-            return "Operation cancelled"
+        case .lane(let error):
+            return "Lane error: \(error)"
         }
     }
 }

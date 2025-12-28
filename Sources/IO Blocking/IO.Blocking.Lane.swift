@@ -24,9 +24,9 @@ extension IO.Blocking {
     ///
     /// ## Cancellation Contract
     /// - **Before acceptance**: If task is cancelled before the lane accepts the job,
-    ///   `run()` throws `.cancelled` immediately without enqueuing.
+    ///   `run()` throws `.cancellationRequested` immediately without enqueuing.
     /// - **After acceptance**: If `guaranteesRunOnceEnqueued` is true, the job runs
-    ///   to completion. The caller may observe `.cancelled` upon return,
+    ///   to completion. The caller may observe `.cancellationRequested` upon return,
     ///   but the operation's side effects occur.
     ///
     /// ## Cancellation Law

@@ -33,16 +33,22 @@ extension IO.Blocking.Failure.Test.Unit {
         #expect(failure == .deadlineExceeded)
     }
 
-    @Test("cancelled case exists")
-    func cancelledCase() {
-        let failure = IO.Blocking.Failure.cancelled
-        #expect(failure == .cancelled)
+    @Test("cancellationRequested case exists")
+    func cancellationRequestedCase() {
+        let failure = IO.Blocking.Failure.cancellationRequested
+        #expect(failure == .cancellationRequested)
     }
 
     @Test("overloaded case exists")
     func overloadedCase() {
         let failure = IO.Blocking.Failure.overloaded
         #expect(failure == .overloaded)
+    }
+
+    @Test("internalInvariantViolation case exists")
+    func internalInvariantViolationCase() {
+        let failure = IO.Blocking.Failure.internalInvariantViolation
+        #expect(failure == .internalInvariantViolation)
     }
 
     @Test("Equatable conformance")
@@ -73,10 +79,11 @@ extension IO.Blocking.Failure.Test.EdgeCase {
     func allCasesDistinct() {
         let cases: [IO.Blocking.Failure] = [
             .shutdown,
+            .cancellationRequested,
             .queueFull,
             .deadlineExceeded,
-            .cancelled,
             .overloaded,
+            .internalInvariantViolation,
         ]
         for (i, case1) in cases.enumerated() {
             for (j, case2) in cases.enumerated() {
@@ -87,5 +94,16 @@ extension IO.Blocking.Failure.Test.EdgeCase {
                 }
             }
         }
+    }
+
+    @Test("lifecycle cases (shutdown, cancellationRequested) are internal contract")
+    func lifecycleCasesAreInternalContract() {
+        // These cases exist in the Lane contract but are mapped to
+        // IO.Lifecycle.Error at the Pool boundary.
+        // Do not match them directly in user code.
+        let shutdown = IO.Blocking.Failure.shutdown
+        let cancellation = IO.Blocking.Failure.cancellationRequested
+        #expect(shutdown == .shutdown)
+        #expect(cancellation == .cancellationRequested)
     }
 }

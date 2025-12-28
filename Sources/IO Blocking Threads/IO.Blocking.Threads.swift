@@ -66,9 +66,9 @@ extension IO.Blocking.Threads {
     /// 2. **Completion stage**: Wait for job completion using the ticket
     ///
     /// ## Cancellation Semantics
-    /// - Cancellation before acceptance: throw `.cancelled`, no job runs
-    /// - Cancellation while waiting for acceptance: throw `.cancelled`, no job runs
-    /// - Cancellation after acceptance: job runs to completion, result is drained, throw `.cancelled`
+    /// - Cancellation before acceptance: throw `.cancellationRequested`, no job runs
+    /// - Cancellation while waiting for acceptance: throw `.cancellationRequested`, no job runs
+    /// - Cancellation after acceptance: job runs to completion, result is drained, throw `.cancellationRequested`
     ///
     /// ## Invariants
     /// - No helper `Task {}` spawned inside lane machinery
@@ -93,7 +93,7 @@ extension IO.Blocking.Threads {
     ) async throws(IO.Blocking.Failure) -> Ticket {
         // Check cancellation upfront
         if Task.isCancelled {
-            throw .cancelled
+            throw .cancellationRequested
         }
 
         // Lazy start workers
@@ -171,7 +171,7 @@ extension IO.Blocking.Threads {
             throw error
         } catch {
             // Should never happen - we only throw Failure
-            throw .cancelled
+            throw .cancellationRequested
         }
     }
 
@@ -207,7 +207,7 @@ extension IO.Blocking.Threads {
                     // Check if already cancelled before registering waiter
                     if Task.isCancelled {
                         state.abandonedTickets.insert(ticket)
-                        cont.resume(throwing: IO.Blocking.Failure.cancelled)
+                        cont.resume(throwing: IO.Blocking.Failure.cancellationRequested)
                         return
                     }
 
@@ -228,7 +228,7 @@ extension IO.Blocking.Threads {
                 // If waiter registered, we own resumption - remove and resume with error
                 if var waiter = state.completionWaiters.removeValue(forKey: ticket) {
                     state.abandonedTickets.insert(ticket)
-                    waiter.resumeThrowing(.cancelled)
+                    waiter.resumeThrowing(.cancellationRequested)
                     return
                 }
 

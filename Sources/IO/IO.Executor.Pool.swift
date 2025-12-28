@@ -165,7 +165,7 @@ extension IO.Executor {
             let result: Result<T, E>
             do {
                 result = try await lane.run(deadline: nil, operation)
-            } catch let failure as IO.Blocking.Failure {
+            } catch let failure {
                 // Map lane failures to lifecycle or operational errors
                 switch failure {
                 case .shutdown:
@@ -379,7 +379,7 @@ extension IO.Executor {
                         try body(&resource)
                     }
                 }
-            } catch let failure as IO.Blocking.Failure {
+            } catch let failure {
                 // Map lane failures to lifecycle or operational errors
                 _checkInHandle(slot.take(), for: id, entry: entry)
                 slot.deallocateRawOnly()
@@ -464,7 +464,7 @@ extension IO.Executor {
         ) async throws(IO.Lifecycle.Error<IO.Error<E>>) -> T {
             do {
                 return try await transaction(id, body)
-            } catch let error as IO.Lifecycle.Error<Transaction.Error<E>> {
+            } catch let error {
                 // Map transaction errors to IO.Error
                 switch error {
                 case .shutdownInProgress:

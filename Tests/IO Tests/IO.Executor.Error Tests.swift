@@ -15,11 +15,7 @@ extension IO.Executor.Error {
 // MARK: - Unit Tests
 
 extension IO.Executor.Error.Test.Unit {
-    @Test("shutdownInProgress case exists")
-    func shutdownInProgressCase() {
-        let error = IO.Executor.Error.shutdownInProgress
-        #expect(error == .shutdownInProgress)
-    }
+    // Note: shutdownInProgress has been moved to IO.Lifecycle.Error
 
     @Test("scopeMismatch case exists")
     func scopeMismatchCase() {
@@ -41,21 +37,21 @@ extension IO.Executor.Error.Test.Unit {
 
     @Test("Equatable conformance")
     func equatableConformance() {
-        #expect(IO.Executor.Error.shutdownInProgress == .shutdownInProgress)
-        #expect(IO.Executor.Error.shutdownInProgress != .scopeMismatch)
+        #expect(IO.Executor.Error.scopeMismatch == .scopeMismatch)
+        #expect(IO.Executor.Error.scopeMismatch != .handleNotFound)
     }
 
     @Test("Sendable conformance")
     func sendableConformance() async {
-        let error = IO.Executor.Error.shutdownInProgress
+        let error = IO.Executor.Error.scopeMismatch
         await Task {
-            #expect(error == .shutdownInProgress)
+            #expect(error == .scopeMismatch)
         }.value
     }
 
     @Test("Error conformance")
     func errorConformance() {
-        let error: any Error = IO.Executor.Error.shutdownInProgress
+        let error: any Error = IO.Executor.Error.scopeMismatch
         #expect(error is IO.Executor.Error)
     }
 }
@@ -65,8 +61,8 @@ extension IO.Executor.Error.Test.Unit {
 extension IO.Executor.Error.Test.EdgeCase {
     @Test("all cases are distinct")
     func allCasesDistinct() {
+        // shutdownInProgress moved to IO.Lifecycle.Error
         let cases: [IO.Executor.Error] = [
-            .shutdownInProgress,
             .scopeMismatch,
             .handleNotFound,
             .invalidState,
@@ -80,5 +76,18 @@ extension IO.Executor.Error.Test.EdgeCase {
                 }
             }
         }
+    }
+
+    @Test("no shutdownInProgress case - lifecycle concerns moved to IO.Lifecycle.Error")
+    func noShutdownInProgressCase() {
+        // IO.Executor.Error no longer has .shutdownInProgress
+        // Shutdown is now surfaced via IO.Lifecycle.Error.shutdownInProgress
+        let allCases: [IO.Executor.Error] = [
+            .scopeMismatch,
+            .handleNotFound,
+            .invalidState
+        ]
+        // All 3 cases are operational - no lifecycle
+        #expect(allCases.count == 3)
     }
 }

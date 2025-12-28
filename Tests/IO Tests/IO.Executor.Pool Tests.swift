@@ -205,6 +205,62 @@ extension IOExecutorPoolTests.Test.EdgeCase {
         await pool.shutdown()
         await pool.shutdown()  // Should not hang
     }
+
+    @Test("shutdown never surfaces as invalidState")
+    func shutdownNeverInvalidState() async {
+        let pool = IO.Executor.Pool<TestResource>(lane: .inline)
+        await pool.shutdown()
+
+        do {
+            // Try to run after shutdown
+            let _: Int = try await pool.run { 42 }
+            Issue.record("Expected shutdownInProgress error")
+        } catch let error {
+            // MUST be .shutdownInProgress, NOT .failure(.executor(.invalidState))
+            switch error {
+            case .shutdownInProgress:
+                #expect(true, "shutdown correctly surfaces as .shutdownInProgress")
+            case .cancelled:
+                Issue.record("shutdown should not surface as cancelled")
+            case .failure(let inner):
+                switch inner {
+                case .executor(.invalidState):
+                    Issue.record("shutdown MUST NOT be encoded as invalidState")
+                case .executor(.scopeMismatch):
+                    Issue.record("shutdown MUST NOT be encoded as scopeMismatch")
+                case .executor(.handleNotFound):
+                    Issue.record("shutdown MUST NOT be encoded as handleNotFound")
+                case .handle:
+                    Issue.record("shutdown MUST NOT be encoded as handle error")
+                case .lane:
+                    Issue.record("shutdown MUST NOT be encoded as lane error")
+                case .leaf:
+                    Issue.record("shutdown MUST NOT be encoded as leaf error")
+                }
+            }
+        }
+    }
+
+    @Test("register after shutdown surfaces as shutdownInProgress")
+    func registerAfterShutdownSurfacesCorrectly() async {
+        let pool = IO.Executor.Pool<TestResource>(lane: .inline)
+        await pool.shutdown()
+
+        do {
+            let resource = TestResource(value: 100)
+            _ = try await pool.register(resource)
+            Issue.record("Expected shutdownInProgress error")
+        } catch let error {
+            switch error {
+            case .shutdownInProgress:
+                #expect(true, "register correctly surfaces as .shutdownInProgress")
+            case .cancelled:
+                Issue.record("shutdown should not surface as cancelled")
+            case .failure:
+                Issue.record("shutdown MUST NOT be encoded as failure")
+            }
+        }
+    }
 }
 
 // MARK: - Executor Tests
