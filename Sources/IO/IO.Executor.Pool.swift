@@ -97,6 +97,29 @@ extension IO.Executor {
             _executor
         }
 
+        /// Execute work with preference for this pool's executor.
+        ///
+        /// This is a convenience wrapper around `withTaskExecutorPreference`.
+        /// Use it to ensure Tasks created within the closure prefer this pool's
+        /// executor, keeping related work co-located and reducing scheduling overhead.
+        ///
+        /// ## Usage
+        /// ```swift
+        /// await pool.withExecutorPreference {
+        ///     // Tasks created here will prefer pool's executor
+        ///     await doWork()
+        /// }
+        /// ```
+        ///
+        /// - Parameter body: The async work to execute.
+        /// - Returns: The result of the body closure.
+        @inlinable
+        public nonisolated func withExecutorPreference<T: Sendable>(
+            _ body: @Sendable () async throws -> T
+        ) async rethrows -> T {
+            try await withTaskExecutorPreference(_executor, operation: body)
+        }
+
         // MARK: - Initializers
 
         /// Creates an executor with the given lane and backpressure policy.

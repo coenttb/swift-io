@@ -372,6 +372,19 @@ extension IOExecutorPoolTests.Test.Integration {
         await pool.shutdown()
     }
 
+    @Test("withExecutorPreference convenience method")
+    func withExecutorPreferenceConvenience() async {
+        let pool = IO.Executor.Pool<TestResource>(lane: .inline)
+
+        var executed = false
+        await pool.withExecutorPreference {
+            executed = true
+        }
+
+        #expect(executed)
+        await pool.shutdown()
+    }
+
     @Test("pools from shared executor pool get round-robin assignment")
     func roundRobinAssignment() async {
         // Create pools using default init (gets executor from IO.Executor.shared)
