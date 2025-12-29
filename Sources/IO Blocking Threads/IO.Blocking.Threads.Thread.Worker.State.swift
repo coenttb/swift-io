@@ -34,6 +34,10 @@ extension IO.Blocking.Threads.Thread.Worker {
         var isShutdown: Bool
         var inFlightCount: Int
 
+        /// Number of workers currently sleeping on the condition variable.
+        /// Used to suppress useless signals when no worker is waiting.
+        var sleepers: Int
+
         // Ticket generation (atomic - no lock required)
         private let ticketCounter: Atomic<UInt64>
 
@@ -46,6 +50,7 @@ extension IO.Blocking.Threads.Thread.Worker {
             self.queue = IO.Blocking.Threads.Job.Queue(capacity: queueLimit)
             self.isShutdown = false
             self.inFlightCount = 0
+            self.sleepers = 0
             self.ticketCounter = Atomic(1)
             self.acceptanceWaiters = IO.Blocking.Threads.Acceptance.Queue(capacity: acceptanceWaitersLimit)
         }
@@ -71,11 +76,17 @@ extension IO.Blocking.Threads.Thread.Worker {
         /// Waiters now hold complete Job.Instance with bundled context.
         /// Promotion simply enqueues the job - the worker will complete it directly.
         ///
+        /// ## Signal Discipline
+        /// Signal only on empty→non-empty transition, and only if sleepers > 0.
+        /// This prevents wasted kernel round-trips when workers are already active.
+        ///
         /// ## Lazy Expiry
         /// Expired waiters are failed via `context.tryFail(.deadlineExceeded)`.
         ///
         /// Must be called under lock.
         func promoteAcceptanceWaiters() {
+            var didTransitionFromEmpty = false
+
             while !queue.isFull, !acceptanceWaiters.isEmpty {
                 if isShutdown { break }
 
@@ -89,15 +100,25 @@ extension IO.Blocking.Threads.Thread.Worker {
                     continue
                 }
 
+                // Track empty→non-empty transition
+                let wasEmpty = queue.isEmpty
+
                 // Enqueue the job (already has context bundled)
                 if tryEnqueue(waiter.job) {
-                    lock.signalWorker()
+                    if wasEmpty {
+                        didTransitionFromEmpty = true
+                    }
                     // Job enqueued - worker will complete via context
                 } else {
                     // Shouldn't happen since we checked !queue.isFull
                     _ = waiter.job.context.tryFail(.queueFull)
                     break
                 }
+            }
+
+            // Signal once if we transitioned from empty and someone is sleeping
+            if didTransitionFromEmpty && sleepers > 0 {
+                lock.signalWorker()
             }
         }
 

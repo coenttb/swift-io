@@ -22,7 +22,16 @@ extension IO.Blocking.Threads.Thread {
 }
 
 extension IO.Blocking.Threads.Thread.Worker {
+    /// Maximum jobs to drain per wake cycle.
+    /// Amortizes lock operations and reduces sleep/wake frequency.
+    private static let drainLimit: Int = 16
+
     /// The main worker loop.
+    ///
+    /// ## Design
+    /// - Tracks `sleepers` count to enable signal suppression
+    /// - Drains up to `drainLimit` jobs per wake to amortize lock overhead
+    /// - Promotes acceptance waiters after each job completes
     ///
     /// Runs until shutdown is signaled and all jobs are drained.
     func run() {
@@ -30,9 +39,11 @@ extension IO.Blocking.Threads.Thread.Worker {
             // Acquire lock and wait for job
             state.lock.lock()
 
-            // Wait for job or shutdown
+            // Wait for job or shutdown, tracking sleepers
             while state.queue.isEmpty && !state.isShutdown {
+                state.sleepers += 1
                 state.lock.waitWorker()
+                state.sleepers -= 1
             }
 
             // Check for exit condition: shutdown + empty queue
@@ -41,32 +52,41 @@ extension IO.Blocking.Threads.Thread.Worker {
                 return
             }
 
-            // Dequeue job
-            guard let job = state.queue.dequeue() else {
+            // Drain loop: process up to drainLimit jobs before going back to wait
+            var drained = 0
+            while drained < Self.drainLimit {
+                // Dequeue job
+                guard let job = state.queue.dequeue() else {
+                    break
+                }
+
+                state.inFlightCount += 1
+
+                // Promote acceptance waiters now that we have capacity
+                // With unified design, this enqueues jobs directly -
+                // contexts are completed by workers, not here
+                state.promoteAcceptanceWaiters()
+
                 state.lock.unlock()
-                continue
+
+                // Execute job outside lock
+                // Job.run() calls context.tryComplete() directly
+                job.run()
+
+                drained += 1
+
+                // Re-acquire lock for next iteration or completion
+                state.lock.lock()
+                state.inFlightCount -= 1
+
+                // Check shutdown condition
+                if state.isShutdown && state.queue.isEmpty && state.inFlightCount == 0 {
+                    state.lock.broadcastWorker()
+                    state.lock.unlock()
+                    return
+                }
             }
 
-            state.inFlightCount += 1
-
-            // Promote acceptance waiters now that we have capacity
-            // With unified design, this enqueues jobs directly -
-            // contexts are completed by workers, not here
-            state.promoteAcceptanceWaiters()
-
-            state.lock.unlock()
-
-            // Execute job outside lock
-            // Job.run() calls context.tryComplete() directly
-            job.run()
-
-            // Mark completion
-            state.lock.lock()
-            state.inFlightCount -= 1
-            // If shutdown and queue empty and no in-flight, signal shutdown waiter
-            if state.isShutdown && state.queue.isEmpty && state.inFlightCount == 0 {
-                state.lock.broadcastWorker()
-            }
             state.lock.unlock()
         }
     }

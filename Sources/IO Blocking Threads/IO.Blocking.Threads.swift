@@ -136,9 +136,13 @@ extension IO.Blocking.Threads {
                     return
                 }
 
-                // Try to enqueue directly
+                // Try to enqueue directly with transition-based signaling
+                let wasEmpty = state.queue.isEmpty
                 if state.tryEnqueue(job) {
-                    state.lock.signalWorker()
+                    // Signal only on empty→non-empty transition AND if someone is sleeping
+                    if wasEmpty && state.sleepers > 0 {
+                        state.lock.signalWorker()
+                    }
                     state.lock.unlock()
                     // Job enqueued - worker will complete via context
                     return
