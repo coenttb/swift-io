@@ -284,21 +284,7 @@ extension IO.Executor.Pool where Resource: ~Copyable {
         do {
             result = try await lane.run(deadline: deadline, operation)
         } catch {
-            // Map lane failures to lifecycle or operational errors
-            switch error {
-            case .shutdown:
-                throw .shutdownInProgress
-            case .cancellationRequested:
-                throw .cancelled
-            case .queueFull:
-                throw .failure(.lane(.queueFull))
-            case .deadlineExceeded:
-                throw .failure(.lane(.deadlineExceeded))
-            case .overloaded:
-                throw .failure(.lane(.overloaded))
-            case .internalInvariantViolation:
-                throw .failure(.lane(.internalInvariantViolation))
-            }
+            throw IO.Lifecycle.Error(error)
         }
         switch result {
         case .success(let value):
@@ -526,21 +512,7 @@ extension IO.Executor.Pool where Resource: ~Copyable {
             // Lane infrastructure failure - abort reservation, storage is empty
             _abortReservation(reservedID)
             _ = storage.takeIfStored()
-            // laneError is IO.Blocking.Failure (typed throws)
-            switch laneError {
-            case .shutdown:
-                throw .shutdownInProgress
-            case .cancellationRequested:
-                throw .cancelled
-            case .queueFull:
-                throw .failure(.lane(.queueFull))
-            case .deadlineExceeded:
-                throw .failure(.lane(.deadlineExceeded))
-            case .overloaded:
-                throw .failure(.lane(.overloaded))
-            case .internalInvariantViolation:
-                throw .failure(.lane(.internalInvariantViolation))
-            }
+            throw IO.Lifecycle.Error(laneError)
         }
 
         // Check make() result
@@ -812,20 +784,7 @@ extension IO.Executor.Pool where Resource: ~Copyable {
             // Map lane failures to lifecycle or operational errors
             _checkInHandle(slot.take(), for: id, entry: entry)
             slot.deallocateRawOnly()
-            switch error {
-            case .shutdown:
-                throw .shutdownInProgress
-            case .cancellationRequested:
-                throw .cancelled
-            case .queueFull:
-                throw .failure(.lane(.queueFull))
-            case .deadlineExceeded:
-                throw .failure(.lane(.deadlineExceeded))
-            case .overloaded:
-                throw .failure(.lane(.overloaded))
-            case .internalInvariantViolation:
-                throw .failure(.lane(.internalInvariantViolation))
-            }
+            throw IO.Lifecycle.Error(error)
         }
 
         // Check if task was cancelled during execution

@@ -59,21 +59,7 @@ extension IO.Executor {
         do {
             result = try await lane.run(deadline: deadline, operation)
         } catch {
-            // Map lane failures to lifecycle or operational errors
-            switch error {
-            case .shutdown:
-                throw .shutdownInProgress
-            case .cancellationRequested:
-                throw .cancelled
-            case .queueFull:
-                throw .failure(.lane(.queueFull))
-            case .deadlineExceeded:
-                throw .failure(.lane(.deadlineExceeded))
-            case .overloaded:
-                throw .failure(.lane(.overloaded))
-            case .internalInvariantViolation:
-                throw .failure(.lane(.internalInvariantViolation))
-            }
+            throw IO.Lifecycle.Error(error)
         }
         switch result {
         case .success(let value):
@@ -106,21 +92,7 @@ extension IO.Executor {
         do {
             return try await lane.run(deadline: deadline, operation)
         } catch {
-            // Map lane failures to lifecycle errors
-            switch error {
-            case .shutdown:
-                throw .shutdownInProgress
-            case .cancellationRequested:
-                throw .cancelled
-            case .queueFull:
-                throw .failure(.queueFull)
-            case .deadlineExceeded:
-                throw .failure(.deadlineExceeded)
-            case .overloaded:
-                throw .failure(.overloaded)
-            case .internalInvariantViolation:
-                throw .failure(.internalInvariantViolation)
-            }
+            throw IO.Lifecycle.Error(error)
         }
     }
 }

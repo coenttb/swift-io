@@ -154,6 +154,19 @@ extension IO.Handle.Waiter {
     public var isDrained: Bool {
         state.load(ordering: .acquiring).isDrained
     }
+
+    /// Check if this waiter is eligible for handle reservation.
+    ///
+    /// A waiter is eligible if:
+    /// - It has been armed (continuation bound)
+    /// - It has not been cancelled
+    /// - It has not been drained
+    ///
+    /// Safe to call from any thread.
+    public var isEligibleForReservation: Bool {
+        let s = state.load(ordering: .acquiring)
+        return s.isArmed && !s.isCancelled && !s.isDrained
+    }
 }
 
 extension IO.Handle.Waiter {

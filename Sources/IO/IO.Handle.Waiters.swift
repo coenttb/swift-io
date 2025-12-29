@@ -119,14 +119,14 @@ extension IO.Handle.Waiters {
 
             guard let waiter else { continue }
 
+            // Eligible for reservation: armed, not cancelled, not drained.
+            if waiter.isEligibleForReservation {
+                return waiter
+            }
+
             // Already completed; drop it.
             if waiter.isDrained {
                 continue
-            }
-
-            // Armed and not cancelled: eligible for reservation.
-            if waiter.isArmed, !waiter.wasCancelled {
-                return waiter
             }
 
             // Not eligible (cancelled or unarmed): preserve in queue.
