@@ -17,7 +17,7 @@ A high-performance async I/O executor for Swift. Isolates blocking syscalls from
 
 swift-io is designed for infrastructure code where correctness, determinism, and resource bounds matter more than absolute peak throughput. It intentionally trades unbounded queuing for predictable behavior under load.
 
-**Non-goals:** swift-io does not aim to maximize throughput via unbounded queuing, nor to replace event-driven async I/O frameworks.
+**Non-goals:** swift-io does not aim to maximize throughput via unbounded queuing.
 
 ## Performance
 
