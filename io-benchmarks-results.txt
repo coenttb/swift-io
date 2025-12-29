@@ -1,0 +1,645 @@
+Building for debugging...
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+Build complete! (0.17s)
+Test Suite 'Selected tests' started at 2025-12-29 10:08:20.742.
+Test Suite 'swift-ioPackageTests.xctest' started at 2025-12-29 10:08:20.748.
+Test Suite 'swift-ioPackageTests.xctest' passed at 2025-12-29 10:08:20.748.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2025-12-29 10:08:20.748.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1501
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite MemoryBenchmarks started.
+􀟈  Suite BackpressureBenchmarks started.
+􀟈  Suite OverheadBenchmarks started.
+􀟈  Suite ThroughputBenchmarks started.
+􀟈  Suite CancellationBenchmarks started.
+􀟈  Suite ContentionBenchmarks started.
+􀟈  Suite SchedulingLatencyBenchmarks started.
+􀟈  Suite Test started.
+􀟈  Suite Test started.
+􀟈  Suite Test started.
+􀟈  Suite Test started.
+􀟈  Suite Performance started.
+􀟈  Suite Test started.
+􀟈  Suite Performance started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Unit started.
+􀟈  Suite Performance started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Test started.
+􀟈  Suite Test started.
+􀟈  Suite Unit started.
+􀟈  Suite "FailFast Backpressure" started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Unit started.
+􀟈  Suite Performance started.
+􀟈  Suite Performance started.
+􀟈  Suite Performance started.
+􀟈  Suite Unit started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Unit started.
+􀟈  Test "swift-io: reject when queue full" started.
+􀟈  Suite EdgeCase started.
+􁁛  Suite EdgeCase passed after 0.001 seconds.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Performance started.
+􁁛  Suite EdgeCase passed after 0.001 seconds.
+􀟈  Suite Unit started.
+􀟈  Suite Unit started.
+􁁛  Suite EdgeCase passed after 0.001 seconds.
+􁁛  Suite EdgeCase passed after 0.001 seconds.
+􁁛  Suite Unit passed after 0.001 seconds.
+􁁛  Suite Unit passed after 0.001 seconds.
+􁁛  Suite EdgeCase passed after 0.001 seconds.
+􁁛  Suite Unit passed after 0.001 seconds.
+􁁛  Suite Unit passed after 0.001 seconds.
+􁁛  Suite EdgeCase passed after 0.001 seconds.
+􁁛  Suite Unit passed after 0.001 seconds.
+􁁛  Suite Unit passed after 0.001 seconds.
+􁁛  Suite Unit passed after 0.001 seconds.
+􁁛  Suite EdgeCase passed after 0.001 seconds.
+⏱️ rejectWhenFull()
+   Iterations: 10
+   Min:        80.57ms
+   Median:     80.90ms
+   Mean:       80.88ms
+   p95:        81.42ms
+   p99:        81.42ms
+   Max:        81.42ms
+   StdDev:     321.55µs
+   Peak Memory: 0 bytes
+􁁛  Test "swift-io: reject when queue full" passed after 0.971 seconds.
+􁁛  Suite "FailFast Backpressure" passed after 0.971 seconds.
+􀟈  Suite "Wait Backpressure" started.
+􀟈  Test "swift-io: suspend until capacity" started.
+⏱️ suspendUntilCapacity()
+   Iterations: 5
+   Min:        14.68ms
+   Median:     14.76ms
+   Mean:       14.78ms
+   p95:        14.90ms
+   p99:        14.90ms
+   Max:        14.90ms
+   StdDev:     91.50µs
+   Peak Memory: 2.30 KB
+􁁛  Test "swift-io: suspend until capacity" passed after 0.088 seconds.
+􁁛  Suite "Wait Backpressure" passed after 0.089 seconds.
+􀟈  Suite "Sustained Load (Within Capacity)" started.
+􀟈  Test "swift-io: 1000 ops with sufficient capacity" started.
+⏱️ swiftIOWithinCapacity()
+   Iterations: 3
+   Min:        130.69ms
+   Median:     133.01ms
+   Mean:       132.94ms
+   p95:        135.11ms
+   p99:        135.11ms
+   Max:        135.11ms
+   StdDev:     2.21ms
+   Peak Memory: 34.14 KB
+􁁛  Test "swift-io: 1000 ops with sufficient capacity" passed after 0.530 seconds.
+􀟈  Test "NIOThreadPool: 1000 ops (unbounded)" started.
+⏱️ nioWithinCapacity()
+   Iterations: 3
+   Min:        132.84ms
+   Median:     132.91ms
+   Mean:       133.15ms
+   p95:        133.71ms
+   p99:        133.71ms
+   Max:        133.71ms
+   StdDev:     485.32µs
+   Peak Memory: 15.88 KB
+􁁛  Test "NIOThreadPool: 1000 ops (unbounded)" passed after 0.532 seconds.
+􁁛  Suite "Sustained Load (Within Capacity)" passed after 1.063 seconds.
+􀟈  Suite "Sustained Load (Beyond Capacity)" started.
+􀟈  Test "swift-io: bounded rejection under overload" started.
+⏱️ swiftIOBeyondCapacity()
+   Iterations: 3
+   Min:        21.60ms
+   Median:     21.72ms
+   Mean:       21.81ms
+   p95:        22.10ms
+   p99:        22.10ms
+   Max:        22.10ms
+   StdDev:     258.41µs
+   Peak Memory: 22.91 KB
+􁁛  Test "swift-io: bounded rejection under overload" passed after 0.087 seconds.
+􀟈  Test "NIOThreadPool: unbounded queuing under overload" started.
+⏱️ nioBeyondCapacity()
+   Iterations: 3
+   Min:        268.31ms
+   Median:     270.19ms
+   Mean:       270.14ms
+   p95:        271.91ms
+   p99:        271.91ms
+   Max:        271.91ms
+   StdDev:     1.80ms
+   Peak Memory: 20.31 KB
+􁁛  Test "NIOThreadPool: unbounded queuing under overload" passed after 1.082 seconds.
+􁁛  Suite "Sustained Load (Beyond Capacity)" passed after 1.170 seconds.
+􁁛  Suite Performance passed after 3.293 seconds.
+􀟈  Suite "Inline Overhead" started.
+􁁛  Suite Test passed after 3.293 seconds.
+􀟈  Test "swift-io: inline lane overhead" started.
+􁁛  Suite BackpressureBenchmarks passed after 3.294 seconds.
+⏱️ swiftIOInline()
+   Iterations: 1000
+   Min:        541.00ns
+   Median:     584.00ns
+   Mean:       599.45ns
+   p95:        667.00ns
+   p99:        708.00ns
+   Max:        3.21µs
+   StdDev:     90.00ns
+   Peak Memory: 39.44 KB
+􁁛  Test "swift-io: inline lane overhead" passed after 0.028 seconds.
+􁁛  Suite "Inline Overhead" passed after 0.028 seconds.
+􀟈  Suite "Thread Dispatch Overhead" started.
+􀟈  Test "swift-io: thread dispatch overhead" started.
+⏱️ swiftIOThreads()
+   Iterations: 500
+   Min:        7.33µs
+   Median:     9.08µs
+   Mean:       9.07µs
+   p95:        10.38µs
+   p99:        11.50µs
+   Max:        22.25µs
+   StdDev:     1.01µs
+   Peak Memory: 101.08 KB
+􁁛  Test "swift-io: thread dispatch overhead" passed after 0.020 seconds.
+􀟈  Test "NIOThreadPool: thread dispatch overhead" started.
+⏱️ nioThreadPool()
+   Iterations: 500
+   Min:        6.88µs
+   Median:     11.17µs
+   Mean:       14.55µs
+   p95:        26.25µs
+   p99:        37.88µs
+   Max:        363.58µs
+   StdDev:     17.00µs
+   Peak Memory: 36.05 KB
+􁁛  Test "NIOThreadPool: thread dispatch overhead" passed after 0.023 seconds.
+􁁛  Suite "Thread Dispatch Overhead" passed after 0.044 seconds.
+􀟈  Suite "Typed Error Overhead" started.
+􀟈  Test "swift-io: success path with typed error" started.
+⏱️ swiftIOSuccess()
+   Iterations: 500
+   Min:        7.25µs
+   Median:     9.38µs
+   Mean:       9.60µs
+   p95:        12.33µs
+   p99:        14.50µs
+   Max:        99.63µs
+   StdDev:     4.44µs
+   Peak Memory: 27.00 KB
+􁁛  Test "swift-io: success path with typed error" passed after 0.020 seconds.
+􀟈  Test "swift-io: failure path with typed error" started.
+⏱️ swiftIOFailure()
+   Iterations: 500
+   Min:        7.75µs
+   Median:     9.67µs
+   Mean:       9.78µs
+   p95:        11.42µs
+   p99:        14.33µs
+   Max:        26.29µs
+   StdDev:     1.26µs
+   Peak Memory: 27.00 KB
+􁁛  Test "swift-io: failure path with typed error" passed after 0.021 seconds.
+􀟈  Test "NIOThreadPool: success path" started.
+⏱️ nioSuccess()
+   Iterations: 500
+   Min:        6.79µs
+   Median:     8.71µs
+   Mean:       9.43µs
+   p95:        13.13µs
+   p99:        24.71µs
+   Max:        28.79µs
+   StdDev:     2.95µs
+   Peak Memory: 24.92 KB
+􁁛  Test "NIOThreadPool: success path" passed after 0.021 seconds.
+􀟈  Test "NIOThreadPool: failure path" started.
+⏱️ nioFailure()
+   Iterations: 500
+   Min:        9.00µs
+   Median:     11.92µs
+   Mean:       12.78µs
+   p95:        23.21µs
+   p99:        27.17µs
+   Max:        31.46µs
+   StdDev:     3.61µs
+   Peak Memory: 25.27 KB
+􁁛  Test "NIOThreadPool: failure path" passed after 0.022 seconds.
+􁁛  Suite "Typed Error Overhead" passed after 0.086 seconds.
+􁁛  Suite Performance passed after 3.453 seconds.
+􀟈  Suite "Moderate Contention (10:1)" started.
+􀟈  Test "swift-io: 40 tasks / 4 threads" started.
+􁁛  Suite Test passed after 3.453 seconds.
+􁁛  Suite OverheadBenchmarks passed after 3.453 seconds.
+⏱️ swiftIO()
+   Iterations: 5
+   Min:        11.00ms
+   Median:     11.14ms
+   Mean:       11.20ms
+   p95:        11.38ms
+   p99:        11.38ms
+   Max:        11.38ms
+   StdDev:     160.25µs
+   Peak Memory: 0 bytes
+􁁛  Test "swift-io: 40 tasks / 4 threads" passed after 0.078 seconds.
+􀟈  Test "NIOThreadPool: 40 tasks / 4 threads" started.
+⏱️ nio()
+   Iterations: 5
+   Min:        11.34ms
+   Median:     11.39ms
+   Mean:       11.42ms
+   p95:        11.61ms
+   p99:        11.61ms
+   Max:        11.61ms
+   StdDev:     107.12µs
+   Peak Memory: 37.80 KB
+􁁛  Test "NIOThreadPool: 40 tasks / 4 threads" passed after 0.079 seconds.
+􁁛  Suite "Moderate Contention (10:1)" passed after 0.158 seconds.
+􀟈  Suite "High Contention (100:1)" started.
+􀟈  Test "swift-io: 400 tasks / 4 threads" started.
+⏱️ swiftIO()
+   Iterations: 3
+   Min:        55.05ms
+   Median:     55.43ms
+   Mean:       55.31ms
+   p95:        55.46ms
+   p99:        55.46ms
+   Max:        55.46ms
+   StdDev:     229.85µs
+   Peak Memory: 2.17 KB
+􁁛  Test "swift-io: 400 tasks / 4 threads" passed after 0.221 seconds.
+􀟈  Test "NIOThreadPool: 400 tasks / 4 threads" started.
+⏱️ nio()
+   Iterations: 3
+   Min:        54.63ms
+   Median:     55.04ms
+   Mean:       54.96ms
+   p95:        55.22ms
+   p99:        55.22ms
+   Max:        55.22ms
+   StdDev:     305.14µs
+   Peak Memory: 23.63 KB
+􁁛  Test "NIOThreadPool: 400 tasks / 4 threads" passed after 0.220 seconds.
+􁁛  Suite "High Contention (100:1)" passed after 0.442 seconds.
+􀟈  Suite "Extreme Contention (1000:1)" started.
+􀟈  Test "swift-io: 2000 tasks / 2 threads" started.
+⏱️ swiftIO()
+   Iterations: 3
+   Min:        97.71ms
+   Median:     98.02ms
+   Mean:       98.05ms
+   p95:        98.43ms
+   p99:        98.43ms
+   Max:        98.43ms
+   StdDev:     363.04µs
+   Peak Memory: 2.13 KB
+􁁛  Test "swift-io: 2000 tasks / 2 threads" passed after 0.393 seconds.
+􀟈  Test "NIOThreadPool: 2000 tasks / 2 threads" started.
+⏱️ nio()
+   Iterations: 3
+   Min:        93.48ms
+   Median:     94.17ms
+   Mean:       94.23ms
+   p95:        95.03ms
+   p99:        95.03ms
+   Max:        95.03ms
+   StdDev:     777.71µs
+   Peak Memory: 0 bytes
+􁁛  Test "NIOThreadPool: 2000 tasks / 2 threads" passed after 0.377 seconds.
+􁁛  Suite "Extreme Contention (1000:1)" passed after 0.770 seconds.
+􁁛  Suite Performance passed after 4.824 seconds.
+􀟈  Suite "Pre-Acceptance Cancellation" started.
+􁁛  Suite Test passed after 4.825 seconds.
+􀟈  Test "swift-io: cancel before acceptance" started.
+􁁛  Suite ContentionBenchmarks passed after 4.825 seconds.
+⏱️ swiftIOPreAcceptance()
+   Iterations: 100
+   Min:        461.61ms
+   Median:     478.36ms
+   Mean:       478.45ms
+   p95:        496.30ms
+   p99:        547.44ms
+   Max:        547.44ms
+   StdDev:     12.13ms
+   Peak Memory: 19.39 KB
+􁁛  Test "swift-io: cancel before acceptance" passed after 57.074 seconds.
+􁁛  Suite "Pre-Acceptance Cancellation" passed after 57.074 seconds.
+􀟈  Suite "Post-Acceptance Cancellation" started.
+􀟈  Test "swift-io: cancel after acceptance" started.
+⏱️ swiftIOPostAcceptance()
+   Iterations: 50
+   Min:        254.25µs
+   Median:     1.14ms
+   Mean:       1.05ms
+   p95:        1.18ms
+   p99:        2.04ms
+   Max:        2.04ms
+   StdDev:     276.02µs
+   Peak Memory: 83.20 KB
+􁁛  Test "swift-io: cancel after acceptance" passed after 0.066 seconds.
+􁁛  Suite "Post-Acceptance Cancellation" passed after 0.066 seconds.
+􀟈  Suite "Batch Cancellation" started.
+􀟈  Test "swift-io: cancel 100 tasks" started.
+⏱️ swiftIOBatch()
+   Iterations: 10
+   Min:        306.40ms
+   Median:     315.83ms
+   Mean:       329.98ms
+   p95:        410.62ms
+   p99:        410.62ms
+   Max:        410.62ms
+   StdDev:     35.07ms
+   Peak Memory: 134.14 KB
+􁁛  Test "swift-io: cancel 100 tasks" passed after 4.080 seconds.
+􀟈  Test "NIOThreadPool: cancel 100 tasks" started.
+⏱️ nioBatch()
+   Iterations: 10
+   Min:        13.98ms
+   Median:     15.19ms
+   Mean:       15.22ms
+   p95:        16.74ms
+   p99:        16.74ms
+   Max:        16.74ms
+   StdDev:     1.01ms
+   Peak Memory: 42.48 KB
+􁁛  Test "NIOThreadPool: cancel 100 tasks" passed after 0.182 seconds.
+􁁛  Suite "Batch Cancellation" passed after 4.263 seconds.
+􁁛  Suite Performance passed after 66.229 seconds.
+􁁛  Suite Test passed after 66.229 seconds.
+􀟈  Suite "Pool Actor Scheduling" started.
+􀟈  Test "swift-io: pool method round-trip latency" started.
+􁁛  Suite CancellationBenchmarks passed after 66.230 seconds.
+⏱️ poolMethodLatency()
+   Iterations: 2000
+   Min:        3.17µs
+   Median:     3.75µs
+   Mean:       4.13µs
+   p95:        5.63µs
+   p99:        9.17µs
+   Max:        35.50µs
+   StdDev:     1.81µs
+   Peak Memory: 108.00 KB
+􁁛  Test "swift-io: pool method round-trip latency" passed after 0.075 seconds.
+􀟈  Test "swift-io: pool register/destroy cycle latency" started.
+⏱️ poolRegisterDestroyLatency()
+   Iterations: 1000
+   Min:        7.29µs
+   Median:     8.50µs
+   Mean:       9.71µs
+   p95:        15.96µs
+   p99:        24.71µs
+   Max:        80.92µs
+   StdDev:     4.38µs
+   Peak Memory: 49.25 KB
+􁁛  Test "swift-io: pool register/destroy cycle latency" passed after 0.044 seconds.
+􁁛  Suite "Pool Actor Scheduling" passed after 0.119 seconds.
+􀟈  Suite "Executor Thread Scheduling" started.
+􀟈  Test "swift-io: task on executor thread latency" started.
+⏱️ taskExecutorLatency()
+   Iterations: 2000
+   Min:        4.21µs
+   Median:     4.88µs
+   Mean:       5.51µs
+   p95:        8.08µs
+   p99:        11.54µs
+   Max:        106.33µs
+   StdDev:     3.05µs
+   Peak Memory: 113.83 KB
+􁁛  Test "swift-io: task on executor thread latency" passed after 0.078 seconds.
+􀟈  Test "swift-io: round-robin executor distribution" started.
+⏱️ roundRobinLatency()
+   Iterations: 2000
+   Min:        4.21µs
+   Median:     4.79µs
+   Mean:       5.29µs
+   p95:        8.13µs
+   p99:        11.46µs
+   Max:        76.50µs
+   StdDev:     2.61µs
+   Peak Memory: 117.27 KB
+􁁛  Test "swift-io: round-robin executor distribution" passed after 0.078 seconds.
+􁁛  Suite "Executor Thread Scheduling" passed after 0.156 seconds.
+􀟈  Suite "Comparative Scheduling" started.
+􀟈  Test "swift-io: pinned pool method latency" started.
+⏱️ pinnedPoolLatency()
+   Iterations: 1000
+   Min:        3.21µs
+   Median:     3.71µs
+   Mean:       4.04µs
+   p95:        5.75µs
+   p99:        9.71µs
+   Max:        53.63µs
+   StdDev:     2.16µs
+   Peak Memory: 49.11 KB
+􁁛  Test "swift-io: pinned pool method latency" passed after 0.037 seconds.
+􀟈  Test "baseline: default executor task latency" started.
+⏱️ defaultExecutorLatency()
+   Iterations: 1000
+   Min:        1.08µs
+   Median:     1.67µs
+   Mean:       1.73µs
+   p95:        2.08µs
+   p99:        3.13µs
+   Max:        7.17µs
+   StdDev:     376.00ns
+   Peak Memory: 49.00 KB
+􁁛  Test "baseline: default executor task latency" passed after 0.035 seconds.
+􁁛  Suite "Comparative Scheduling" passed after 0.073 seconds.
+􁁛  Suite Performance passed after 66.579 seconds.
+􀟈  Suite "Per-Operation Allocations" started.
+􁁛  Suite Test passed after 66.579 seconds.
+􀟈  Test "swift-io: allocations per operation" started.
+􁁛  Suite SchedulingLatencyBenchmarks passed after 66.579 seconds.
+⏱️ swiftIOAllocations()
+   Iterations: 10
+   Min:        811.33µs
+   Median:     929.21µs
+   Mean:       927.18µs
+   p95:        1.16ms
+   p99:        1.16ms
+   Max:        1.16ms
+   StdDev:     95.74µs
+   Peak Memory: 0 bytes
+􁁛  Test "swift-io: allocations per operation" passed after 0.011 seconds.
+􀟈  Test "NIOThreadPool: allocations per operation" started.
+⏱️ nioAllocations()
+   Iterations: 10
+   Min:        995.04µs
+   Median:     1.13ms
+   Mean:       1.17ms
+   p95:        1.46ms
+   p99:        1.46ms
+   Max:        1.46ms
+   StdDev:     141.88µs
+   Peak Memory: 15.05 KB
+􁁛  Test "NIOThreadPool: allocations per operation" passed after 0.014 seconds.
+􁁛  Suite "Per-Operation Allocations" passed after 0.026 seconds.
+􀟈  Suite "Large Value Boxing" started.
+􀟈  Test "swift-io: 1KB result boxing" started.
+⏱️ swiftIOLargeResult()
+   Iterations: 100
+   Min:        59.79µs
+   Median:     63.63µs
+   Mean:       64.63µs
+   p95:        70.38µs
+   p99:        144.46µs
+   Max:        144.46µs
+   StdDev:     8.44µs
+   Peak Memory: 5.84 KB
+􁁛  Test "swift-io: 1KB result boxing" passed after 0.009 seconds.
+􀟈  Test "NIOThreadPool: 1KB result boxing" started.
+⏱️ nioLargeResult()
+   Iterations: 100
+   Min:        61.58µs
+   Median:     64.04µs
+   Mean:       66.41µs
+   p95:        80.42µs
+   p99:        89.71µs
+   Max:        89.71µs
+   StdDev:     5.56µs
+   Peak Memory: 20.88 KB
+􁁛  Test "NIOThreadPool: 1KB result boxing" passed after 0.010 seconds.
+􁁛  Suite "Large Value Boxing" passed after 0.019 seconds.
+􀟈  Suite "Error Boxing" started.
+􀟈  Test "swift-io: error boxing" started.
+⏱️ swiftIOErrorBoxing()
+   Iterations: 100
+   Min:        59.58µs
+   Median:     62.67µs
+   Mean:       63.97µs
+   p95:        74.50µs
+   p99:        103.75µs
+   Max:        103.75µs
+   StdDev:     5.84µs
+   Peak Memory: 69.78 KB
+􁁛  Test "swift-io: error boxing" passed after 0.009 seconds.
+􀟈  Test "NIOThreadPool: error boxing" started.
+⏱️ nioErrorBoxing()
+   Iterations: 100
+   Min:        63.63µs
+   Median:     67.38µs
+   Mean:       68.38µs
+   p95:        73.33µs
+   p99:        98.00µs
+   Max:        98.00µs
+   StdDev:     4.90µs
+   Peak Memory: 5.64 KB
+􁁛  Test "NIOThreadPool: error boxing" passed after 0.010 seconds.
+􁁛  Suite "Error Boxing" passed after 0.020 seconds.
+􀟈  Suite "Sustained Memory Pressure" started.
+􀟈  Test "swift-io: 1000 ops memory profile" started.
+⏱️ swiftIOSustained()
+   Iterations: 3
+   Min:        12.72ms
+   Median:     12.99ms
+   Mean:       12.93ms
+   p95:        13.07ms
+   p99:        13.07ms
+   Max:        13.07ms
+   StdDev:     183.94µs
+   Peak Memory: 3.16 KB
+􁁛  Test "swift-io: 1000 ops memory profile" passed after 0.052 seconds.
+􀟈  Test "NIOThreadPool: 1000 ops memory profile" started.
+⏱️ nioSustained()
+   Iterations: 3
+   Min:        4.42ms
+   Median:     4.50ms
+   Mean:       4.48ms
+   p95:        4.51ms
+   p99:        4.51ms
+   Max:        4.51ms
+   StdDev:     51.73µs
+   Peak Memory: 0 bytes
+􁁛  Test "NIOThreadPool: 1000 ops memory profile" passed after 0.018 seconds.
+􁁛  Suite "Sustained Memory Pressure" passed after 0.070 seconds.
+􁁛  Suite Performance passed after 66.715 seconds.
+􀟈  Suite "Sequential Throughput" started.
+􀟈  Test "swift-io: 1000 sequential ops (10μs each)" started.
+􁁛  Suite Test passed after 66.716 seconds.
+􁁛  Suite MemoryBenchmarks passed after 66.716 seconds.
+⏱️ swiftIOSequential()
+   Iterations: 3
+   Min:        100.29ms
+   Median:     100.33ms
+   Mean:       100.49ms
+   p95:        100.83ms
+   p99:        100.83ms
+   Max:        100.83ms
+   StdDev:     300.57µs
+   Peak Memory: 0 bytes
+􁁛  Test "swift-io: 1000 sequential ops (10μs each)" passed after 0.402 seconds.
+􀟈  Test "NIOThreadPool: 1000 sequential ops (10μs each)" started.
+⏱️ nioSequential()
+   Iterations: 3
+   Min:        100.53ms
+   Median:     101.39ms
+   Mean:       101.27ms
+   p95:        101.90ms
+   p99:        101.90ms
+   Max:        101.90ms
+   StdDev:     691.61µs
+   Peak Memory: 70.28 KB
+􁁛  Test "NIOThreadPool: 1000 sequential ops (10μs each)" passed after 0.407 seconds.
+􁁛  Suite "Sequential Throughput" passed after 0.809 seconds.
+􀟈  Suite "Concurrent Throughput" started.
+􀟈  Test "swift-io: 1000 concurrent ops (10μs each)" started.
+⏱️ swiftIOConcurrent()
+   Iterations: 3
+   Min:        33.44ms
+   Median:     34.48ms
+   Mean:       35.27ms
+   p95:        37.89ms
+   p99:        37.89ms
+   Max:        37.89ms
+   StdDev:     2.32ms
+   Peak Memory: 65.13 KB
+􁁛  Test "swift-io: 1000 concurrent ops (10μs each)" passed after 0.138 seconds.
+􀟈  Test "NIOThreadPool: 1000 concurrent ops (10μs each)" started.
+⏱️ nioConcurrent()
+   Iterations: 3
+   Min:        32.07ms
+   Median:     33.14ms
+   Mean:       33.39ms
+   p95:        34.96ms
+   p99:        34.96ms
+   Max:        34.96ms
+   StdDev:     1.46ms
+   Peak Memory: 38.77 KB
+􁁛  Test "NIOThreadPool: 1000 concurrent ops (10μs each)" passed after 0.138 seconds.
+􁁛  Suite "Concurrent Throughput" passed after 0.276 seconds.
+􀟈  Suite "Heavy Work Throughput" started.
+􀟈  Test "swift-io: 100 concurrent ops (1ms each)" started.
+⏱️ swiftIOHeavy()
+   Iterations: 3
+   Min:        310.46ms
+   Median:     319.00ms
+   Mean:       317.83ms
+   p95:        324.05ms
+   p99:        324.05ms
+   Max:        324.05ms
+   StdDev:     6.87ms
+   Peak Memory: 40.44 KB
+􁁛  Test "swift-io: 100 concurrent ops (1ms each)" passed after 1.273 seconds.
+􀟈  Test "NIOThreadPool: 100 concurrent ops (1ms each)" started.
+⏱️ nioHeavy()
+   Iterations: 3
+   Min:        312.26ms
+   Median:     316.48ms
+   Mean:       315.08ms
+   p95:        316.50ms
+   p99:        316.50ms
+   Max:        316.50ms
+   StdDev:     2.44ms
+   Peak Memory: 3.39 KB
+􁁛  Test "NIOThreadPool: 100 concurrent ops (1ms each)" passed after 1.263 seconds.
+􁁛  Suite "Heavy Work Throughput" passed after 2.536 seconds.
+􁁛  Suite Performance passed after 70.339 seconds.
+􁁛  Suite Test passed after 70.339 seconds.
+􁁛  Suite ThroughputBenchmarks passed after 70.339 seconds.
+􁁛  Test run with 43 tests in 58 suites passed after 70.339 seconds.
