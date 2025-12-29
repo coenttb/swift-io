@@ -17,11 +17,13 @@ A high-performance async I/O executor for Swift. Isolates blocking syscalls from
 
 swift-io is designed for infrastructure code where correctness, determinism, and resource bounds matter more than absolute peak throughput. It intentionally trades unbounded queuing for predictable behavior under load.
 
+**Non-goals:** swift-io does not aim to maximize throughput via unbounded queuing, nor to replace event-driven async I/O frameworks.
+
 ## Performance
 
 Benchmarks comparing swift-io against SwiftNIO's `NIOThreadPool` (release mode, arm64, Apple M1). Medians reported; p95/p99 shown where tail latency differs significantly.
 
-*Benchmarks simulate short blocking workloads (10µs each). Real I/O is syscall-dominated, reducing relative overhead differences.*
+*Benchmarks simulate short blocking workloads (10µs each). Real I/O is syscall-dominated, reducing relative overhead differences. These benchmarks isolate executor behavior; they do not model end-to-end I/O latency.*
 
 ### Throughput
 
@@ -64,6 +66,8 @@ swift-io prioritizes predictable latency, bounded resource usage, and determinis
 - **Use NIOThreadPool** when you want maximum concurrent throughput and accept unbounded queueing semantics.
 
 ## Why swift-io?
+
+Conceptually, swift-io is an actor-managed pool of exclusive resources executed on bounded blocking lanes.
 
 Swift's cooperative thread pool is designed for quick, non-blocking work. When you mix in blocking syscalls:
 
