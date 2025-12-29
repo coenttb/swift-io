@@ -162,10 +162,13 @@ extension IO.Blocking.Threads {
                     }
                 }
             } onCancel: {
-                // Remove from acceptance waiters if still there
                 state.lock.lock()
-                _ = state.removeAcceptanceWaiter(ticket: ticket)
-                state.lock.unlock()
+                if var waiter = state.removeAcceptanceWaiter(ticket: ticket) {
+                    state.lock.unlock()
+                    waiter.resumeThrowing(.cancellationRequested)
+                } else {
+                    state.lock.unlock()
+                }
             }
         } catch let error as IO.Blocking.Failure {
             throw error

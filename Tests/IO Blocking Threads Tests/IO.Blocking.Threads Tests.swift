@@ -3,6 +3,7 @@
 //  swift-io
 //
 
+import Foundation
 import StandardsTestSupport
 import Testing
 
@@ -99,5 +100,70 @@ extension IO.Blocking.Threads.Test.EdgeCase {
         let threads = IO.Blocking.Threads()
         await threads.shutdown()
         // No hang = success
+    }
+
+    @Test("cancellation during acceptance wait completes without hanging", .timeLimit(.minutes(1)))
+    func cancellationDuringAcceptanceWait() async throws {
+        // Small queue (1 slot) and 1 worker to force acceptance waiting
+        let options = IO.Blocking.Threads.Options(
+            workers: 1,
+            policy: IO.Backpressure.Policy(
+                strategy: .wait,
+                laneQueueLimit: 1
+            )
+        )
+        let threads = IO.Blocking.Threads(options)
+
+        // Fill both the worker (in-flight) and the queue (pending)
+        // Submit 2 slow jobs: one runs on worker, one fills the queue
+        _ = Task {
+            let ptr: UnsafeMutableRawPointer = try await threads.runBoxed(deadline: nil) {
+                Thread.sleep(forTimeInterval: 2.0)  // Block worker for 2 seconds
+                return UnsafeMutableRawPointer.allocate(byteCount: 1, alignment: 1)
+            }
+            ptr.deallocate()
+        }
+
+        // Small delay to ensure slowJob1 is accepted first
+        try await Task.sleep(for: .milliseconds(10))
+
+        _ = Task {
+            let ptr: UnsafeMutableRawPointer = try await threads.runBoxed(deadline: nil) {
+                Thread.sleep(forTimeInterval: 2.0)
+                return UnsafeMutableRawPointer.allocate(byteCount: 1, alignment: 1)
+            }
+            ptr.deallocate()
+        }
+
+        // Wait for queue to be full (slowJob1 running + slowJob2 in queue = full)
+        try await Task.sleep(for: .milliseconds(100))
+
+        // Now submit a third task - this one MUST wait in acceptance queue
+        let waitingTask = Task {
+            do {
+                let _: UnsafeMutableRawPointer = try await threads.runBoxed(deadline: nil) {
+                    return UnsafeMutableRawPointer.allocate(byteCount: 1, alignment: 1)
+                }
+                return false // Unexpected success
+            } catch let error as IO.Blocking.Failure {
+                return error == .cancellationRequested
+            } catch {
+                return false // Unexpected error type
+            }
+        }
+
+        // Give it time to register as acceptance waiter
+        try await Task.sleep(for: .milliseconds(100))
+
+        // Cancel while waiting for acceptance
+        waitingTask.cancel()
+
+        // This should complete promptly (not hang!)
+        // Before the fix, this would hang forever
+        let wasCancelled = await waitingTask.value
+        #expect(wasCancelled == true, "Task should have completed with cancellationRequested")
+
+        // Clean up - just wait for shutdown to handle the slow jobs
+        await threads.shutdown()
     }
 }

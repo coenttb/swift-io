@@ -69,13 +69,19 @@ extension IO.Blocking.Threads.Acceptance {
         ///
         /// O(n) scan - acceptable with bounded capacity.
         /// The waiter stays in storage until dequeue reclaims its slot.
+        ///
+        /// Returns the waiter with `resumed = false` so the caller can call `resume*` on it.
+        /// The storage copy is marked `resumed = true` so `dequeue` will skip it.
         mutating func markResumed(ticket: IO.Blocking.Threads.Ticket) -> Waiter? {
             var idx = head
             var remaining = _count
             while remaining > 0 {
-                if var waiter = storage[idx], waiter.ticket == ticket, !waiter.resumed {
-                    waiter.resumed = true
-                    storage[idx] = waiter
+                if let waiter = storage[idx], waiter.ticket == ticket, !waiter.resumed {
+                    // Mark storage copy as resumed (so dequeue will skip it)
+                    var markedWaiter = waiter
+                    markedWaiter.resumed = true
+                    storage[idx] = markedWaiter
+                    // Return original waiter (resumed = false) for caller to resume
                     return waiter
                 }
                 idx = (idx + 1) % capacity
