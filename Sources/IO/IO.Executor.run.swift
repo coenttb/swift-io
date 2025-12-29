@@ -49,6 +49,11 @@ extension IO.Executor {
         deadline: IO.Blocking.Deadline? = nil,
         _ operation: @Sendable @escaping () throws(E) -> T
     ) async throws(IO.Lifecycle.Error<IO.Error<E>>) -> T {
+        // Fast-path: if already cancelled, skip lane submission entirely
+        if Task.isCancelled {
+            throw .cancelled
+        }
+
         // Lane.run throws(Failure) and returns Result<T, E>
         let result: Result<T, E>
         do {
@@ -93,6 +98,11 @@ extension IO.Executor {
         deadline: IO.Blocking.Deadline? = nil,
         _ operation: @Sendable @escaping () -> T
     ) async throws(IO.Lifecycle.Error<IO.Blocking.Error>) -> T {
+        // Fast-path: if already cancelled, skip lane submission entirely
+        if Task.isCancelled {
+            throw .cancelled
+        }
+
         do {
             return try await lane.run(deadline: deadline, operation)
         } catch {

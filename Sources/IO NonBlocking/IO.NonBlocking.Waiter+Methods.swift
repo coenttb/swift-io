@@ -13,13 +13,13 @@ extension IO.NonBlocking.Waiter {
     /// This method binds the continuation to the waiter. It is safe to call
     /// even if `cancel()` was called first (cancel-before-arm race).
     ///
-    /// Note: Uses existential `any Error` because Swift's `withCheckedThrowingContinuation`
-    /// does not yet support typed throws. The Waiter ensures only `Failure` is thrown.
+    /// Uses non-throwing continuation with Result payload to achieve typed errors
+    /// without relying on Swift's untyped `withCheckedThrowingContinuation`.
     ///
     /// - Parameter continuation: The continuation to resume when drained.
     /// - Returns: `true` if successfully armed, `false` if already armed.
     @discardableResult
-    public func arm(continuation: CheckedContinuation<IO.NonBlocking.Event, any Swift.Error>) -> Bool {
+    public func arm(continuation: CheckedContinuation<Result<IO.NonBlocking.Event, IO.NonBlocking.Failure>, Never>) -> Bool {
         // Try: unarmed → armed
         var (exchanged, current) = _state.compareExchange(
             expected: .unarmed,
@@ -108,14 +108,12 @@ extension IO.NonBlocking.Waiter {
     /// Take the continuation for resumption. Actor-only operation.
     ///
     /// This method transitions the waiter to drained state and returns the
-    /// continuation. The actor must resume the returned continuation.
-    ///
-    /// Note: Uses existential `any Error` because Swift's `withCheckedThrowingContinuation`
-    /// does not yet support typed throws. The Waiter ensures only `Failure` is thrown.
+    /// continuation. The actor must resume the returned continuation with
+    /// a `Result<Event, Failure>`.
     ///
     /// - Returns: The continuation if available, along with cancellation status.
     ///   Returns `nil` if not yet armed or already drained.
-    public func takeForResume() -> (continuation: CheckedContinuation<IO.NonBlocking.Event, any Swift.Error>, wasCancelled: Bool)? {
+    public func takeForResume() -> (continuation: CheckedContinuation<Result<IO.NonBlocking.Event, IO.NonBlocking.Failure>, Never>, wasCancelled: Bool)? {
         while true {
             let current = _state.load(ordering: .acquiring)
 

@@ -29,7 +29,7 @@ extension IO.NonBlocking {
     /// ```swift
     /// let waiter = Waiter(id: id)  // Create before closure
     /// await withTaskCancellationHandler {
-    ///     await withCheckedThrowingContinuation { continuation in
+    ///     await withCheckedContinuation { continuation in
     ///         waiter.arm(continuation: continuation)  // Bind continuation
     ///         // enqueue waiter
     ///     }
@@ -50,6 +50,12 @@ extension IO.NonBlocking {
     ///    ▼                    drained            cancelledDrained
     /// armedCancelled
     /// ```
+    ///
+    /// ## Typed Errors via Result
+    ///
+    /// Uses `CheckedContinuation<Result<Event, Failure>, Never>` instead of throwing
+    /// continuation. This eliminates all `any Error` handling and makes typed throws
+    /// work by construction.
     ///
     /// ## Thread Safety
     /// `@unchecked Sendable` because it provides internal synchronization via `Atomic`.
@@ -85,9 +91,9 @@ extension IO.NonBlocking {
         /// The continuation. Set once during arm(), cleared once during takeForResume().
         /// Access is protected by state machine transitions.
         ///
-        /// Note: Uses existential `any Error` because Swift's `withCheckedThrowingContinuation`
-        /// does not yet support typed throws. The Waiter ensures only `Failure` is thrown.
-        var continuation: CheckedContinuation<Event, any Swift.Error>?
+        /// Uses non-throwing continuation with Result payload to achieve typed errors
+        /// without relying on Swift's untyped `withCheckedThrowingContinuation`.
+        var continuation: CheckedContinuation<Result<Event, Failure>, Never>?
 
         /// The registration ID this waiter is waiting on.
         public let id: ID

@@ -10,12 +10,16 @@ OUTPUT_DIR="$SCRIPT_DIR/concatenated"
 # Create output directory
 mkdir -p "$OUTPUT_DIR"
 
-# Define targets
+# Define targets (all source directories)
 TARGETS=(
     "IO Primitives"
     "IO Blocking"
     "IO Blocking Threads"
     "IO"
+    "IO NonBlocking Primitives"
+    "IO NonBlocking Driver"
+    "IO NonBlocking Kqueue"
+    "IO NonBlocking"
 )
 
 for target in "${TARGETS[@]}"; do

@@ -211,6 +211,11 @@ extension IO.Executor {
                 throw .shutdownInProgress
             }
 
+            // Fast-path: if already cancelled, skip lane submission entirely
+            if Task.isCancelled {
+                throw .cancelled
+            }
+
             // Lane.run throws(Failure) and returns Result<T, E>
             let result: Result<T, E>
             do {
@@ -379,6 +384,13 @@ extension IO.Executor {
                 // Check if waiter queue has capacity
                 if entry.waiters.isFull {
                     throw .failure(.handle(.waitersFull))
+                }
+
+                // Fast-path: if already cancelled, skip waiter machinery entirely
+                // This avoids the cost of continuation setup + cancellation handler
+                // for tasks that are already cancelled before waiting
+                if Task.isCancelled {
+                    throw .cancelled
                 }
 
                 let token = entry.waiters.generateToken()

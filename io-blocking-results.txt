@@ -1,0 +1,1571 @@
+[0/1] Planning build
+Building for debugging...
+[0/3] Write swift-version--58304C5D6DBC2206.txt
+[1/3] Write Objects.LinkFileList
+[2/3] Linking swift-ioPackageTests
+Build complete! (2.37s)
+Test Suite 'All tests' started at 2025-12-29 09:19:55.851.
+Test Suite 'All tests' passed at 2025-12-29 09:19:55.860.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.009) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1501
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite OverheadBenchmarks started.
+􀟈  Suite ThroughputBenchmarks started.
+􀟈  Suite CancellationBenchmarks started.
+􀟈  Suite SchedulingLatencyBenchmarks started.
+􀟈  Suite MemoryBenchmarks started.
+􀟈  Suite "IO.NonBlocking Primitives" started.
+􀟈  Suite IO started.
+􀟈  Suite BackpressureBenchmarks started.
+􀟈  Suite IO started.
+􀟈  Suite "IO.NonBlocking" started.
+􀟈  Suite IOExecutorHandleEntryTests started.
+􀟈  Suite IO started.
+􀟈  Suite IOExecutorPoolTests started.
+􁁛  Suite "IO.NonBlocking" passed after 0.001 seconds.
+􀟈  Suite ContentionBenchmarks started.
+􀟈  Suite IOExecutorSlotContainerTests started.
+􀟈  Suite Test started.
+􀟈  Suite Test started.
+􀟈  Suite IO started.
+􀟈  Suite Test started.
+􀟈  Suite Test started.
+􀟈  Suite Closure started.
+􀟈  Suite Test started.
+􀟈  Suite Executor started.
+􀟈  Suite Executor started.
+􀟈  Suite Test started.
+􀟈  Suite Test started.
+􀟈  Suite Blocking started.
+􀟈  Suite Handle started.
+􀟈  Suite Test started.
+􀟈  Suite Test started.
+􀟈  Suite Handoff started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Test started.
+􀟈  Suite Test started.
+􀟈  Test "Error descriptions" started.
+􀟈  Suite Performance started.
+􀟈  Test "ID equality and hashing" started.
+􀟈  Test "Event creation and properties" started.
+􀟈  Suite Unit started.
+􀟈  Test "Token creation and ID access" started.
+􀟈  Test "Event.Flags combinations" started.
+􀟈  Suite EdgeCase started.
+􁁛  Suite EdgeCase passed after 0.001 seconds.
+􀟈  Suite Performance started.
+􀟈  Suite Unit started.
+􀟈  Suite Unit started.
+􀟈  Suite Unit started.
+􀟈  Suite Blocking started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Performance started.
+􀟈  Suite EdgeCase started.
+􀟈  Test "Interest OptionSet operations" started.
+􀟈  Suite Unit started.
+􀟈  Suite Performance started.
+􀟈  Suite Error started.
+􀟈  Suite Error started.
+􀟈  Suite Slot started.
+􀟈  Suite Threads started.
+􀟈  Suite Thread started.
+􀟈  Suite Transaction started.
+􀟈  Suite Test started.
+􀟈  Suite Performance started.
+􀟈  Suite Handle started.
+􀟈  Suite JobQueue started.
+􀟈  Suite Integration started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Unit started.
+􀟈  Suite Test started.
+􀟈  Suite Lane started.
+􀟈  Suite Unit started.
+􀟈  Suite Error started.
+􀟈  Suite Capabilities started.
+􀟈  Suite Test started.
+􀟈  Suite Box started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Performance started.
+􀟈  Suite Failure started.
+􀟈  Suite ID started.
+􀟈  Suite Error started.
+􀟈  Suite Test started.
+􀟈  Suite Waiter started.
+􀟈  Suite Unit started.
+􀟈  Suite Waiters started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Unit started.
+􀟈  Suite Performance started.
+􀟈  Suite Performance started.
+􀟈  Suite Unit started.
+􀟈  Suite Performance started.
+􀟈  Suite Performance started.
+􀟈  Suite Performance started.
+􀟈  Suite Token started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Threads started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Test started.
+􀟈  Suite Unit started.
+􀟈  Suite Test started.
+􀟈  Suite Test started.
+􀟈  Suite Test started.
+􀟈  Suite Test started.
+􀟈  Suite Test started.
+􀟈  Suite Performance started.
+􀟈  Suite Unit started.
+􀟈  Suite Test started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Test started.
+􀟈  Suite State started.
+􀟈  Suite Test started.
+􀟈  Suite Inline started.
+􀟈  Suite Test started.
+􀟈  Suite Test started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Unit started.
+􀟈  Suite Test started.
+􀟈  Suite Performance started.
+􀟈  Suite Performance started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Test started.
+􀟈  Suite Unit started.
+􀟈  Suite Test started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Test started.
+􀟈  Suite Unit started.
+􀟈  Suite Test started.
+􀟈  Suite Test started.
+􀟈  Suite Performance started.
+􀟈  Suite Test started.
+􀟈  Suite Runtime started.
+􀟈  Suite Test started.
+􀟈  Suite processorCountTests started.
+􀟈  Suite Backpressure started.
+􀟈  Suite Completion started.
+􀟈  Suite "Pool Actor Scheduling" started.
+􀟈  Suite Lock started.
+􀟈  Suite Counter started.
+􀟈  Suite Ticket started.
+􀟈  Suite Acceptance started.
+􀟈  Suite Thread started.
+􀟈  Suite Job started.
+􀟈  Suite Unit started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Performance started.
+􀟈  Suite Unit started.
+􀟈  Suite Performance started.
+􀟈  Suite Unit started.
+􀟈  Suite Performance started.
+􀟈  Suite Integration started.
+􁁛  Test "Token creation and ID access" passed after 0.001 seconds.
+􀟈  Suite Options started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Deadline started.
+􀟈  Suite Unit started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Integration started.
+􀟈  Suite Performance started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Unit started.
+􀟈  Test "pool methods run on assigned executor" started.
+􀟈  Suite Unit started.
+􀟈  Suite EdgeCase started.
+􀟈  Test "withTaskExecutorPreference uses pool executor" started.
+􀟈  Suite Performance started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Performance started.
+􀟈  Test "init with explicit executor uses that executor" started.
+􀟈  Test "pool unownedExecutor returns same executor" started.
+􀟈  Suite EdgeCase started.
+􀟈  Test "pools from shared executor pool get round-robin assignment" started.
+􀟈  Suite Unit started.
+􀟈  Suite Integration started.
+􀟈  Suite Performance started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Unit started.
+􀟈  Test "two pools can share same executor" started.
+􀟈  Suite Performance started.
+􀟈  Suite Test started.
+􀟈  Test "withExecutorPreference convenience method" started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Test started.
+􀟈  Suite Performance started.
+􀟈  Suite Performance started.
+􀟈  Test "pool exposes executor" started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Performance started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Unit started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Unit started.
+􀟈  Suite Unit started.
+􀟈  Suite Performance started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Unit started.
+􀟈  Suite Unit started.
+􀟈  Suite Unit started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Performance started.
+􀟈  Suite Unit started.
+􀟈  Suite Performance started.
+􀟈  Suite Unit started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Performance started.
+􀟈  Suite Performance started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Performance started.
+􀟈  Suite Unit started.
+􀟈  Suite Invariants started.
+􀟈  Suite Performance started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Test started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Unit started.
+􀟈  Suite Performance started.
+􀟈  Suite Test started.
+􀟈  Suite Test started.
+􁁛  Test "Event creation and properties" passed after 0.001 seconds.
+􁁛  Test "ID equality and hashing" passed after 0.001 seconds.
+􁁛  Test "Event.Flags combinations" passed after 0.001 seconds.
+􀟈  Suite Test started.
+􀟈  Suite Waiter started.
+􀟈  Suite Unit started.
+􀟈  Suite Test started.
+􀟈  Suite Queue started.
+􁁛  Test "Interest OptionSet operations" passed after 0.001 seconds.
+􀟈  Suite Test started.
+􀟈  Suite Test started.
+􀟈  Suite Handle started.
+􀟈  Suite Test started.
+􀟈  Suite Worker started.
+􀟈  Suite Waiter started.
+􀟈  Suite Queue started.
+􀟈  Suite Test started.
+􀟈  Suite Test started.
+􀟈  Suite Test started.
+􀟈  Suite Test started.
+􁁛  Test "Error descriptions" passed after 0.001 seconds.
+􀟈  Suite Manager started.
+􀟈  Suite Instance started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Unit started.
+􀟈  Suite Performance started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Performance started.
+􀟈  Suite Unit started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Performance started.
+􀟈  Suite Unit started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Performance started.
+􀟈  Suite Performance started.
+􀟈  Suite Performance started.
+􀟈  Suite Unit started.
+􀟈  Test "swift-io: pool method round-trip latency" started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Unit started.
+􀟈  Suite Test started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Test started.
+􀟈  Suite Performance started.
+􀟈  Suite Unit started.
+􀟈  Suite Performance started.
+􀟈  Suite Unit started.
+􀟈  Suite Performance started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Test started.
+􀟈  Suite Unit started.
+􀟈  Suite Performance started.
+􀟈  Test "round-robin distributes across executors" started.
+􀟈  Suite Unit started.
+􀟈  Suite Test started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite State started.
+􀟈  Suite Unit started.
+􀟈  Suite Unit started.
+􀟈  Suite Test started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Unit started.
+􀟈  Suite EdgeCase started.
+􀟈  Test "task executor preference executes on thread" started.
+􀟈  Suite Performance started.
+􀟈  Suite Performance started.
+􀟈  Test "multiple tasks execute sequentially on same executor" started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Performance started.
+􀟈  Suite Test started.
+􀟈  Test "tasks on different executors run independently" started.
+􀟈  Suite Test started.
+􀟈  Suite Test started.
+􀟈  Test "queue grows when full" started.
+􀟈  Suite Performance started.
+􀟈  Suite Unit started.
+􀟈  Suite Unit started.
+􀟈  Suite Unit started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Performance started.
+􀟈  Suite Unit started.
+􀟈  Suite Performance started.
+􀟈  Suite EdgeCase started.
+􀟈  Test "cancel does NOT resume continuation" started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Performance started.
+􀟈  Suite Unit started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Unit started.
+􀟈  Suite Test started.
+􁁛  Suite "IO.NonBlocking Primitives" passed after 0.002 seconds.
+􀟈  Test "cancel-before-arm preserves cancellation" started.
+􀟈  Suite Performance started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Unit started.
+􀟈  Suite Performance started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Unit started.
+􀟈  Suite EdgeCase started.
+􀟈  Suite Performance started.
+􀟈  Suite Unit started.
+􁁛  Test "pool unownedExecutor returns same executor" passed after 0.001 seconds.
+􀟈  Suite Unit started.
+􀟈  Suite Performance started.
+􀟈  Suite Performance started.
+􁁛  Test "pool exposes executor" passed after 0.001 seconds.
+􀟈  Suite EdgeCase started.
+􁁛  Test "init with explicit executor uses that executor" passed after 0.001 seconds.
+􀟈  Suite EdgeCase started.
+􁁛  Test "round-robin distributes across executors" passed after 0.001 seconds.
+􀟈  Suite Performance started.
+􁁛  Test "withExecutorPreference convenience method" passed after 0.001 seconds.
+􁁛  Test "two pools can share same executor" passed after 0.001 seconds.
+􀟈  Suite Unit started.
+􁁛  Test "withTaskExecutorPreference uses pool executor" passed after 0.001 seconds.
+􁁛  Test "queue grows when full" passed after 0.001 seconds.
+􁁛  Test "cancel does NOT resume continuation" passed after 0.001 seconds.
+􁁛  Test "task executor preference executes on thread" passed after 0.001 seconds.
+􁁛  Test "pool methods run on assigned executor" passed after 0.001 seconds.
+􁁛  Test "pools from shared executor pool get round-robin assignment" passed after 0.001 seconds.
+􀟈  Test "destroy is idempotent" started.
+􀟈  Test "transaction with wrong scope throws" started.
+􁁛  Test "cancel-before-arm preserves cancellation" passed after 0.001 seconds.
+􀟈  Test "register after shutdown throws" started.
+􁁛  Suite Integration passed after 0.001 seconds.
+􀟈  Test "transaction after shutdown throws immediately" started.
+􁁛  Test "tasks on different executors run independently" passed after 0.001 seconds.
+􀟈  Test "isOpen with wrong scope returns false" started.
+􀟈  Test "run after shutdown throws" started.
+􀟈  Test "transaction with invalid ID throws" started.
+􀟈  Test "shutdown never surfaces as invalidState" started.
+􁁛  Test "multiple tasks execute sequentially on same executor" passed after 0.001 seconds.
+􁁛  Suite Integration passed after 0.002 seconds.
+􀟈  Test "shutdown is idempotent" started.
+􁁛  Suite Invariants passed after 0.001 seconds.
+􀟈  Test "register after shutdown surfaces as shutdownInProgress" started.
+􁁛  Test "destroy is idempotent" passed after 0.001 seconds.
+􁁛  Test "transaction with wrong scope throws" passed after 0.001 seconds.
+􁁛  Suite Integration passed after 0.001 seconds.
+􁁛  Test "transaction with invalid ID throws" passed after 0.001 seconds.
+􀟈  Test "namespace exists" started.
+􁁛  Suite Unit passed after 0.002 seconds.
+􁁛  Test "shutdown is idempotent" passed after 0.001 seconds.
+􁁛  Test "register after shutdown throws" passed after 0.001 seconds.
+􁁛  Suite Integration passed after 0.001 seconds.
+􁁛  Test "register after shutdown surfaces as shutdownInProgress" passed after 0.001 seconds.
+􁁛  Test "shutdown never surfaces as invalidState" passed after 0.001 seconds.
+􀟈  Test "scopeCounter generates unique values" started.
+􀟈  Test "no shutdownInProgress case - lifecycle concerns moved to IO.Lifecycle.Error" started.
+􀟈  Test "all cases are distinct" started.
+􁁛  Test "isOpen with wrong scope returns false" passed after 0.001 seconds.
+􀟈  Test "type exists" started.
+􁁛  Test "namespace exists" passed after 0.001 seconds.
+􀟈  Test "namespace exists" started.
+􁁛  Test "transaction after shutdown throws immediately" passed after 0.001 seconds.
+􀟈  Test "next returns an executor" started.
+􁁛  Test "run after shutdown throws" passed after 0.001 seconds.
+􀟈  Test "shutdown completes gracefully" started.
+􀟈  Test "init with default options creates threads" started.
+􀟈  Test "init with custom count" started.
+􀟈  Test "executor(at:) wraps around" started.
+􁁛  Test "all cases are distinct" passed after 0.001 seconds.
+􀟈  Test "namespace exists" started.
+􁁛  Test "scopeCounter generates unique values" passed after 0.001 seconds.
+􁁛  Test "no shutdownInProgress case - lifecycle concerns moved to IO.Lifecycle.Error" passed after 0.001 seconds.
+􀟈  Test "executor(at:) returns executor at index" started.
+􁁛  Test "type exists" passed after 0.001 seconds.
+􁁛  Test "namespace exists" passed after 0.001 seconds.
+􁁛  Test "namespace exists" passed after 0.001 seconds.
+􀟈  Test "no lifecycle cases - shutdown/cancelled excluded" started.
+􀟈  Test "failable init from Failure - lifecycle cases return nil" started.
+􀟈  Test "failable init from Failure - operational cases map" started.
+􀟈  Test "namespace exists" started.
+􁁛  Test "next returns an executor" passed after 0.001 seconds.
+􁁛  Test "init with custom count" passed after 0.001 seconds.
+􀟈  Test "inline lane with expired deadline throws" started.
+􀟈  Test "inline lane respects cancellation before execution" started.
+􀟈  Test "all cases are distinct" started.
+􀟈  Test "inline lane with nil deadline succeeds" started.
+􁁛  Test "shutdown completes gracefully" passed after 0.001 seconds.
+􁁛  Test "executor(at:) returns executor at index" passed after 0.001 seconds.
+􁁛  Test "executor(at:) wraps around" passed after 0.001 seconds.
+􁁛  Test "init with default options creates threads" passed after 0.001 seconds.
+􀟈  Test "all true capabilities" started.
+􁁛  Test "no lifecycle cases - shutdown/cancelled excluded" passed after 0.001 seconds.
+􁁛  Test "failable init from Failure - lifecycle cases return nil" passed after 0.001 seconds.
+􁁛  Test "namespace exists" passed after 0.001 seconds.
+􀟈  Test "all false capabilities" started.
+􀟈  Test "Equatable conformance" started.
+􀟈  Test "Error conformance" started.
+􀟈  Test "Sendable conformance" started.
+􀟈  Test "queueFull case exists" started.
+􁁛  Test "all cases are distinct" passed after 0.001 seconds.
+􀟈  Test "cancellationRequested case exists" started.
+􁁛  Test "failable init from Failure - operational cases map" passed after 0.001 seconds.
+􀟈  Test "shutdown case exists" started.
+􀟈  Test "internalInvariantViolation case exists" started.
+􀟈  Test "deadlineExceeded case exists" started.
+􁁛  Test "inline lane with expired deadline throws" passed after 0.001 seconds.
+􀟈  Test "all cases are distinct" started.
+􁁛  Suite EdgeCase passed after 0.003 seconds.
+􁁛  Test "inline lane with nil deadline succeeds" passed after 0.001 seconds.
+􀟈  Test "overloaded case exists" started.
+􀟈  Test "max scope value" started.
+􀟈  Test "zero scope value" started.
+􀟈  Test "zero raw value" started.
+􁁛  Test "all false capabilities" passed after 0.001 seconds.
+􁁛  Test "Error conformance" passed after 0.001 seconds.
+􀟈  Test "max raw value" started.
+􀟈  Test "same raw different scope are not equal" started.
+􁁛  Test "all true capabilities" passed after 0.001 seconds.
+􁁛  Test "Equatable conformance" passed after 0.001 seconds.
+􁁛  Test "shutdown case exists" passed after 0.001 seconds.
+􁁛  Test "queueFull case exists" passed after 0.001 seconds.
+􁁛  Test "cancellationRequested case exists" passed after 0.001 seconds.
+􁁛  Test "inline lane respects cancellation before execution" passed after 0.001 seconds.
+􁁛  Test "max scope value" passed after 0.001 seconds.
+􁁛  Test "deadlineExceeded case exists" passed after 0.001 seconds.
+􁁛  Test "internalInvariantViolation case exists" passed after 0.001 seconds.
+􁁛  Test "overloaded case exists" passed after 0.001 seconds.
+􁁛  Test "all cases are distinct" passed after 0.001 seconds.
+􀟈  Test "can create unarmed waiter" started.
+􀟈  Test "arm binds continuation" started.
+􀟈  Test "cancel marks waiter as cancelled" started.
+􁁛  Test "Sendable conformance" passed after 0.001 seconds.
+􁁛  Test "max raw value" passed after 0.001 seconds.
+􀟈  Test "takeForResume returns continuation" started.
+􁁛  Test "same raw different scope are not equal" passed after 0.001 seconds.
+􁁛  Test "zero scope value" passed after 0.001 seconds.
+􀟈  Test "takeForResume on cancelled waiter indicates cancelled" started.
+􁁛  Test "zero raw value" passed after 0.001 seconds.
+􀟈  Test "type exists" started.
+􁁛  Suite Unit passed after 0.004 seconds.
+􁁛  Test "cancel marks waiter as cancelled" passed after 0.001 seconds.
+􁁛  Test "can create unarmed waiter" passed after 0.001 seconds.
+􁁛  Test "arm binds continuation" passed after 0.001 seconds.
+􀟈  Test "type exists" started.
+􀟈  Test "shutdown before any operations" started.
+􁁛  Test "takeForResume on cancelled waiter indicates cancelled" passed after 0.001 seconds.
+􁁛  Test "type exists" passed after 0.001 seconds.
+􀟈  Test "multiple sequential operations" started.
+􁁛  Test "type exists" passed after 0.001 seconds.
+􁁛  Test "takeForResume returns continuation" passed after 0.001 seconds.
+􀟈  Test "suspend case exists" started.
+􀟈  Test "suspend converts to wait strategy" started.
+􀟈  Test "throw case exists" started.
+􀟈  Test "Sendable conformance" started.
+􀟈  Test "type exists" started.
+􀟈  Test "namespace exists" started.
+􀟈  Test "throw converts to failFast strategy" started.
+􁁛  Test "suspend converts to wait strategy" passed after 0.001 seconds.
+􀟈  Test "init with custom queueLimit" started.
+􀟈  Test "Sendable conformance" started.
+􁁛  Test "suspend case exists" passed after 0.001 seconds.
+􁁛  Test "shutdown before any operations" passed after 0.001 seconds.
+􀟈  Test "init with defaults" started.
+􀟈  Test "init with custom acceptanceWaitersLimit" started.
+􁁛  Suite Unit passed after 0.004 seconds.
+􀟈  Test "init with throw backpressure" started.
+􁁛  Test "type exists" passed after 0.001 seconds.
+􀟈  Test "init with custom workers" started.
+􀟈  Test "cases are distinct" started.
+􁁛  Test "throw case exists" passed after 0.001 seconds.
+􀟈  Test "namespace exists" started.
+􁁛  Test "namespace exists" passed after 0.001 seconds.
+􁁛  Test "init with custom workers" passed after 0.001 seconds.
+􁁛  Test "init with defaults" passed after 0.001 seconds.
+􁁛  Test "throw converts to failFast strategy" passed after 0.001 seconds.
+􀟈  Test "init with rawValue" started.
+􀟈  Test "Equatable conformance" started.
+􁁛  Test "init with throw backpressure" passed after 0.001 seconds.
+􁁛  Test "init with custom acceptanceWaitersLimit" passed after 0.001 seconds.
+􀟈  Test "Hashable conformance - not equal" started.
+􁁛  Test "init with custom queueLimit" passed after 0.001 seconds.
+􀟈  Test "use in Set" started.
+􀟈  Test "Sendable conformance" started.
+􀟈  Test "Hashable conformance - equal" started.
+􀟈  Test "use as dictionary key" started.
+􁁛  Test "namespace exists" passed after 0.001 seconds.
+􁁛  Test "cases are distinct" passed after 0.001 seconds.
+􁁛  Test "Sendable conformance" passed after 0.001 seconds.
+􀟈  Test "type exists" started.
+􀟈  Test "type exists" started.
+􁁛  Test "Sendable conformance" passed after 0.001 seconds.
+􀟈  Test "type exists" started.
+􁁛  Suite EdgeCase passed after 0.004 seconds.
+􁁛  Test "init with rawValue" passed after 0.001 seconds.
+􁁛  Test "Hashable conformance - equal" passed after 0.001 seconds.
+􁁛  Test "Sendable conformance" passed after 0.001 seconds.
+􁁛  Test "Equatable conformance" passed after 0.001 seconds.
+􁁛  Test "use in Set" passed after 0.001 seconds.
+􁁛  Test "use as dictionary key" passed after 0.001 seconds.
+􁁛  Test "type exists" passed after 0.001 seconds.
+􁁛  Test "type exists" passed after 0.001 seconds.
+􀟈  Test "type exists" started.
+􁁛  Test "Hashable conformance - not equal" passed after 0.001 seconds.
+􁁛  Test "type exists" passed after 0.001 seconds.
+􁁛  Suite EdgeCase passed after 0.004 seconds.
+􁁛  Suite Unit passed after 0.004 seconds.
+􀟈  Test "type exists" started.
+􁁛  Suite EdgeCase passed after 0.004 seconds.
+􁁛  Suite Unit passed after 0.004 seconds.
+􁁛  Test "type exists" passed after 0.001 seconds.
+􁁛  Test "type exists" passed after 0.001 seconds.
+􁁛  Suite EdgeCase passed after 0.004 seconds.
+􁁛  Suite EdgeCase passed after 0.004 seconds.
+􁁛  Suite EdgeCase passed after 0.004 seconds.
+􁁛  Suite EdgeCase passed after 0.004 seconds.
+􁁛  Suite EdgeCase passed after 0.004 seconds.
+􁁛  Suite EdgeCase passed after 0.004 seconds.
+􁁛  Suite EdgeCase passed after 0.004 seconds.
+􁁛  Suite Unit passed after 0.004 seconds.
+􁁛  Suite EdgeCase passed after 0.004 seconds.
+􁁛  Suite EdgeCase passed after 0.003 seconds.
+􁁛  Suite Unit passed after 0.004 seconds.
+􁁛  Suite Unit passed after 0.004 seconds.
+􁁛  Test "multiple sequential operations" passed after 0.001 seconds.
+􁁛  Suite Unit passed after 0.004 seconds.
+􁁛  Suite Unit passed after 0.004 seconds.
+􁁛  Suite EdgeCase passed after 0.004 seconds.
+􁁛  Suite Unit passed after 0.004 seconds.
+􁁛  Suite EdgeCase passed after 0.003 seconds.
+􁁛  Suite EdgeCase passed after 0.003 seconds.
+􁁛  Suite EdgeCase passed after 0.003 seconds.
+􁁛  Suite EdgeCase passed after 0.004 seconds.
+􁁛  Suite Unit passed after 0.004 seconds.
+􁁛  Suite EdgeCase passed after 0.003 seconds.
+􁁛  Suite EdgeCase passed after 0.003 seconds.
+􁁛  Suite EdgeCase passed after 0.003 seconds.
+􁁛  Suite EdgeCase passed after 0.003 seconds.
+􁁛  Suite EdgeCase passed after 0.003 seconds.
+􁁛  Suite EdgeCase passed after 0.003 seconds.
+􁁛  Suite EdgeCase passed after 0.003 seconds.
+􁁛  Suite Unit passed after 0.003 seconds.
+􁁛  Suite Unit passed after 0.003 seconds.
+􁁛  Suite EdgeCase passed after 0.003 seconds.
+􁁛  Suite Unit passed after 0.003 seconds.
+􁁛  Suite EdgeCase passed after 0.002 seconds.
+􁁛  Suite Unit passed after 0.004 seconds.
+􁁛  Suite Unit passed after 0.003 seconds.
+􁁛  Suite EdgeCase passed after 0.002 seconds.
+􁁛  Suite Unit passed after 0.003 seconds.
+􁁛  Suite EdgeCase passed after 0.002 seconds.
+􀟈  Test "namespace exists" started.
+􁁛  Suite Unit passed after 0.003 seconds.
+􁁛  Suite Unit passed after 0.003 seconds.
+􁁛  Test "namespace exists" passed after 0.001 seconds.
+􁁛  Suite Unit passed after 0.003 seconds.
+􀟈  Test "type exists" started.
+􁁛  Suite EdgeCase passed after 0.002 seconds.
+􁁛  Suite Unit passed after 0.003 seconds.
+􁁛  Suite Unit passed after 0.003 seconds.
+􀟈  Test "namespace re-exported from IO Primitives" started.
+􁁛  Suite Unit passed after 0.002 seconds.
+􁁛  Suite Unit passed after 0.003 seconds.
+􀟈  Test "namespace exists" started.
+􀟈  Test "namespace exists" started.
+􁁛  Suite Unit passed after 0.003 seconds.
+􀟈  Test "type exists" started.
+􀟈  Test "namespace exists" started.
+􁁛  Test "type exists" passed after 0.001 seconds.
+􀟈  Test "executor conforms to SerialExecutor" started.
+􁁛  Test "namespace re-exported from IO Primitives" passed after 0.001 seconds.
+􀟈  Test "shutdown completes gracefully" started.
+􀟈  Test "executor conforms to TaskExecutor" started.
+􀟈  Test "minimum capacity is 1" started.
+􀟈  Test "custom initial capacity" started.
+􀟈  Test "dequeue from empty returns nil" started.
+􀟈  Test "isOpen returns true for open handle" started.
+􁁛  Test "namespace exists" passed after 0.001 seconds.
+􀟈  Test "empty queue reports isEmpty" started.
+􀟈  Test "shutdown completes gracefully" started.
+􀟈  Test "init with custom lane" started.
+􀟈  Test "scope is unique per instance" started.
+􀟈  Test "destroy marks handle for destruction" started.
+􀟈  Test "init with default options" started.
+􁁛  Test "namespace exists" passed after 0.001 seconds.
+􀟈  Test "register returns valid ID" started.
+􀟈  Test "default capacity is 64" started.
+􀟈  Test "run executes operation" started.
+􀟈  Test "scopeMismatch case exists" started.
+􀟈  Test "handleNotFound case exists" started.
+􀟈  Test "transaction provides exclusive access" started.
+􀟈  Test "Error conformance" started.
+􁁛  Test "shutdown completes gracefully" passed after 0.001 seconds.
+􁁛  Test "type exists" passed after 0.001 seconds.
+􁁛  Test "namespace exists" passed after 0.001 seconds.
+􀟈  Test "invalidState case exists" started.
+􀟈  Test "Sendable conformance" started.
+􀟈  Test "Equatable conformance" started.
+􁁛  Test "executor conforms to SerialExecutor" passed after 0.001 seconds.
+􁁛  Test "minimum capacity is 1" passed after 0.001 seconds.
+􁁛  Test "dequeue from empty returns nil" passed after 0.001 seconds.
+􁁛  Test "empty queue reports isEmpty" passed after 0.001 seconds.
+􁁛  Test "custom initial capacity" passed after 0.001 seconds.
+􁁛  Test "default capacity is 64" passed after 0.001 seconds.
+􁁛  Test "scopeMismatch case exists" passed after 0.001 seconds.
+􀟈  Test "type exists" started.
+􁁛  Test "init with default options" passed after 0.001 seconds.
+􁁛  Test "shutdown completes gracefully" passed after 0.001 seconds.
+􁁛  Test "init with custom lane" passed after 0.001 seconds.
+􁁛  Test "isOpen returns true for open handle" passed after 0.001 seconds.
+􁁛  Test "invalidState case exists" passed after 0.001 seconds.
+􁁛  Test "executor conforms to TaskExecutor" passed after 0.001 seconds.
+􁁛  Test "handleNotFound case exists" passed after 0.001 seconds.
+􁁛  Test "destroy marks handle for destruction" passed after 0.001 seconds.
+􁁛  Test "Error conformance" passed after 0.001 seconds.
+􁁛  Suite Unit passed after 0.006 seconds.
+􁁛  Test "Sendable conformance" passed after 0.001 seconds.
+􁁛  Test "register returns valid ID" passed after 0.001 seconds.
+􁁛  Test "Equatable conformance" passed after 0.001 seconds.
+􁁛  Test "run executes operation" passed after 0.001 seconds.
+􁁛  Test "type exists" passed after 0.001 seconds.
+􁁛  Test "scope is unique per instance" passed after 0.001 seconds.
+􁁛  Test "transaction provides exclusive access" passed after 0.001 seconds.
+􀟈  Test "Error conformance" started.
+􀟈  Test "init sets properties correctly" started.
+􀟈  Test "Sendable conformance" started.
+􀟈  Test "queueFull case exists" started.
+􀟈  Test "inline lane capabilities" started.
+􀟈  Test "Sendable conformance" started.
+􀟈  Test "Sendable conformance" started.
+􀟈  Test "deadlineExceeded case exists" started.
+􀟈  Test "inline lane shutdown completes" started.
+􀟈  Test "Equatable conformance - equal" started.
+􀟈  Test "inline lane run executes non-throwing operation" started.
+􀟈  Test "Equatable conformance - not equal" started.
+􀟈  Test "internalInvariantViolation case exists" started.
+􀟈  Test "type exists" started.
+􀟈  Test "inline static property exists" started.
+􀟈  Test "inline guarantees run once enqueued" started.
+􁁛  Test "init sets properties correctly" passed after 0.001 seconds.
+􀟈  Test "inline does not execute on dedicated threads" started.
+􁁛  Test "Error conformance" passed after 0.001 seconds.
+􀟈  Test "lifecycle cases (shutdown, cancellationRequested) are internal contract" started.
+􁁛  Suite EdgeCase passed after 0.005 seconds.
+􁁛  Test "deadlineExceeded case exists" passed after 0.001 seconds.
+􁁛  Test "inline lane shutdown completes" passed after 0.001 seconds.
+􁁛  Test "Equatable conformance - equal" passed after 0.001 seconds.
+􀟈  Test "overloaded case exists" started.
+􁁛  Test "queueFull case exists" passed after 0.001 seconds.
+􁁛  Test "Equatable conformance - not equal" passed after 0.001 seconds.
+􀟈  Test "all cases are distinct" started.
+􀟈  Test "Error conformance" started.
+􀟈  Test "Equatable conformance" started.
+􀟈  Test "invalidID case exists" started.
+􀟈  Test "scopeMismatch case exists" started.
+􁁛  Test "inline lane capabilities" passed after 0.001 seconds.
+􁁛  Test "inline lane run executes non-throwing operation" passed after 0.001 seconds.
+􁁛  Test "Sendable conformance" passed after 0.001 seconds.
+􀟈  Test "waitersFull case exists" started.
+􀟈  Test "Sendable conformance" started.
+􁁛  Test "inline static property exists" passed after 0.001 seconds.
+􁁛  Test "Sendable conformance" passed after 0.001 seconds.
+􁁛  Test "internalInvariantViolation case exists" passed after 0.001 seconds.
+􀟈  Test "handleClosed case exists" started.
+􁁛  Test "Sendable conformance" passed after 0.001 seconds.
+􁁛  Test "type exists" passed after 0.001 seconds.
+􁁛  Test "inline does not execute on dedicated threads" passed after 0.001 seconds.
+􁁛  Test "lifecycle cases (shutdown, cancellationRequested) are internal contract" passed after 0.001 seconds.
+􁁛  Test "overloaded case exists" passed after 0.001 seconds.
+􁁛  Test "scopeMismatch case exists" passed after 0.001 seconds.
+􁁛  Test "invalidID case exists" passed after 0.001 seconds.
+􁁛  Suite EdgeCase passed after 0.006 seconds.
+􁁛  Test "waitersFull case exists" passed after 0.001 seconds.
+􁁛  Test "all cases are distinct" passed after 0.001 seconds.
+􀟈  Test "type exists" started.
+􁁛  Test "inline guarantees run once enqueued" passed after 0.001 seconds.
+􀟈  Test "Hashable conformance - different raw" started.
+􀟈  Test "Hashable conformance - equal" started.
+􀟈  Test "use in Set" started.
+􁁛  Test "Equatable conformance" passed after 0.001 seconds.
+􀟈  Test "Sendable conformance" started.
+􁁛  Test "Error conformance" passed after 0.001 seconds.
+􀟈  Test "use as dictionary key" started.
+􀟈  Test "Equatable conformance" started.
+􀟈  Test "init with raw and scope" started.
+􁁛  Test "handleClosed case exists" passed after 0.001 seconds.
+􀟈  Test "namespace exists" started.
+􀟈  Test "Hashable conformance - different scope" started.
+􁁛  Test "Sendable conformance" passed after 0.001 seconds.
+􁁛  Test "Hashable conformance - different raw" passed after 0.001 seconds.
+􁁛  Test "Hashable conformance - equal" passed after 0.001 seconds.
+􁁛  Test "type exists" passed after 0.001 seconds.
+􁁛  Test "init with raw and scope" passed after 0.001 seconds.
+􁁛  Test "Equatable conformance" passed after 0.001 seconds.
+􀟈  Test "type exists" started.
+􀟈  Test "namespace exists" started.
+􁁛  Test "use in Set" passed after 0.001 seconds.
+􀟈  Test "processorCount is positive" started.
+􀟈  Test "processorCount is reasonable" started.
+􁁛  Test "Sendable conformance" passed after 0.001 seconds.
+􁁛  Test "Hashable conformance - different scope" passed after 0.001 seconds.
+􁁛  Test "namespace exists" passed after 0.001 seconds.
+􁁛  Suite EdgeCase passed after 0.006 seconds.
+􁁛  Test "use as dictionary key" passed after 0.001 seconds.
+􁁛  Test "namespace exists" passed after 0.001 seconds.
+􀟈  Test "double cancel is idempotent" started.
+􀟈  Test "double arm is idempotent" started.
+􀟈  Test "cancel before arm is handled correctly" started.
+􀟈  Test "cancel after drain fails" started.
+􀟈  Test "takeForResume twice returns nil second time" started.
+􀟈  Test "namespace exists" started.
+􁁛  Test "processorCount is reasonable" passed after 0.001 seconds.
+􁁛  Test "processorCount is positive" passed after 0.001 seconds.
+􀟈  Test "takeForResume on unarmed waiter returns nil" started.
+􁁛  Test "type exists" passed after 0.001 seconds.
+􁁛  Test "takeForResume on unarmed waiter returns nil" passed after 0.001 seconds.
+􀟈  Test "type exists" started.
+􁁛  Test "double arm is idempotent" passed after 0.001 seconds.
+􁁛  Test "double cancel is idempotent" passed after 0.001 seconds.
+􁁛  Test "cancel before arm is handled correctly" passed after 0.001 seconds.
+􁁛  Test "namespace exists" passed after 0.001 seconds.
+􁁛  Suite EdgeCase passed after 0.006 seconds.
+􀟈  Test "type exists" started.
+􁁛  Test "takeForResume twice returns nil second time" passed after 0.001 seconds.
+􀟈  Test "type exists" started.
+􀟈  Test "queueLimit minimum is 1" started.
+􀟈  Test "negative workers clamped" started.
+􀟈  Test "acceptanceWaitersLimit minimum is 1" started.
+􁁛  Test "cancel after drain fails" passed after 0.001 seconds.
+􁁛  Test "type exists" passed after 0.001 seconds.
+􀟈  Test "workers minimum is 1" started.
+􁁛  Suite Unit passed after 0.006 seconds.
+􁁛  Suite EdgeCase passed after 0.007 seconds.
+􀟈  Test "zero rawValue" started.
+􁁛  Test "type exists" passed after 0.001 seconds.
+􀟈  Test "type exists" started.
+􁁛  Test "type exists" passed after 0.001 seconds.
+􁁛  Test "negative workers clamped" passed after 0.001 seconds.
+􁁛  Test "workers minimum is 1" passed after 0.001 seconds.
+􀟈  Test "max rawValue" started.
+􁁛  Suite Unit passed after 0.007 seconds.
+􁁛  Suite Unit passed after 0.007 seconds.
+􁁛  Suite EdgeCase passed after 0.006 seconds.
+􁁛  Test "queueLimit minimum is 1" passed after 0.001 seconds.
+􁁛  Suite EdgeCase passed after 0.006 seconds.
+􁁛  Test "type exists" passed after 0.001 seconds.
+􁁛  Test "zero rawValue" passed after 0.001 seconds.
+􁁛  Suite EdgeCase passed after 0.006 seconds.
+􁁛  Test "max rawValue" passed after 0.001 seconds.
+􁁛  Test "acceptanceWaitersLimit minimum is 1" passed after 0.001 seconds.
+􁁛  Suite Unit passed after 0.006 seconds.
+􁁛  Suite Unit passed after 0.006 seconds.
+􁁛  Suite EdgeCase passed after 0.006 seconds.
+􁁛  Suite Unit passed after 0.007 seconds.
+􁁛  Suite EdgeCase passed after 0.006 seconds.
+􁁛  Suite Unit passed after 0.006 seconds.
+􁁛  Suite EdgeCase passed after 0.006 seconds.
+􁁛  Suite Unit passed after 0.006 seconds.
+􁁛  Suite Unit passed after 0.006 seconds.
+􁁛  Suite Unit passed after 0.006 seconds.
+􁁛  Suite Unit passed after 0.007 seconds.
+􁁛  Suite Unit passed after 0.006 seconds.
+􁁛  Suite Unit passed after 0.005 seconds.
+􁁛  Suite Unit passed after 0.006 seconds.
+􀟈  Test "init with default options" started.
+􀟈  Test "shutdown completes gracefully" started.
+􀟈  Test "Sendable conformance" started.
+􁁛  Suite Unit passed after 0.006 seconds.
+􁁛  Suite Unit passed after 0.006 seconds.
+􁁛  Suite Unit passed after 0.005 seconds.
+􀟈  Test "init with custom options" started.
+􁁛  Suite EdgeCase passed after 0.006 seconds.
+􁁛  Suite EdgeCase passed after 0.006 seconds.
+􀟈  Test "runBoxed executes operation" started.
+􁁛  Suite Unit passed after 0.005 seconds.
+􁁛  Suite EdgeCase passed after 0.006 seconds.
+􁁛  Suite EdgeCase passed after 0.005 seconds.
+􀟈  Test "capabilities are correct" started.
+􁁛  Suite Unit passed after 0.005 seconds.
+􁁛  Suite EdgeCase passed after 0.005 seconds.
+􁁛  Test "shutdown completes gracefully" passed after 0.001 seconds.
+􁁛  Test "Sendable conformance" passed after 0.001 seconds.
+􁁛  Suite Unit passed after 0.006 seconds.
+􁁛  Suite Unit passed after 0.005 seconds.
+􁁛  Test "init with custom options" passed after 0.001 seconds.
+􁁛  Test "init with default options" passed after 0.001 seconds.
+􁁛  Suite Unit passed after 0.005 seconds.
+􁁛  Suite EdgeCase passed after 0.005 seconds.
+􁁛  Suite Unit passed after 0.006 seconds.
+􁁛  Test "capabilities are correct" passed after 0.001 seconds.
+􁁛  Suite EdgeCase passed after 0.005 seconds.
+􁁛  Suite Unit passed after 0.005 seconds.
+􁁛  Suite EdgeCase passed after 0.005 seconds.
+􁁛  Suite EdgeCase passed after 0.006 seconds.
+􁁛  Suite EdgeCase passed after 0.005 seconds.
+􁁛  Suite Unit passed after 0.006 seconds.
+􁁛  Suite EdgeCase passed after 0.005 seconds.
+􁁛  Suite Unit passed after 0.005 seconds.
+􁁛  Suite Unit passed after 0.005 seconds.
+􁁛  Suite Unit passed after 0.005 seconds.
+􁁛  Suite Unit passed after 0.005 seconds.
+􁁛  Suite EdgeCase passed after 0.005 seconds.
+􁁛  Suite EdgeCase passed after 0.005 seconds.
+􁁛  Suite EdgeCase passed after 0.005 seconds.
+􁁛  Suite EdgeCase passed after 0.005 seconds.
+􁁛  Test "runBoxed executes operation" passed after 0.001 seconds.
+􁁛  Suite Unit passed after 0.006 seconds.
+⏱️ poolMethodLatency()
+   Iterations: 2000
+   Min:        3.13µs
+   Median:     3.29µs
+   Mean:       3.60µs
+   p95:        4.83µs
+   p99:        8.08µs
+   Max:        12.96µs
+   StdDev:     781.00ns
+   Peak Memory: 0 bytes
+􁁛  Test "swift-io: pool method round-trip latency" passed after 0.072 seconds.
+􀟈  Test "swift-io: pool register/destroy cycle latency" started.
+⏱️ poolRegisterDestroyLatency()
+   Iterations: 1000
+   Min:        7.33µs
+   Median:     10.92µs
+   Mean:       18.59µs
+   p95:        34.29µs
+   p99:        144.21µs
+   Max:        1.41ms
+   StdDev:     66.79µs
+   Peak Memory: 65.17 KB
+􁁛  Test "swift-io: pool register/destroy cycle latency" passed after 0.054 seconds.
+􁁛  Suite "Pool Actor Scheduling" passed after 0.127 seconds.
+􀟈  Suite "Executor Thread Scheduling" started.
+􀟈  Test "swift-io: task on executor thread latency" started.
+⏱️ taskExecutorLatency()
+   Iterations: 2000
+   Min:        4.21µs
+   Median:     5.21µs
+   Mean:       6.52µs
+   p95:        11.38µs
+   p99:        35.92µs
+   Max:        86.71µs
+   StdDev:     5.63µs
+   Peak Memory: 116.78 KB
+􁁛  Test "swift-io: task on executor thread latency" passed after 0.090 seconds.
+􀟈  Test "swift-io: round-robin executor distribution" started.
+⏱️ roundRobinLatency()
+   Iterations: 2000
+   Min:        4.17µs
+   Median:     4.92µs
+   Mean:       6.49µs
+   p95:        10.79µs
+   p99:        34.08µs
+   Max:        133.96µs
+   StdDev:     7.30µs
+   Peak Memory: 128.98 KB
+􁁛  Test "swift-io: round-robin executor distribution" passed after 0.082 seconds.
+􁁛  Suite "Executor Thread Scheduling" passed after 0.173 seconds.
+􀟈  Suite "Comparative Scheduling" started.
+􀟈  Test "swift-io: pinned pool method latency" started.
+⏱️ pinnedPoolLatency()
+   Iterations: 1000
+   Min:        3.21µs
+   Median:     3.58µs
+   Mean:       4.12µs
+   p95:        6.54µs
+   p99:        11.17µs
+   Max:        35.83µs
+   StdDev:     2.00µs
+   Peak Memory: 49.11 KB
+􁁛  Test "swift-io: pinned pool method latency" passed after 0.035 seconds.
+􀟈  Test "baseline: default executor task latency" started.
+⏱️ defaultExecutorLatency()
+   Iterations: 1000
+   Min:        1.00µs
+   Median:     1.50µs
+   Mean:       1.63µs
+   p95:        2.13µs
+   p99:        2.83µs
+   Max:        9.38µs
+   StdDev:     429.00ns
+   Peak Memory: 49.00 KB
+􁁛  Test "baseline: default executor task latency" passed after 0.031 seconds.
+􁁛  Suite "Comparative Scheduling" passed after 0.067 seconds.
+􁁛  Suite Performance passed after 0.369 seconds.
+􀟈  Suite "Inline Overhead" started.
+􁁛  Suite Test passed after 0.369 seconds.
+􀟈  Test "swift-io: inline lane overhead" started.
+􁁛  Suite SchedulingLatencyBenchmarks passed after 0.369 seconds.
+⏱️ swiftIOInline()
+   Iterations: 1000
+   Min:        458.00ns
+   Median:     542.00ns
+   Mean:       3.07µs
+   p95:        875.00ns
+   p99:        3.67µs
+   Max:        2.39ms
+   StdDev:     75.69µs
+   Peak Memory: 16.38 KB
+􁁛  Test "swift-io: inline lane overhead" passed after 0.042 seconds.
+􁁛  Suite "Inline Overhead" passed after 0.042 seconds.
+􀟈  Suite "Thread Dispatch Overhead" started.
+􀟈  Test "swift-io: thread dispatch overhead" started.
+⏱️ swiftIOThreads()
+   Iterations: 500
+   Min:        6.46µs
+   Median:     8.67µs
+   Mean:       15.12µs
+   p95:        17.08µs
+   p99:        105.08µs
+   Max:        1.93ms
+   StdDev:     88.18µs
+   Peak Memory: 102.75 KB
+􁁛  Test "swift-io: thread dispatch overhead" passed after 0.028 seconds.
+􀟈  Test "NIOThreadPool: thread dispatch overhead" started.
+⏱️ nioThreadPool()
+   Iterations: 500
+   Min:        3.46µs
+   Median:     9.50µs
+   Mean:       10.50µs
+   p95:        15.42µs
+   p99:        37.13µs
+   Max:        104.79µs
+   StdDev:     6.14µs
+   Peak Memory: 24.75 KB
+􁁛  Test "NIOThreadPool: thread dispatch overhead" passed after 0.023 seconds.
+􁁛  Suite "Thread Dispatch Overhead" passed after 0.051 seconds.
+􀟈  Suite "Typed Error Overhead" started.
+􀟈  Test "swift-io: success path with typed error" started.
+⏱️ swiftIOSuccess()
+   Iterations: 500
+   Min:        7.17µs
+   Median:     8.63µs
+   Mean:       9.10µs
+   p95:        11.63µs
+   p99:        15.63µs
+   Max:        51.54µs
+   StdDev:     2.62µs
+   Peak Memory: 27.00 KB
+􁁛  Test "swift-io: success path with typed error" passed after 0.021 seconds.
+􀟈  Test "swift-io: failure path with typed error" started.
+⏱️ swiftIOFailure()
+   Iterations: 500
+   Min:        7.42µs
+   Median:     9.13µs
+   Mean:       9.63µs
+   p95:        11.42µs
+   p99:        16.63µs
+   Max:        54.25µs
+   StdDev:     2.89µs
+   Peak Memory: 25.69 KB
+􁁛  Test "swift-io: failure path with typed error" passed after 0.020 seconds.
+􀟈  Test "NIOThreadPool: success path" started.
+⏱️ nioSuccess()
+   Iterations: 500
+   Min:        7.17µs
+   Median:     9.29µs
+   Mean:       9.87µs
+   p95:        12.88µs
+   p99:        23.63µs
+   Max:        39.92µs
+   StdDev:     2.64µs
+   Peak Memory: 33.83 KB
+􁁛  Test "NIOThreadPool: success path" passed after 0.022 seconds.
+􀟈  Test "NIOThreadPool: failure path" started.
+⏱️ nioFailure()
+   Iterations: 500
+   Min:        8.96µs
+   Median:     11.88µs
+   Mean:       12.39µs
+   p95:        15.33µs
+   p99:        26.50µs
+   Max:        67.96µs
+   StdDev:     3.71µs
+   Peak Memory: 35.14 KB
+􁁛  Test "NIOThreadPool: failure path" passed after 0.023 seconds.
+􁁛  Suite "Typed Error Overhead" passed after 0.088 seconds.
+􁁛  Suite Performance passed after 0.551 seconds.
+􀟈  Suite "Sequential Throughput" started.
+􁁛  Suite Test passed after 0.551 seconds.
+􀟈  Test "swift-io: 1000 sequential ops (10μs each)" started.
+􁁛  Suite OverheadBenchmarks passed after 0.551 seconds.
+⏱️ swiftIOSequential()
+   Iterations: 3
+   Min:        96.68ms
+   Median:     97.19ms
+   Mean:       97.35ms
+   p95:        98.17ms
+   p99:        98.17ms
+   Max:        98.17ms
+   StdDev:     753.58µs
+   Peak Memory: 49.64 KB
+􁁛  Test "swift-io: 1000 sequential ops (10μs each)" passed after 0.390 seconds.
+􀟈  Test "NIOThreadPool: 1000 sequential ops (10μs each)" started.
+⏱️ nioSequential()
+   Iterations: 3
+   Min:        101.53ms
+   Median:     101.70ms
+   Mean:       101.86ms
+   p95:        102.35ms
+   p99:        102.35ms
+   Max:        102.35ms
+   StdDev:     431.39µs
+   Peak Memory: 58.75 KB
+􁁛  Test "NIOThreadPool: 1000 sequential ops (10μs each)" passed after 0.408 seconds.
+􁁛  Suite "Sequential Throughput" passed after 0.799 seconds.
+􀟈  Suite "Concurrent Throughput" started.
+􀟈  Test "swift-io: 1000 concurrent ops (10μs each)" started.
+⏱️ swiftIOConcurrent()
+   Iterations: 3
+   Min:        25.90ms
+   Median:     26.08ms
+   Mean:       26.07ms
+   p95:        26.23ms
+   p99:        26.23ms
+   Max:        26.23ms
+   StdDev:     165.08µs
+   Peak Memory: 28.45 KB
+􁁛  Test "swift-io: 1000 concurrent ops (10μs each)" passed after 0.104 seconds.
+􀟈  Test "NIOThreadPool: 1000 concurrent ops (10μs each)" started.
+⏱️ nioConcurrent()
+   Iterations: 3
+   Min:        23.96ms
+   Median:     24.51ms
+   Mean:       24.50ms
+   p95:        25.03ms
+   p99:        25.03ms
+   Max:        25.03ms
+   StdDev:     536.17µs
+   Peak Memory: 63.11 KB
+􁁛  Test "NIOThreadPool: 1000 concurrent ops (10μs each)" passed after 0.098 seconds.
+􁁛  Suite "Concurrent Throughput" passed after 0.202 seconds.
+􀟈  Suite "Heavy Work Throughput" started.
+􀟈  Test "swift-io: 100 concurrent ops (1ms each)" started.
+⏱️ swiftIOHeavy()
+   Iterations: 3
+   Min:        243.03ms
+   Median:     244.66ms
+   Mean:       244.48ms
+   p95:        245.74ms
+   p99:        245.74ms
+   Max:        245.74ms
+   StdDev:     1.36ms
+   Peak Memory: 32 bytes
+􁁛  Test "swift-io: 100 concurrent ops (1ms each)" passed after 0.959 seconds.
+􀟈  Test "NIOThreadPool: 100 concurrent ops (1ms each)" started.
+⏱️ nioHeavy()
+   Iterations: 3
+   Min:        223.92ms
+   Median:     228.54ms
+   Mean:       239.03ms
+   p95:        264.63ms
+   p99:        264.63ms
+   Max:        264.63ms
+   StdDev:     22.29ms
+   Peak Memory: 13.86 KB
+􁁛  Test "NIOThreadPool: 100 concurrent ops (1ms each)" passed after 0.947 seconds.
+􁁛  Suite "Heavy Work Throughput" passed after 1.906 seconds.
+􁁛  Suite Performance passed after 3.460 seconds.
+􀟈  Suite "FailFast Backpressure" started.
+􁁛  Suite Test passed after 3.460 seconds.
+􀟈  Test "swift-io: reject when queue full" started.
+􁁛  Suite ThroughputBenchmarks passed after 3.460 seconds.
+⏱️ rejectWhenFull()
+   Iterations: 10
+   Min:        79.05ms
+   Median:     80.26ms
+   Mean:       81.34ms
+   p95:        87.76ms
+   p99:        87.76ms
+   Max:        87.76ms
+   StdDev:     2.76ms
+   Peak Memory: 57.28 KB
+􁁛  Test "swift-io: reject when queue full" passed after 0.975 seconds.
+􁁛  Suite "FailFast Backpressure" passed after 0.975 seconds.
+􀟈  Suite "Wait Backpressure" started.
+􀟈  Test "swift-io: suspend until capacity" started.
+⏱️ suspendUntilCapacity()
+   Iterations: 5
+   Min:        14.75ms
+   Median:     14.89ms
+   Mean:       17.03ms
+   p95:        22.80ms
+   p99:        22.80ms
+   Max:        22.80ms
+   StdDev:     3.51ms
+   Peak Memory: 944 bytes
+􁁛  Test "swift-io: suspend until capacity" passed after 0.100 seconds.
+􁁛  Suite "Wait Backpressure" passed after 0.100 seconds.
+􀟈  Suite "Sustained Load (Within Capacity)" started.
+􀟈  Test "swift-io: 1000 ops with sufficient capacity" started.
+⏱️ swiftIOWithinCapacity()
+   Iterations: 3
+   Min:        125.80ms
+   Median:     145.76ms
+   Mean:       142.26ms
+   p95:        155.22ms
+   p99:        155.22ms
+   Max:        155.22ms
+   StdDev:     15.02ms
+   Peak Memory: 4.91 KB
+􁁛  Test "swift-io: 1000 ops with sufficient capacity" passed after 0.565 seconds.
+􀟈  Test "NIOThreadPool: 1000 ops (unbounded)" started.
+⏱️ nioWithinCapacity()
+   Iterations: 3
+   Min:        116.55ms
+   Median:     116.95ms
+   Mean:       117.40ms
+   p95:        118.70ms
+   p99:        118.70ms
+   Max:        118.70ms
+   StdDev:     1.14ms
+   Peak Memory: 6.02 KB
+􁁛  Test "NIOThreadPool: 1000 ops (unbounded)" passed after 0.471 seconds.
+􁁛  Suite "Sustained Load (Within Capacity)" passed after 1.037 seconds.
+􀟈  Suite "Sustained Load (Beyond Capacity)" started.
+􀟈  Test "swift-io: bounded rejection under overload" started.
+⏱️ swiftIOBeyondCapacity()
+   Iterations: 3
+   Min:        24.82ms
+   Median:     24.98ms
+   Mean:       25.11ms
+   p95:        25.54ms
+   p99:        25.54ms
+   Max:        25.54ms
+   StdDev:     378.38µs
+   Peak Memory: 27.17 KB
+􁁛  Test "swift-io: bounded rejection under overload" passed after 0.094 seconds.
+􀟈  Test "NIOThreadPool: unbounded queuing under overload" started.
+⏱️ nioBeyondCapacity()
+   Iterations: 3
+   Min:        238.28ms
+   Median:     271.54ms
+   Mean:       262.68ms
+   p95:        278.23ms
+   p99:        278.23ms
+   Max:        278.23ms
+   StdDev:     21.40ms
+   Peak Memory: 25.91 KB
+􁁛  Test "NIOThreadPool: unbounded queuing under overload" passed after 1.045 seconds.
+􁁛  Suite "Sustained Load (Beyond Capacity)" passed after 1.140 seconds.
+􁁛  Suite Performance passed after 6.714 seconds.
+􁁛  Suite Performance passed after 6.714 seconds.
+􁁛  Suite Test passed after 6.714 seconds.
+􁁛  Suite Performance passed after 6.714 seconds.
+􁁛  Suite Performance passed after 6.714 seconds.
+􁁛  Suite Test passed after 6.714 seconds.
+􁁛  Suite Test passed after 6.714 seconds.
+􁁛  Suite BackpressureBenchmarks passed after 6.714 seconds.
+􀟈  Suite "Moderate Contention (10:1)" started.
+􁁛  Suite IOExecutorHandleEntryTests passed after 6.714 seconds.
+􀟈  Test "swift-io: 40 tasks / 4 threads" started.
+􁁛  Suite Test passed after 6.714 seconds.
+􁁛  Suite IOExecutorPoolTests passed after 6.714 seconds.
+⏱️ swiftIO()
+   Iterations: 5
+   Min:        9.76ms
+   Median:     10.01ms
+   Mean:       10.04ms
+   p95:        10.24ms
+   p99:        10.24ms
+   Max:        10.24ms
+   StdDev:     200.08µs
+   Peak Memory: 0 bytes
+􁁛  Test "swift-io: 40 tasks / 4 threads" passed after 0.071 seconds.
+􀟈  Test "NIOThreadPool: 40 tasks / 4 threads" started.
+⏱️ nio()
+   Iterations: 5
+   Min:        9.32ms
+   Median:     12.12ms
+   Mean:       11.68ms
+   p95:        13.21ms
+   p99:        13.21ms
+   Max:        13.21ms
+   StdDev:     1.71ms
+   Peak Memory: 0 bytes
+􁁛  Test "NIOThreadPool: 40 tasks / 4 threads" passed after 0.079 seconds.
+􁁛  Suite "Moderate Contention (10:1)" passed after 0.150 seconds.
+􀟈  Suite "High Contention (100:1)" started.
+􀟈  Test "swift-io: 400 tasks / 4 threads" started.
+⏱️ swiftIO()
+   Iterations: 3
+   Min:        46.48ms
+   Median:     47.71ms
+   Mean:       50.82ms
+   p95:        58.29ms
+   p99:        58.29ms
+   Max:        58.29ms
+   StdDev:     6.49ms
+   Peak Memory: 36.39 KB
+􁁛  Test "swift-io: 400 tasks / 4 threads" passed after 0.211 seconds.
+􀟈  Test "NIOThreadPool: 400 tasks / 4 threads" started.
+⏱️ nio()
+   Iterations: 3
+   Min:        46.55ms
+   Median:     48.57ms
+   Mean:       49.59ms
+   p95:        53.64ms
+   p99:        53.64ms
+   Max:        53.64ms
+   StdDev:     3.65ms
+   Peak Memory: 0 bytes
+􁁛  Test "NIOThreadPool: 400 tasks / 4 threads" passed after 0.194 seconds.
+􁁛  Suite "High Contention (100:1)" passed after 0.406 seconds.
+􀟈  Suite "Extreme Contention (1000:1)" started.
+􀟈  Test "swift-io: 2000 tasks / 2 threads" started.
+⏱️ swiftIO()
+   Iterations: 3
+   Min:        99.06ms
+   Median:     100.02ms
+   Mean:       102.32ms
+   p95:        107.89ms
+   p99:        107.89ms
+   Max:        107.89ms
+   StdDev:     4.84ms
+   Peak Memory: 11.45 KB
+􁁛  Test "swift-io: 2000 tasks / 2 threads" passed after 0.409 seconds.
+􀟈  Test "NIOThreadPool: 2000 tasks / 2 threads" started.
+⏱️ nio()
+   Iterations: 3
+   Min:        94.82ms
+   Median:     94.95ms
+   Mean:       95.50ms
+   p95:        96.72ms
+   p99:        96.72ms
+   Max:        96.72ms
+   StdDev:     1.06ms
+   Peak Memory: 0 bytes
+􁁛  Test "NIOThreadPool: 2000 tasks / 2 threads" passed after 0.382 seconds.
+􁁛  Suite "Extreme Contention (1000:1)" passed after 0.792 seconds.
+􁁛  Suite Performance passed after 8.064 seconds.
+􁁛  Suite Performance passed after 8.064 seconds.
+􁁛  Suite Test passed after 8.065 seconds.
+􀟈  Suite "Per-Operation Allocations" started.
+􁁛  Suite Test passed after 8.065 seconds.
+􀟈  Test "swift-io: allocations per operation" started.
+􁁛  Suite IOExecutorSlotContainerTests passed after 8.065 seconds.
+􁁛  Suite ContentionBenchmarks passed after 8.065 seconds.
+⏱️ swiftIOAllocations()
+   Iterations: 10
+   Min:        923.54µs
+   Median:     935.83µs
+   Mean:       937.30µs
+   p95:        967.25µs
+   p99:        967.25µs
+   Max:        967.25µs
+   StdDev:     13.45µs
+   Peak Memory: 4.86 KB
+􁁛  Test "swift-io: allocations per operation" passed after 0.011 seconds.
+􀟈  Test "NIOThreadPool: allocations per operation" started.
+⏱️ nioAllocations()
+   Iterations: 10
+   Min:        946.71µs
+   Median:     1.07ms
+   Mean:       1.06ms
+   p95:        1.12ms
+   p99:        1.12ms
+   Max:        1.12ms
+   StdDev:     52.78µs
+   Peak Memory: 15.38 KB
+􁁛  Test "NIOThreadPool: allocations per operation" passed after 0.013 seconds.
+􁁛  Suite "Per-Operation Allocations" passed after 0.024 seconds.
+􀟈  Suite "Large Value Boxing" started.
+􀟈  Test "swift-io: 1KB result boxing" started.
+⏱️ swiftIOLargeResult()
+   Iterations: 100
+   Min:        67.67µs
+   Median:     71.13µs
+   Mean:       71.47µs
+   p95:        75.58µs
+   p99:        82.46µs
+   Max:        82.46µs
+   StdDev:     1.95µs
+   Peak Memory: 10.02 KB
+􁁛  Test "swift-io: 1KB result boxing" passed after 0.010 seconds.
+􀟈  Test "NIOThreadPool: 1KB result boxing" started.
+⏱️ nioLargeResult()
+   Iterations: 100
+   Min:        71.29µs
+   Median:     72.17µs
+   Mean:       72.81µs
+   p95:        75.96µs
+   p99:        81.54µs
+   Max:        81.54µs
+   StdDev:     1.72µs
+   Peak Memory: 9.02 KB
+􁁛  Test "NIOThreadPool: 1KB result boxing" passed after 0.010 seconds.
+􁁛  Suite "Large Value Boxing" passed after 0.021 seconds.
+􀟈  Suite "Error Boxing" started.
+􀟈  Test "swift-io: error boxing" started.
+⏱️ swiftIOErrorBoxing()
+   Iterations: 100
+   Min:        68.46µs
+   Median:     71.17µs
+   Mean:       71.77µs
+   p95:        77.33µs
+   p99:        80.79µs
+   Max:        80.79µs
+   StdDev:     2.32µs
+   Peak Memory: 10.02 KB
+􁁛  Test "swift-io: error boxing" passed after 0.010 seconds.
+􀟈  Test "NIOThreadPool: error boxing" started.
+⏱️ nioErrorBoxing()
+   Iterations: 100
+   Min:        72.50µs
+   Median:     73.63µs
+   Mean:       74.53µs
+   p95:        78.88µs
+   p99:        94.00µs
+   Max:        94.00µs
+   StdDev:     2.72µs
+   Peak Memory: 12.31 KB
+􁁛  Test "NIOThreadPool: error boxing" passed after 0.011 seconds.
+􁁛  Suite "Error Boxing" passed after 0.022 seconds.
+􀟈  Suite "Sustained Memory Pressure" started.
+􀟈  Test "swift-io: 1000 ops memory profile" started.
+⏱️ swiftIOSustained()
+   Iterations: 3
+   Min:        10.82ms
+   Median:     11.36ms
+   Mean:       11.18ms
+   p95:        11.36ms
+   p99:        11.36ms
+   Max:        11.36ms
+   StdDev:     309.32µs
+   Peak Memory: 27.30 KB
+􁁛  Test "swift-io: 1000 ops memory profile" passed after 0.045 seconds.
+􀟈  Test "NIOThreadPool: 1000 ops memory profile" started.
+⏱️ nioSustained()
+   Iterations: 3
+   Min:        3.98ms
+   Median:     4.22ms
+   Mean:       4.15ms
+   p95:        4.26ms
+   p99:        4.26ms
+   Max:        4.26ms
+   StdDev:     152.75µs
+   Peak Memory: 0 bytes
+􁁛  Test "NIOThreadPool: 1000 ops memory profile" passed after 0.016 seconds.
+􁁛  Suite "Sustained Memory Pressure" passed after 0.062 seconds.
+􁁛  Suite Performance passed after 8.195 seconds.
+􀟈  Suite "Pre-Acceptance Cancellation" started.
+􀟈  Test "swift-io: cancel before acceptance" started.
+􁁛  Suite Test passed after 8.195 seconds.
+􁁛  Suite MemoryBenchmarks passed after 8.196 seconds.
+⏱️ swiftIOPreAcceptance()
+   Iterations: 100
+   Min:        429.01ms
+   Median:     435.58ms
+   Mean:       442.22ms
+   p95:        471.52ms
+   p99:        656.41ms
+   Max:        656.41ms
+   StdDev:     27.56ms
+   Peak Memory: 4.05 KB
+􁁛  Test "swift-io: cancel before acceptance" passed after 53.406 seconds.
+􁁛  Suite "Pre-Acceptance Cancellation" passed after 53.406 seconds.
+􀟈  Suite "Post-Acceptance Cancellation" started.
+􀟈  Test "swift-io: cancel after acceptance" started.
+⏱️ swiftIOPostAcceptance()
+   Iterations: 50
+   Min:        131.58µs
+   Median:     1.17ms
+   Mean:       1.08ms
+   p95:        1.26ms
+   p99:        1.89ms
+   Max:        1.89ms
+   StdDev:     288.71µs
+   Peak Memory: 17.31 KB
+􁁛  Test "swift-io: cancel after acceptance" passed after 0.068 seconds.
+􁁛  Suite "Post-Acceptance Cancellation" passed after 0.068 seconds.
+􀟈  Suite "Batch Cancellation" started.
+􀟈  Test "swift-io: cancel 100 tasks" started.
+⏱️ swiftIOBatch()
+   Iterations: 10
+   Min:        240.23ms
+   Median:     244.18ms
+   Mean:       251.27ms
+   p95:        322.18ms
+   p99:        322.18ms
+   Max:        322.18ms
+   StdDev:     25.09ms
+   Peak Memory: 147.95 KB
+􁁛  Test "swift-io: cancel 100 tasks" passed after 3.198 seconds.
+􀟈  Test "NIOThreadPool: cancel 100 tasks" started.
+⏱️ nioBatch()
+   Iterations: 10
+   Min:        10.00ms
+   Median:     10.48ms
+   Mean:       10.41ms
+   p95:        11.03ms
+   p99:        11.03ms
+   Max:        11.03ms
+   StdDev:     359.57µs
+   Peak Memory: 53.86 KB
+􁁛  Test "NIOThreadPool: cancel 100 tasks" passed after 0.125 seconds.
+􁁛  Suite "Batch Cancellation" passed after 3.323 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Test passed after 64.994 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Test passed after 64.994 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite CancellationBenchmarks passed after 64.994 seconds.
+􁁛  Suite Test passed after 64.994 seconds.
+􁁛  Suite Test passed after 64.994 seconds.
+􁁛  Suite Test passed after 64.994 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Test passed after 64.994 seconds.
+􁁛  Suite Test passed after 64.994 seconds.
+􁁛  Suite Test passed after 64.994 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Test passed after 64.994 seconds.
+􁁛  Suite Error passed after 64.994 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Error passed after 64.994 seconds.
+􁁛  Suite Test passed after 64.994 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Threads passed after 64.994 seconds.
+􁁛  Suite Closure passed after 64.994 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Test passed after 64.994 seconds.
+􁁛  Suite Transaction passed after 64.994 seconds.
+􁁛  Suite Test passed after 64.994 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Test passed after 64.994 seconds.
+􁁛  Suite Slot passed after 64.994 seconds.
+􁁛  Suite JobQueue passed after 64.994 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Test passed after 64.994 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Test passed after 64.994 seconds.
+􁁛  Suite Error passed after 64.994 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Capabilities passed after 64.994 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Test passed after 64.994 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Test passed after 64.994 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Test passed after 64.994 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Test passed after 64.994 seconds.
+􁁛  Suite ID passed after 64.994 seconds.
+􁁛  Suite Test passed after 64.994 seconds.
+􁁛  Suite Failure passed after 64.994 seconds.
+􁁛  Suite Waiters passed after 64.994 seconds.
+􁁛  Suite Test passed after 64.994 seconds.
+􁁛  Suite Token passed after 64.994 seconds.
+􁁛  Suite Test passed after 64.994 seconds.
+􁁛  Suite Error passed after 64.994 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Handoff passed after 64.995 seconds.
+􁁛  Suite Waiter passed after 64.994 seconds.
+􁁛  Suite Test passed after 64.994 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Test passed after 64.994 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Test passed after 64.994 seconds.
+􁁛  Suite Test passed after 64.993 seconds.
+􁁛  Suite State passed after 64.994 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Test passed after 64.993 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Handle passed after 64.995 seconds.
+􁁛  Suite Runtime passed after 64.994 seconds.
+􁁛  Suite Inline passed after 64.994 seconds.
+􁁛  Suite Test passed after 64.994 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Thread passed after 64.995 seconds.
+􁁛  Suite Box passed after 64.995 seconds.
+􁁛  Suite Test passed after 64.993 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Lane passed after 64.995 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Test passed after 64.993 seconds.
+􁁛  Suite Backpressure passed after 64.994 seconds.
+􁁛  Suite Test passed after 64.993 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Test passed after 64.993 seconds.
+􁁛  Suite Lock passed after 64.994 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Blocking passed after 64.995 seconds.
+􁁛  Suite Executor passed after 64.995 seconds.
+􁁛  Suite Test passed after 64.993 seconds.
+􁁛  Suite Test passed after 64.993 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Test passed after 64.993 seconds.
+􁁛  Suite Test passed after 64.994 seconds.
+􁁛  Suite Handle passed after 64.995 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Test passed after 64.994 seconds.
+􁁛  Suite Options passed after 64.994 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Counter passed after 64.994 seconds.
+􁁛  Suite Test passed after 64.993 seconds.
+􁁛  Suite Test passed after 64.993 seconds.
+􁁛  Suite Executor passed after 64.995 seconds.
+􁁛  Suite Queue passed after 64.994 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Waiter passed after 64.994 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Test passed after 64.993 seconds.
+􁁛  Suite Completion passed after 64.994 seconds.
+􁁛  Suite Test passed after 64.993 seconds.
+􁁛  Suite Waiter passed after 64.994 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Test passed after 64.993 seconds.
+􁁛  Suite IO passed after 64.995 seconds.
+􁁛  Suite Acceptance passed after 64.994 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Handle passed after 64.994 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite Test passed after 64.993 seconds.
+􁁛  Suite Performance passed after 64.993 seconds.
+􁁛  Suite IO passed after 64.995 seconds.
+􁁛  Suite Queue passed after 64.994 seconds.
+􁁛  Suite Test passed after 64.993 seconds.
+􁁛  Suite Test passed after 64.993 seconds.
+􁁛  Suite Ticket passed after 64.995 seconds.
+􁁛  Suite Manager passed after 64.994 seconds.
+􁁛  Suite Test passed after 64.994 seconds.
+􁁛  Suite processorCountTests passed after 64.995 seconds.
+􁁛  Suite Deadline passed after 64.995 seconds.
+􁁛  Suite Test passed after 64.993 seconds.
+􁁛  Suite Instance passed after 64.994 seconds.
+􁁛  Suite Job passed after 64.995 seconds.
+􁁛  Suite State passed after 64.994 seconds.
+􁁛  Suite Worker passed after 64.994 seconds.
+􁁛  Suite Thread passed after 64.995 seconds.
+􁁛  Suite IO passed after 64.996 seconds.
+􁁛  Suite Threads passed after 64.995 seconds.
+􁁛  Suite Blocking passed after 64.996 seconds.
+􁁛  Suite IO passed after 64.996 seconds.
+􁁛  Test run with 243 tests in 321 suites passed after 64.997 seconds.

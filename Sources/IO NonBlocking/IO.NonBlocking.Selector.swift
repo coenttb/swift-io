@@ -221,24 +221,26 @@ extension IO.NonBlocking {
             // - cancel() flips state synchronously from onCancel handler
             // - Actor drains on next touch (event dispatch, shutdown)
             // - Actor is the single resumption funnel
+            //
+            // Uses non-throwing continuation with Result payload to achieve
+            // typed errors without any existential error handling.
             let waiter = Waiter(id: id)
 
-            let event: Event
-            do {
-                event = try await withTaskCancellationHandler {
-                    try await withCheckedThrowingContinuation { continuation in
-                        waiter.arm(continuation: continuation)
-                        waiters[id] = waiter
-                    }
-                } onCancel: {
-                    waiter.cancel()
+            let result: Result<Event, Failure> = await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    waiter.arm(continuation: continuation)
+                    waiters[id] = waiter
                 }
-            } catch {
-                // Safe cast: resume(_:with:) only throws Failure values
-                throw error as! Failure
+            } onCancel: {
+                waiter.cancel()
             }
 
-            return Arm.Result(token: Token(id: id), event: event)
+            switch result {
+            case .success(let event):
+                return Arm.Result(token: Token(id: id), event: event)
+            case .failure(let failure):
+                throw failure
+            }
         }
 
         /// Deregister a descriptor.
@@ -296,9 +298,9 @@ extension IO.NonBlocking {
                     // Drain the waiter using state machine
                     if let (continuation, wasCancelled) = waiter.takeForResume() {
                         if wasCancelled {
-                            resume(continuation, with: .failure(.cancelled))
+                            continuation.resume(returning: .failure(.cancelled))
                         } else {
-                            resume(continuation, with: .success(event))
+                            continuation.resume(returning: .success(event))
                         }
                     }
                 } else {
@@ -306,30 +308,6 @@ extension IO.NonBlocking {
                     let key = PermitKey(id: event.id, interest: interest)
                     permits[key] = event.flags
                 }
-            }
-        }
-
-        // MARK: - Resumption Funnel
-
-        /// Single funnel for resuming waiter continuations.
-        ///
-        /// This is the **only** place that resumes waiter continuations.
-        /// By funneling all resumptions through here, we guarantee typed
-        /// failures by construction - no casting required.
-        ///
-        /// ## Invariant
-        /// The continuation failure type is `any Error` (due to Swift's
-        /// `withCheckedThrowingContinuation`), but we only ever resume
-        /// with `Failure` values, so callers see typed throws.
-        private func resume(
-            _ continuation: CheckedContinuation<Event, any Swift.Error>,
-            with result: Result<Event, Failure>
-        ) {
-            switch result {
-            case .success(let event):
-                continuation.resume(returning: event)
-            case .failure(let failure):
-                continuation.resume(throwing: failure)  // Upcast to any Error
             }
         }
 
@@ -348,7 +326,7 @@ extension IO.NonBlocking {
             for (_, waiter) in waiters {
                 if let (continuation, _) = waiter.takeForResume() {
                     // Regardless of cancellation status, shutdown takes precedence
-                    resume(continuation, with: .failure(.shutdownInProgress))
+                    continuation.resume(returning: .failure(.shutdownInProgress))
                 }
             }
             waiters.removeAll()

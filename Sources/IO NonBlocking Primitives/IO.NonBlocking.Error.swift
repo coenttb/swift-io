@@ -44,6 +44,12 @@ extension IO.NonBlocking {
         /// The descriptor is not registered with this selector.
         case notRegistered
 
+        /// The descriptor was deregistered while an operation was pending.
+        ///
+        /// This occurs when `deregister()` is called while a waiter is armed.
+        /// The waiter is drained with this error rather than dropped.
+        case deregistered
+
         // MARK: - Half-Close Errors
 
         /// Read operation after the read side was closed.
@@ -72,6 +78,8 @@ extension IO.NonBlocking.Error: CustomStringConvertible {
             return "Already registered"
         case .notRegistered:
             return "Not registered"
+        case .deregistered:
+            return "Deregistered while operation pending"
         case .readClosed:
             return "Read side closed"
         case .writeClosed:
