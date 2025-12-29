@@ -18,17 +18,15 @@ extension IO.Blocking {
     /// (not a protocol) to avoid existential types for Swift Embedded compatibility.
     ///
     /// ## Error Handling Design
-    /// - Lane throws `IO.Lifecycle.Error<Failure>` for lifecycle and infrastructure failures
-    /// - Lifecycle conditions (shutdown) are `.lifecycle(.shutdownInProgress)`
-    /// - Infrastructure failures (timeout, etc.) are `.failure(leaf)`
+    /// - Lane throws `Failure` for infrastructure failures (shutdown, timeout, etc.)
     /// - Operation errors flow through `Result<T, E>` - never thrown
     /// - This enables typed error propagation without existentials
     ///
     /// ## Cancellation Contract
     /// - **Before acceptance**: If task is cancelled before the lane accepts the job,
-    ///   `run()` throws `.failure(.cancelled)` immediately without enqueuing.
+    ///   `run()` throws `.cancellationRequested` immediately without enqueuing.
     /// - **After acceptance**: If `guaranteesRunOnceEnqueued` is true, the job runs
-    ///   to completion. The caller may observe `.failure(.cancelled)` upon return,
+    ///   to completion. The caller may observe `.cancellationRequested` upon return,
     ///   but the operation's side effects occur.
     ///
     /// ## Cancellation Law
@@ -40,29 +38,29 @@ extension IO.Blocking {
     /// ## Deadline Contract
     /// - Deadlines bound acceptance time (waiting to enqueue), not execution time.
     /// - Lanes are not required to interrupt syscalls once executing.
-    /// - If deadline expires before acceptance, throw `.failure(.deadlineExceeded)`.
+    /// - If deadline expires before acceptance, throw `.deadlineExceeded`.
     public struct Lane: Sendable {
         /// The capabilities this lane provides.
         public let capabilities: Capabilities
 
-        // The run implementation.
-        // - Operation closure returns boxed value (never throws)
-        // - Lane throws IO.Lifecycle.Error<Failure> for lifecycle and infrastructure failures
+        /// The run implementation.
+        /// - Operation closure returns boxed value (never throws)
+        /// - Lane throws only Failure for infrastructure failures
         private let _run:
             @Sendable @concurrent (
                 Deadline?,
                 @Sendable @escaping () -> UnsafeMutableRawPointer  // Returns boxed value
-            ) async throws(IO.Lifecycle.Error<Failure>) -> UnsafeMutableRawPointer
+            ) async throws(Failure) -> UnsafeMutableRawPointer
 
         private let _shutdown: @Sendable @concurrent () async -> Void
 
-        package init(
+        public init(
             capabilities: Capabilities,
             run:
                 @escaping @Sendable @concurrent (
                     Deadline?,
                     @Sendable @escaping () -> UnsafeMutableRawPointer
-                ) async throws(IO.Lifecycle.Error<Failure>) -> UnsafeMutableRawPointer,
+                ) async throws(Failure) -> UnsafeMutableRawPointer,
             shutdown: @escaping @Sendable @concurrent () async -> Void
         ) {
             self.capabilities = capabilities
@@ -72,16 +70,18 @@ extension IO.Blocking {
 
         // MARK: - Core Primitive (Result-returning)
 
-        /// Executes a Result-returning operation.
+        /// Execute a Result-returning operation.
         ///
-        /// Core primitive - preserves typed error through Result without casting.
-        /// Internal to force callers through the typed-throws run wrapper.
-        /// Lane throws `IO.Lifecycle.Error<Failure>` for lifecycle and infrastructure failures.
+        /// This is the core primitive. The operation produces a `Result<T, E>` directly,
+        /// preserving the typed error without any casting or existentials.
+        ///
+        /// Internal to force callers through the typed-throws `run` wrapper.
+        /// Lane only throws `Failure` for infrastructure failures.
         @concurrent
         internal func runResult<T: Sendable, E: Swift.Error & Sendable>(
             deadline: Deadline?,
             _ operation: @Sendable @escaping () -> Result<T, E>
-        ) async throws(IO.Lifecycle.Error<Failure>) -> Result<T, E> {
+        ) async throws(Failure) -> Result<T, E> {
             let ptr = try await _run(deadline) {
                 let result = operation()
                 return IO.Blocking.Box.make(result)
@@ -91,18 +91,20 @@ extension IO.Blocking {
 
         // MARK: - Convenience (Typed-Throws)
 
-        /// Executes a typed-throwing operation, returning Result.
+        /// Execute a typed-throwing operation, returning Result.
+        ///
+        /// This convenience wrapper converts `throws(E) -> T` to `() -> Result<T, E>`.
         ///
         /// ## Quarantined Cast (Swift Embedded Safe)
-        /// Swift currently infers error as `any Error` even when operation `throws(E)`.
-        /// We use a single, localized `as?` cast to recover `E` without introducing
+        /// Swift currently infers `error` as `any Error` even when `operation` throws(E).
+        /// We use a single, localized `as?` cast to recover E without introducing
         /// existentials into storage or API boundaries. This is the ONLY cast in the
         /// module and is acceptable for Embedded compatibility.
         @concurrent
         public func run<T: Sendable, E: Swift.Error & Sendable>(
             deadline: Deadline?,
             _ operation: @Sendable @escaping () throws(E) -> T
-        ) async throws(IO.Lifecycle.Error<Failure>) -> Result<T, E> {
+        ) async throws(Failure) -> Result<T, E> {
             try await runResult(deadline: deadline) {
                 do {
                     return .success(try operation())
@@ -110,11 +112,10 @@ extension IO.Blocking {
                     // Quarantined cast to recover E from `any Error`.
                     // This is the only cast in the module - do not add others.
                     guard let e = error as? E else {
-                        // Contract: `operation` is declared as `throws(E)` and must be observed as `E`.
-                        // If this fails, there is no safe recovery (we cannot manufacture `E`).
-                        // Terminate deliberately to surface invariant violations.
+                        // Unreachable if typed-throws is respected by the compiler.
+                        // Trap to surface invariant violations during development.
                         fatalError(
-                            "Lane.run: invariant violated - expected \(E.self), got \(type(of: error))"
+                            "Lane.run: typed-throws invariant violated. Expected \(E.self), got \(type(of: error))"
                         )
                     }
                     return .failure(e)
@@ -124,12 +125,12 @@ extension IO.Blocking {
 
         // MARK: - Convenience (Non-throwing)
 
-        /// Executes a non-throwing operation, returning value directly.
+        /// Execute a non-throwing operation, returning value directly.
         @concurrent
         public func run<T: Sendable>(
             deadline: Deadline?,
             _ operation: @Sendable @escaping () -> T
-        ) async throws(IO.Lifecycle.Error<Failure>) -> T {
+        ) async throws(Failure) -> T {
             let ptr = try await _run(deadline) {
                 let result = operation()
                 return IO.Blocking.Box.makeValue(result)

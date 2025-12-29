@@ -11,32 +11,45 @@ extension IO.Executor {
     /// Slots provide internal bridging for ~Copyable resources across await
     /// boundaries via lane.run.
     ///
-    /// ## Key Design: Integer Address Capture
-    /// `UnsafeMutableRawPointer` is not Sendable in Swift 6, but `UInt` is.
-    /// We expose `slot.address` as a typed `Address` and reconstruct the pointer
-    /// inside the @Sendable lane closure. Memory lifetime is guaranteed by the
-    /// actor-scoped slot plus the awaited lane.run duration.
+    /// ## Relationship to IO.Handoff
+    /// Slot uses `IO.Handoff.Token` as its address capability type (via typealias).
+    /// Both solve "cross Sendable boundary" problems using the same opaque token pattern.
+    ///
+    /// - **IO.Handoff.Cell**: Simple one-shot ownership transfer (init → token → take)
+    /// - **IO.Executor.Slot.Container**: Two-phase lane execution pattern with
+    ///   separate allocation, initialization, and consumption phases
+    ///
+    /// Slot has richer lifecycle semantics because lane workers may initialize
+    /// the resource (not just receive it), and cleanup must handle partial failures.
     ///
     /// ## Safety Invariants
     /// 1. The slot is initialized exactly once (via static `initializeMemory`)
     /// 2. After successful lane.run, caller marks initialized and calls `take()`
     /// 3. `deallocateRawOnly()` is idempotent and called via defer
     ///
-    /// ## Usage
+    /// ## Usage Pattern
     /// ```swift
     /// var slot = IO.Executor.Slot.Container<MyResource>.allocate()
     /// defer { slot.deallocateRawOnly() }
-    /// let address = slot.address  // Typed Address capability
+    /// let address = slot.address  // Opaque token capability
     ///
     /// try await lane.run(deadline: nil) {
-    ///     let raw = address.pointer  // Reconstruct pointer from Address
+    ///     // Use static methods with the address token
     ///     let resource = try openResource(...)
-    ///     IO.Executor.Slot.Container<MyResource>.initializeMemory(at: raw, with: resource)
+    ///     IO.Executor.Slot.Container<MyResource>.initializeMemory(at: address, with: resource)
     /// }
     ///
     /// slot.markInitialized()
     /// let resource = slot.take()
     /// // register resource
     /// ```
-    enum Slot {}
+    public enum Slot {}
+}
+
+extension IO.Executor.Slot {
+    /// Opaque address capability for slot memory.
+    ///
+    /// This is a typealias to `IO.Handoff.Token`, providing a unified
+    /// representation for address-sized capabilities across IO subsystems.
+    public typealias Address = IO.Handoff.Token
 }

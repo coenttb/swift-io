@@ -12,23 +12,21 @@ extension IO.Blocking.Threads.Completion {
     ///
     /// ## Continuation Resumption Invariant
     /// The continuation MUST be resumed exactly once. This is enforced by:
-    /// - Cancellation path: removes waiter from dictionary and resumes with `.cancelled`
+    /// - Cancellation path: removes waiter from dictionary and resumes with `.cancellationRequested`
     /// - Completion path: removes waiter from dictionary and resumes with box
     ///
     /// Because both paths remove the waiter under lock before resuming,
     /// only one can ever see and resume a given waiter.
     ///
-    /// ## Typed Throws via Result
-    /// Uses `CheckedContinuation<Result<BoxPointer, Failure>, Never>` instead of
-    /// `CheckedContinuation<BoxPointer, any Error>` to preserve typed throws.
-    /// The continuation never throws; errors flow through the Result type.
-    /// This avoids `any Error` leaking into storage types.
+    /// ## Error Handling
+    /// The continuation uses `any Error` due to Swift stdlib limitations
+    /// (`withCheckedThrowingContinuation` doesn't support typed throws in Swift 6.2).
+    /// However, `resumeThrowing` only accepts `IO.Blocking.Failure`, ensuring
+    /// by construction that no other error types can escape.
+    /// The `Box.Pointer` wrapper provides `@unchecked Sendable` capability at the FFI boundary.
     struct Waiter {
-        /// Result type for completion outcomes.
-        typealias Outcome = Result<IO.Blocking.Box.Pointer, IO.Blocking.Failure>
-
-        /// Continuation type - never throws, errors in Result.
-        typealias Continuation = CheckedContinuation<Outcome, Never>
+        /// Continuation type alias for clarity.
+        typealias Continuation = CheckedContinuation<IO.Blocking.Box.Pointer, any Error>
 
         /// The continuation to resume with the boxed result or failure.
         let continuation: Continuation
@@ -44,15 +42,25 @@ extension IO.Blocking.Threads.Completion {
             self.resumed = resumed
         }
 
-        /// Resume this waiter exactly once with the given outcome.
-        ///
-        /// - Precondition: Must not have been resumed before.
-        mutating func resume(with outcome: Outcome) {
+        /// Resume this waiter exactly once with the result.
+        mutating func resumeReturning(_ box: IO.Blocking.Box.Pointer) {
             #if DEBUG
-                precondition(!resumed, "Completion waiter resumed more than once")
+            precondition(!resumed, "Completion waiter resumed more than once")
             #endif
             resumed = true
-            continuation.resume(returning: outcome)
+            continuation.resume(returning: box)
+        }
+
+        /// Resume this waiter exactly once with a failure.
+        ///
+        /// Only accepts `IO.Blocking.Failure` to ensure by construction
+        /// that no unexpected error types escape through the continuation.
+        mutating func resumeThrowing(_ error: IO.Blocking.Failure) {
+            #if DEBUG
+            precondition(!resumed, "Completion waiter resumed more than once")
+            #endif
+            resumed = true
+            continuation.resume(throwing: error)
         }
     }
 }

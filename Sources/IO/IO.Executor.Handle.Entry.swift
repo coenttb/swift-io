@@ -10,44 +10,72 @@ extension IO.Executor.Handle {
     ///
     /// Uses a class to hold the non-copyable Resource.
     /// Actor isolation ensures thread safety without @unchecked Sendable.
-    /// Generic over `Resource: ~Copyable` - Sendable is NOT required.
-    final class Entry<Resource: ~Copyable> {
-        /// The resource, or nil if currently checked out or destroyed.
-        var resource: Resource?
+    ///
+    /// Generic over `Resource` which must be `~Copyable & Sendable`.
+    public final class Entry<Resource: ~Copyable & Sendable> {
+        /// The resource, or nil if currently checked out, reserved, or destroyed.
+        public var handle: Resource?
+
+        /// The resource when reserved for a specific waiter.
+        ///
+        /// Separated from `handle` to distinguish between:
+        /// - `handle`: Available for immediate checkout
+        /// - `reservedHandle`: Committed to a specific waiter by token
+        public var reservedHandle: Resource?
 
         /// Queue of tasks waiting for this handle.
-        var waiters: IO.Handle.Waiters
+        public var waiters: IO.Handle.Waiters
 
         /// Current lifecycle state.
-        var state: State
+        public var state: State
 
         /// Creates an entry with the given resource and waiter capacity.
         ///
         /// - Parameters:
-        ///   - resource: The resource to store (ownership transferred).
+        ///   - handle: The resource to store (ownership transferred).
         ///   - waitersCapacity: Maximum waiters for this handle (default: 64).
-        init(resource: consuming Resource, waitersCapacity: Int = IO.Handle.Waiters.defaultCapacity) {
-            self.resource = consume resource
+        public init(handle: consuming Resource, waitersCapacity: Int = IO.Handle.Waiters.defaultCapacity) {
+            self.handle = consume handle
+            self.reservedHandle = nil
             self.waiters = IO.Handle.Waiters(capacity: waitersCapacity)
             self.state = .present
         }
 
-        /// Whether the handle is logically open (present or checked out).
-        var isOpen: Bool {
-            state == .present || state == .checkedOut
+        /// Whether the handle is logically open (present, checked out, or reserved).
+        public var isOpen: Bool {
+            switch state {
+            case .present, .checkedOut, .reserved:
+                return true
+            case .destroyed:
+                return false
+            }
         }
 
         /// Whether destroy has been requested.
-        var isDestroyed: Bool {
+        public var isDestroyed: Bool {
             state == .destroyed
         }
 
-        /// Returns the resource if present, leaving nil.
-        func take() -> Resource? {
+        /// Takes the handle out if present, leaving nil.
+        public func take() -> Resource? {
             guard state == .present else { return nil }
-            guard resource != nil else { return nil }
+            guard handle != nil else { return nil }
             var result: Resource? = nil
-            swap(&result, &resource)
+            swap(&result, &handle)
+            return result
+        }
+
+        /// Takes the reserved handle for a specific waiter token.
+        ///
+        /// - Parameter token: The waiter token that must match the reservation.
+        /// - Returns: The reserved resource if token matches, nil otherwise.
+        public func takeReserved(token: UInt64) -> Resource? {
+            guard case .reserved(let reservedToken) = state, reservedToken == token else {
+                return nil
+            }
+            guard reservedHandle != nil else { return nil }
+            var result: Resource? = nil
+            swap(&result, &reservedHandle)
             return result
         }
     }

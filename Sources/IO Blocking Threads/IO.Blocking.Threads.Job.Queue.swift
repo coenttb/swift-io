@@ -15,7 +15,7 @@ extension IO.Blocking.Threads.Job {
         private var head: Int = 0
         private var tail: Int = 0
         private var _count: Int = 0
-        let capacity: Int
+        private let capacity: Int
 
         init(capacity: Int) {
             self.capacity = max(capacity, 1)

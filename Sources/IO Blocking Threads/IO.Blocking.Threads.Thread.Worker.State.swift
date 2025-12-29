@@ -42,8 +42,8 @@ extension IO.Blocking.Threads.Thread.Worker {
         var abandonedTickets: Set<IO.Blocking.Threads.Ticket>
 
         #if DEBUG
-            // Tracking for exactly-once Box destruction invariant
-            var destroyedTickets: Set<IO.Blocking.Threads.Ticket> = []
+        // Tracking for exactly-once Box destruction invariant
+        var destroyedTickets: Set<IO.Blocking.Threads.Ticket> = []
         #endif
 
         init(queueLimit: Int, acceptanceWaitersLimit: Int) {
@@ -81,8 +81,8 @@ extension IO.Blocking.Threads.Thread.Worker {
         /// ## Lazy Expiry
         /// Expired waiters are resumed with `.deadlineExceeded` and their slots reclaimed.
         /// This ensures non-expired waiters behind expired ones are not starved.
-        func promoteAcceptanceWaiters() -> [(IO.Blocking.Threads.Acceptance.Waiter, Result<IO.Blocking.Threads.Ticket, IO.Lifecycle.Error<IO.Blocking.Failure>>)] {
-            var toResume: [(IO.Blocking.Threads.Acceptance.Waiter, Result<IO.Blocking.Threads.Ticket, IO.Lifecycle.Error<IO.Blocking.Failure>>)] = []
+        func promoteAcceptanceWaiters() -> [(IO.Blocking.Threads.Acceptance.Waiter, Result<IO.Blocking.Threads.Ticket, IO.Blocking.Failure>)] {
+            var toResume: [(IO.Blocking.Threads.Acceptance.Waiter, Result<IO.Blocking.Threads.Ticket, IO.Blocking.Failure>)] = []
 
             while !queue.isFull, !acceptanceWaiters.isEmpty {
                 if isShutdown { break }
@@ -92,7 +92,7 @@ extension IO.Blocking.Threads.Thread.Worker {
 
                 // Check deadline (lazy expiry)
                 if let deadline = waiter.deadline, deadline.hasExpired {
-                    toResume.append((waiter, .failure(.failure(.deadlineExceeded))))
+                    toResume.append((waiter, .failure(.deadlineExceeded)))
                     continue
                 }
 
@@ -107,12 +107,12 @@ extension IO.Blocking.Threads.Thread.Worker {
 
                 if tryEnqueue(job) {
                     toResume.append((waiter, .success(ticket)))
-                    lock.worker.signal()
+                    lock.signalWorker()
                 } else {
                     // Couldn't enqueue - can't put back in ring buffer easily
                     // This shouldn't happen since we checked !queue.isFull
                     // If it does, resume with failure
-                    toResume.append((waiter, .failure(.failure(.queueFull))))
+                    toResume.append((waiter, .failure(.queueFull)))
                     break
                 }
             }
@@ -136,8 +136,8 @@ extension IO.Blocking.Threads.Thread.Worker {
             // If abandoned, cancellation already handled resumption - just destroy box
             if abandonedTickets.remove(ticket) != nil {
                 #if DEBUG
-                    precondition(!destroyedTickets.contains(ticket), "Box already destroyed for ticket \(ticket)")
-                    destroyedTickets.insert(ticket)
+                precondition(!destroyedTickets.contains(ticket), "Box already destroyed for ticket \(ticket)")
+                destroyedTickets.insert(ticket)
                 #endif
                 IO.Blocking.Box.destroy(box)
                 return
@@ -145,7 +145,7 @@ extension IO.Blocking.Threads.Thread.Worker {
 
             // If waiter exists, we own resumption - remove and resume
             if var waiter = completionWaiters.removeValue(forKey: ticket) {
-                waiter.resume(with: .success(IO.Blocking.Box.Pointer(box)))
+                waiter.resumeReturning(IO.Blocking.Box.Pointer(box))
                 return
             }
 
@@ -169,8 +169,8 @@ extension IO.Blocking.Threads.Thread.Worker {
         /// Must be called under lock.
         func destroyBox(ticket: IO.Blocking.Threads.Ticket, box: UnsafeMutableRawPointer) {
             #if DEBUG
-                precondition(!destroyedTickets.contains(ticket), "Box already destroyed for ticket \(ticket)")
-                destroyedTickets.insert(ticket)
+            precondition(!destroyedTickets.contains(ticket), "Box already destroyed for ticket \(ticket)")
+            destroyedTickets.insert(ticket)
             #endif
             IO.Blocking.Box.destroy(box)
         }

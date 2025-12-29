@@ -7,7 +7,7 @@
 
 extension IO.Executor {
     /// Namespace for handle-related types within the executor.
-    enum Handle {
+    public enum Handle {
         // Types are defined in extensions in separate files
     }
 }

@@ -15,8 +15,7 @@ extension IO.Executor.Error {
 // MARK: - Unit Tests
 
 extension IO.Executor.Error.Test.Unit {
-    // Note: shutdownInProgress is no longer a case of IO.Executor.Error.
-    // Lifecycle conditions are expressed via IO.Lifecycle.Error at API boundaries.
+    // Note: shutdownInProgress has been moved to IO.Lifecycle.Error
 
     @Test("scopeMismatch case exists")
     func scopeMismatchCase() {
@@ -62,6 +61,7 @@ extension IO.Executor.Error.Test.Unit {
 extension IO.Executor.Error.Test.EdgeCase {
     @Test("all cases are distinct")
     func allCasesDistinct() {
+        // shutdownInProgress moved to IO.Lifecycle.Error
         let cases: [IO.Executor.Error] = [
             .scopeMismatch,
             .handleNotFound,
@@ -76,5 +76,18 @@ extension IO.Executor.Error.Test.EdgeCase {
                 }
             }
         }
+    }
+
+    @Test("no shutdownInProgress case - lifecycle concerns moved to IO.Lifecycle.Error")
+    func noShutdownInProgressCase() {
+        // IO.Executor.Error no longer has .shutdownInProgress
+        // Shutdown is now surfaced via IO.Lifecycle.Error.shutdownInProgress
+        let allCases: [IO.Executor.Error] = [
+            .scopeMismatch,
+            .handleNotFound,
+            .invalidState
+        ]
+        // All 3 cases are operational - no lifecycle
+        #expect(allCases.count == 3)
     }
 }

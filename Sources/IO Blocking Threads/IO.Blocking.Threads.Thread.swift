@@ -15,7 +15,7 @@
 
 extension IO.Blocking.Threads {
     /// Namespace for thread-related types.
-    enum Thread {}
+    public enum Thread {}
 }
 
 extension IO.Blocking.Threads.Thread {

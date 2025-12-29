@@ -39,11 +39,11 @@ extension IO.Blocking.Threads.Test.Unit {
         await threads.shutdown()
     }
 
-    @Test("run.boxed executes operation")
+    @Test("runBoxed executes operation")
     func runBoxedExecutes() async throws {
         let threads = IO.Blocking.Threads()
 
-        let ptr = try await threads.run.boxed(deadline: nil) {
+        let ptr = try await threads.runBoxed(deadline: nil) {
             let value = 42
             let p = UnsafeMutablePointer<Int>.allocate(capacity: 1)
             p.initialize(to: value)
@@ -81,7 +81,7 @@ extension IO.Blocking.Threads.Test.EdgeCase {
         let threads = IO.Blocking.Threads()
 
         for i in 0..<10 {
-            let ptr = try await threads.run.boxed(deadline: nil) {
+            let ptr = try await threads.runBoxed(deadline: nil) {
                 let p = UnsafeMutablePointer<Int>.allocate(capacity: 1)
                 p.initialize(to: i)
                 return UnsafeMutableRawPointer(p)

@@ -38,14 +38,14 @@ extension IO.Blocking.Lane {
                 (
                     deadline: IO.Blocking.Deadline?,
                     operation: @Sendable @escaping () -> UnsafeMutableRawPointer
-                ) async throws(IO.Lifecycle.Error<IO.Blocking.Failure>) -> UnsafeMutableRawPointer in
+                ) async throws(IO.Blocking.Failure) -> UnsafeMutableRawPointer in
                 // Check cancellation before execution
                 if Task.isCancelled {
-                    throw .failure(.cancelled)
+                    throw .cancellationRequested
                 }
                 // Check deadline (one-time check, no queue)
                 if let deadline, deadline.hasExpired {
-                    throw .failure(.deadlineExceeded)
+                    throw .deadlineExceeded
                 }
                 // Execute immediately on caller's context
                 return operation()

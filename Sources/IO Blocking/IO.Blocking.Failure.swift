@@ -6,31 +6,28 @@
 //
 
 extension IO.Blocking {
-    /// Infrastructure failures from the lane.
+    /// Infrastructure failures from the Lane itself.
     ///
-    /// Operation errors are returned in the boxed `Result`, not thrown.
-    /// Lane only throws `Failure` for infrastructure-level issues.
+    /// This type is the internal lane contract. Lifecycle cases (`.shutdown`,
+    /// `.cancellationRequested`) are mapped to `IO.Lifecycle.Error` at the Pool boundary.
     ///
-    /// - Note: Shutdown is not represented here. Lifecycle conditions
-    ///   are expressed via `IO.Lifecycle.Error<...>` at API boundaries.
+    /// ## Stability
+    /// This type is part of the Lane implementation contract. Do not match
+    /// lifecycle cases directly in user code - use Pool which maps them to
+    /// `IO.Lifecycle.Error` for correct error category handling.
     ///
-    /// ## Forward Compatibility
-    /// This enum is intentionally not `@frozen`. New cases may be added
-    /// in future versions. Clients should use `@unknown default` in
-    /// exhaustive switches to remain forward-compatible:
-    ///
-    /// ```swift
-    /// switch failure {
-    /// case .cancelled: ...
-    /// case .queueFull: ...
-    /// // ... other cases ...
-    /// @unknown default: handleUnknownFailure(failure)
-    /// }
-    /// ```
+    /// Operation errors are returned in the boxed Result, not thrown.
     public enum Failure: Swift.Error, Sendable, Equatable {
+        /// The lane is shutting down.
+        /// Mapped to `IO.Lifecycle.Error.shutdownInProgress` at Pool boundary.
+        case shutdown
+
+        /// Cancellation was requested.
+        /// Mapped to `IO.Lifecycle.Error.cancelled` at Pool boundary.
+        case cancellationRequested
+
         case queueFull
         case deadlineExceeded
-        case cancelled
 
         /// Lane infrastructure waiter capacity exhausted (bounded memory protection).
         ///

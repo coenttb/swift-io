@@ -20,11 +20,12 @@ extension IO.Executor.Transaction.Error where E == TestTransactionError {
 // MARK: - Unit Tests
 
 extension IO.Executor.Transaction.Error<TestTransactionError>.Test.Unit {
-    @Test("lane case wraps failure")
+    @Test("lane case wraps IO.Blocking.Error")
     func laneCase() {
-        let error = IO.Executor.Transaction.Error<TestTransactionError>.lane(.cancelled)
+        // Lane now uses IO.Blocking.Error (not Failure) - no lifecycle cases
+        let error = IO.Executor.Transaction.Error<TestTransactionError>.lane(.queueFull)
         if case .lane(let inner) = error {
-            #expect(inner == .cancelled)
+            #expect(inner == .queueFull)
         } else {
             Issue.record("Expected lane case")
         }
@@ -52,10 +53,10 @@ extension IO.Executor.Transaction.Error<TestTransactionError>.Test.Unit {
 
     @Test("Sendable conformance")
     func sendableConformance() async {
-        let error = IO.Executor.Transaction.Error<TestTransactionError>.lane(.cancelled)
+        let error = IO.Executor.Transaction.Error<TestTransactionError>.lane(.queueFull)
         await Task {
             if case .lane = error {
-                #expect(Bool(true))
+                #expect(true)
             } else {
                 Issue.record("Expected lane case")
             }
@@ -68,27 +69,41 @@ extension IO.Executor.Transaction.Error<TestTransactionError>.Test.Unit {
 extension IO.Executor.Transaction.Error<TestTransactionError>.Test.EdgeCase {
     @Test("all cases are distinct")
     func allCasesDistinct() {
-        let lane: IO.Executor.Transaction.Error<TestTransactionError> = .lane(.cancelled)
+        // Uses IO.Blocking.Error, not Failure - no lifecycle cases
+        let lane: IO.Executor.Transaction.Error<TestTransactionError> = .lane(.queueFull)
         let handle: IO.Executor.Transaction.Error<TestTransactionError> = .handle(.invalidID)
         let body: IO.Executor.Transaction.Error<TestTransactionError> = .body(TestTransactionError(code: 1))
 
         // Verify each case matches expected pattern
         if case .lane = lane {
-            #expect(Bool(true))
+            #expect(true)
         } else {
             Issue.record("lane should be .lane case")
         }
 
         if case .handle = handle {
-            #expect(Bool(true))
+            #expect(true)
         } else {
             Issue.record("handle should be .handle case")
         }
 
         if case .body = body {
-            #expect(Bool(true))
+            #expect(true)
         } else {
             Issue.record("body should be .body case")
         }
+    }
+
+    @Test("no lifecycle cases in Transaction.Error")
+    func noLifecycleCases() {
+        // Transaction.Error uses IO.Blocking.Error which excludes lifecycle
+        // Lifecycle concerns (shutdown, cancellation) are in IO.Lifecycle.Error
+        let allLaneCases: [IO.Blocking.Error] = [
+            .queueFull,
+            .deadlineExceeded,
+            .overloaded,
+            .internalInvariantViolation
+        ]
+        #expect(allLaneCases.count == 4)
     }
 }

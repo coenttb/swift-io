@@ -6,10 +6,14 @@
 //
 
 extension IO.Executor {
-    /// Errors specific to the executor.
+    /// Operational errors specific to the executor.
     ///
-    /// - Note: Shutdown is not represented here. Lifecycle conditions
-    ///   are expressed via `IO.Lifecycle.Error<...>` at API boundaries.
+    /// This type contains only operational errors. Lifecycle concerns
+    /// (shutdown) are surfaced through `IO.Lifecycle.Error` at the Pool boundary.
+    ///
+    /// ## Invariant
+    /// `.invalidState` MUST NOT be used to encode shutdown. Shutdown is always
+    /// surfaced as `IO.Lifecycle.Error.shutdownInProgress`.
     public enum Error: Swift.Error, Sendable, Equatable {
         /// The ID's scope doesn't match this executor.
         case scopeMismatch
@@ -18,6 +22,7 @@ extension IO.Executor {
         case handleNotFound
 
         /// The operation is not valid in the current state.
+        /// Note: This MUST NOT encode shutdown - shutdown is a lifecycle concern.
         case invalidState
     }
 }

@@ -28,7 +28,7 @@ extension IO.Blocking {
         private let runtime: Runtime
 
         /// Creates a Threads lane with the given options.
-        init(_ options: Options = .init()) {
+        public init(_ options: Options = .init()) {
             self.runtime = Runtime(options: options)
         }
 
@@ -39,7 +39,7 @@ extension IO.Blocking {
                     runtime.state.isShutdown = true
                 }
                 runtime.state.lock.broadcastAll()
-                runtime.joinAll()
+                runtime.joinAllThreads()
             }
         }
     }
@@ -48,7 +48,7 @@ extension IO.Blocking {
 // MARK: - Capabilities
 
 extension IO.Blocking.Threads {
-    var capabilities: IO.Blocking.Capabilities {
+    public var capabilities: IO.Blocking.Capabilities {
         IO.Blocking.Capabilities(
             executesOnDedicatedThreads: true,
             guaranteesRunOnceEnqueued: true
@@ -56,74 +56,44 @@ extension IO.Blocking.Threads {
     }
 }
 
-// MARK: - Run Accessor
+// MARK: - runBoxed (Two-Stage Acceptance/Completion)
 
 extension IO.Blocking.Threads {
-    /// Accessor for running operations on this lane.
-    var run: Run { Run(self) }
-}
+    /// Execute a boxed operation using two-stage acceptance/completion.
+    ///
+    /// ## Design
+    /// 1. **Acceptance stage**: Enqueue job and get a ticket
+    /// 2. **Completion stage**: Wait for job completion using the ticket
+    ///
+    /// ## Cancellation Semantics
+    /// - Cancellation before acceptance: throw `.cancellationRequested`, no job runs
+    /// - Cancellation while waiting for acceptance: throw `.cancellationRequested`, no job runs
+    /// - Cancellation after acceptance: job runs to completion, result is drained, throw `.cancellationRequested`
+    ///
+    /// ## Invariants
+    /// - No helper `Task {}` spawned inside lane machinery
+    /// - Exactly-once resume for all continuations
+    /// - Cancel-wait-but-drain-completion: cancelled callers don't leak boxes
+    public func runBoxed(
+        deadline: IO.Blocking.Deadline?,
+        _ operation: @Sendable @escaping () -> UnsafeMutableRawPointer
+    ) async throws(IO.Blocking.Failure) -> UnsafeMutableRawPointer {
+        // Stage 1: Acceptance
+        let ticket = try await awaitAcceptance(deadline: deadline, operation: operation)
 
-// MARK: - Threads.Run
-
-extension IO.Blocking.Threads {
-    /// Accessor for running operations on this lane.
-    struct Run {
-        private let threads: IO.Blocking.Threads
-
-        fileprivate init(_ threads: IO.Blocking.Threads) {
-            self.threads = threads
-        }
-
-        /// Executes a boxed operation using two-stage acceptance/completion.
-        ///
-        /// ## Design
-        /// 1. **Acceptance stage**: Enqueue job and get a ticket
-        /// 2. **Completion stage**: Wait for job completion using the ticket
-        ///
-        /// ## Cancellation Semantics
-        /// - Cancellation before acceptance: throw `.cancelled`, no job runs
-        /// - Cancellation while waiting for acceptance: throw `.cancelled`, no job runs
-        /// - Cancellation after acceptance: job runs to completion, result is drained, throw `.cancelled`
-        ///
-        /// - Invariant: No helper `Task{}` spawned inside lane machinery
-        /// - Invariant: Exactly-once resume for all continuations
-        /// - Invariant: Cancel-wait-but-drain-completion: cancelled callers don't leak boxes
-        func boxed(
-            deadline: IO.Blocking.Deadline?,
-            _ operation: @Sendable @escaping () -> UnsafeMutableRawPointer
-        ) async throws(IO.Lifecycle.Error<IO.Blocking.Failure>) -> UnsafeMutableRawPointer {
-            // Stage 1: Acceptance (can throw lifecycle or leaf failure)
-            let ticket = try await threads.awaitAcceptance(deadline: deadline, operation: operation)
-
-            // Stage 2: Completion (only throws leaf failure, wrap it)
-            do {
-                let boxPointer = try await threads.awaitCompletion(ticket: ticket)
-                return boxPointer.raw
-            } catch {
-                throw .failure(error)
-            }
-        }
+        // Stage 2: Completion
+        let boxPointer = try await awaitCompletion(ticket: ticket)
+        return boxPointer.raw
     }
-}
 
-// MARK: - Internal Acceptance/Completion
-
-extension IO.Blocking.Threads {
-    /// Stage 1: Waits for acceptance (may suspend if queue is full).
-    ///
-    /// Uses `withCheckedContinuation` with `Result<Ticket, IO.Lifecycle.Error<Failure>>` instead of
-    /// `withCheckedThrowingContinuation` to preserve typed throws throughout.
-    /// No `any Error` appears in this code path.
-    ///
-    /// Lifecycle conditions (shutdown) are expressed via `IO.Lifecycle.Error`,
-    /// keeping the leaf `Failure` type free of lifecycle concerns.
+    /// Stage 1: Wait for acceptance (may suspend if queue is full).
     private func awaitAcceptance(
         deadline: IO.Blocking.Deadline?,
         operation: @Sendable @escaping () -> UnsafeMutableRawPointer
-    ) async throws(IO.Lifecycle.Error<IO.Blocking.Failure>) -> Ticket {
+    ) async throws(IO.Blocking.Failure) -> Ticket {
         // Check cancellation upfront
         if Task.isCancelled {
-            throw .failure(.cancelled)
+            throw .cancellationRequested
         }
 
         // Lazy start workers
@@ -135,168 +105,159 @@ extension IO.Blocking.Threads {
         // Generate ticket under lock
         let ticket: Ticket = state.lock.withLock { state.makeTicket() }
 
-        let outcome: Result<Ticket, IO.Lifecycle.Error<IO.Blocking.Failure>> = await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Result<Ticket, IO.Lifecycle.Error<IO.Blocking.Failure>>, Never>) in
-                state.lock.lock()
+        do {
+            return try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Ticket, any Error>) in
+                    state.lock.lock()
 
-                // Check shutdown
-                if state.isShutdown {
-                    state.lock.unlock()
-                    continuation.resume(returning: .failure(.lifecycle(.shutdownInProgress)))
-                    return
-                }
-
-                // Create the job with completion callback
-                let job = Job.Instance(
-                    ticket: ticket,
-                    operation: operation
-                ) { [weak state] completedTicket, box in
-                    state?.complete(ticket: completedTicket, box: box)
-                }
-
-                // Try to enqueue directly
-                if state.tryEnqueue(job) {
-                    state.lock.worker.signal()
-                    state.lock.unlock()
-                    continuation.resume(returning: .success(ticket))
-                    return
-                }
-
-                // Queue is full - invoke behavior to decide
-                let queueFullContext = IO.Backpressure.Lane.QueueFull.Context(
-                    queueCount: state.queue.count,
-                    queueCapacity: state.queue.capacity,
-                    deadline: deadline,
-                    acceptanceWaitersCount: state.acceptanceWaiters.count,
-                    acceptanceWaitersCapacity: state.acceptanceWaiters.capacity
-                )
-
-                switch options.policy.behavior.onQueueFull(queueFullContext) {
-                case .fail(let failure):
-                    state.lock.unlock()
-                    continuation.resume(returning: .failure(.failure(failure)))
-
-                case .wait:
-                    // Register acceptance waiter
-                    let waiter = Acceptance.Waiter(
-                        ticket: ticket,
-                        deadline: deadline,
-                        operation: operation,
-                        continuation: continuation,
-                        resumed: false
-                    )
-                    // Bounded queue - invoke overflow behavior if full
-                    guard state.acceptanceWaiters.enqueue(waiter) else {
-                        let overflowContext = IO.Backpressure.Lane.AcceptanceOverflow.Context(
-                            waitersCount: state.acceptanceWaiters.count,
-                            waitersCapacity: state.acceptanceWaiters.capacity,
-                            queueCount: state.queue.count,
-                            queueCapacity: state.queue.capacity
-                        )
-                        let error = options.policy.behavior.onAcceptanceOverflow(overflowContext)
+                    // Check shutdown
+                    if state.isShutdown {
                         state.lock.unlock()
-                        continuation.resume(returning: .failure(.failure(error)))
+                        continuation.resume(throwing: IO.Blocking.Failure.shutdown)
                         return
                     }
-                    // Signal deadline manager if waiter has a deadline
-                    if deadline != nil {
-                        state.lock.deadline.signal()
-                    }
-                    state.lock.unlock()
-                }
-            }
-        } onCancel: {
-            // Remove from acceptance waiters if still there
-            state.lock.lock()
-            _ = state.removeAcceptanceWaiter(ticket: ticket)
-            state.lock.unlock()
-        }
 
-        // Unwrap Result - typed throws preserved
-        switch outcome {
-        case .success(let ticket):
-            return ticket
-        case .failure(let error):
+                    // Create the job with completion callback
+                    let job = Job.Instance(
+                        ticket: ticket,
+                        operation: operation
+                    ) { [weak state] completedTicket, box in
+                        state?.complete(ticket: completedTicket, box: box)
+                    }
+
+                    // Try to enqueue directly
+                    if state.tryEnqueue(job) {
+                        state.lock.signalWorker()
+                        state.lock.unlock()
+                        continuation.resume(returning: ticket)
+                        return
+                    }
+
+                    // Queue is full - handle based on backpressure policy
+                    switch options.strategy {
+                    case .failFast:
+                        state.lock.unlock()
+                        continuation.resume(throwing: IO.Blocking.Failure.queueFull)
+
+                    case .wait:
+                        // Register acceptance waiter
+                        let waiter = Acceptance.Waiter(
+                            ticket: ticket,
+                            deadline: deadline,
+                            operation: operation,
+                            continuation: continuation,
+                            resumed: false
+                        )
+                        // Bounded queue - fail fast if full
+                        guard state.acceptanceWaiters.enqueue(waiter) else {
+                            state.lock.unlock()
+                            continuation.resume(throwing: IO.Blocking.Failure.overloaded)
+                            return
+                        }
+                        // Signal deadline manager if waiter has a deadline
+                        if deadline != nil {
+                            state.lock.signalDeadline()
+                        }
+                        state.lock.unlock()
+                    }
+                }
+            } onCancel: {
+                // Remove from acceptance waiters if still there
+                state.lock.lock()
+                _ = state.removeAcceptanceWaiter(ticket: ticket)
+                state.lock.unlock()
+            }
+        } catch let error as IO.Blocking.Failure {
             throw error
+        } catch {
+            // Should never happen - we only throw Failure
+            throw .cancellationRequested
         }
     }
 
-    /// Stage 2: Waits for job completion (cancellable, immediate unblock on cancel).
+    /// Stage 2: Wait for job completion (cancellable, immediate unblock on cancel).
     ///
     /// ## Single-Resumer Authority
     /// Exactly one path resumes the continuation:
-    /// - Cancellation path: removes waiter (if registered) and resumes with `.cancelled`
-    /// - Completion path: removes waiter and resumes with box
+    /// - **Cancellation path**: removes waiter (if registered) and resumes with `.cancelled`
+    /// - **Completion path**: removes waiter and resumes with box
     ///
     /// Both paths remove the waiter under lock before resuming, so only one can succeed.
     /// The `abandonedTickets` set ensures resource cleanup when no waiter will consume the box.
     ///
-    /// Uses `withCheckedContinuation` with `Result<BoxPointer, Failure>` instead of
-    /// `withCheckedThrowingContinuation` to preserve typed throws throughout.
+    /// ## Error Handling
+    /// Uses `any Error` at the continuation boundary due to Swift stdlib limitations,
+    /// but catches and maps to `IO.Blocking.Failure` to preserve typed throws.
+    /// The `Box.Pointer` wrapper provides `@unchecked Sendable` capability at the FFI boundary.
     private func awaitCompletion(ticket: Ticket) async throws(IO.Blocking.Failure) -> IO.Blocking.Box.Pointer {
         let state = runtime.state
 
-        let outcome: Completion.Waiter.Outcome = await withTaskCancellationHandler {
-            await withCheckedContinuation { (cont: Completion.Waiter.Continuation) in
+        do {
+            return try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { (cont: CheckedContinuation<IO.Blocking.Box.Pointer, any Error>) in
+                    state.lock.lock()
+                    defer { state.lock.unlock() }
+
+                    // Check if completion already available
+                    if let box = state.completions.removeValue(forKey: ticket) {
+                        cont.resume(returning: IO.Blocking.Box.Pointer(box))
+                        return
+                    }
+
+                    // Check if already cancelled before registering waiter
+                    if Task.isCancelled {
+                        state.abandonedTickets.insert(ticket)
+                        cont.resume(throwing: IO.Blocking.Failure.cancellationRequested)
+                        return
+                    }
+
+                    // Register waiter - cancellation or completion will resume it
+                    state.completionWaiters[ticket] = Completion.Waiter(continuation: cont)
+                }
+            } onCancel: {
                 state.lock.lock()
                 defer { state.lock.unlock() }
 
-                // Check if completion already available
+                // If completion already arrived, destroy it
                 if let box = state.completions.removeValue(forKey: ticket) {
-                    cont.resume(returning: .success(IO.Blocking.Box.Pointer(box)))
-                    return
-                }
-
-                // Check if already cancelled before registering waiter
-                if Task.isCancelled {
                     state.abandonedTickets.insert(ticket)
-                    cont.resume(returning: .failure(.cancelled))
+                    state.destroyBox(ticket: ticket, box: box)
                     return
                 }
 
-                // Register waiter - cancellation or completion will resume it
-                state.completionWaiters[ticket] = Completion.Waiter(continuation: cont)
-            }
-        } onCancel: {
-            state.lock.lock()
-            defer { state.lock.unlock() }
+                // If waiter registered, we own resumption - remove and resume with error
+                if var waiter = state.completionWaiters.removeValue(forKey: ticket) {
+                    state.abandonedTickets.insert(ticket)
+                    waiter.resumeThrowing(.cancellationRequested)
+                    return
+                }
 
-            // If completion already arrived, destroy it
-            if let box = state.completions.removeValue(forKey: ticket) {
+                // Waiter not yet registered - mark abandoned for later
                 state.abandonedTickets.insert(ticket)
-                state.destroyBox(ticket: ticket, box: box)
-                return
+            }
+        } catch {
+            // Map any Error back to IO.Blocking.Failure
+            if let failure = error as? IO.Blocking.Failure {
+                throw failure
             }
 
-            // If waiter registered, we own resumption - remove and resume with error
-            if var waiter = state.completionWaiters.removeValue(forKey: ticket) {
-                state.abandonedTickets.insert(ticket)
-                waiter.resume(with: .failure(.cancelled))
-                return
-            }
-
-            // Waiter not yet registered - mark abandoned for later
-            state.abandonedTickets.insert(ticket)
-        }
-
-        // Unwrap Result - typed throws preserved
-        switch outcome {
-        case .success(let boxPointer):
-            return boxPointer
-        case .failure(let error):
-            throw error
+            #if DEBUG
+            preconditionFailure("Unexpected error type: \(type(of: error)). Only IO.Blocking.Failure is permitted.")
+            #else
+            throw .internalInvariantViolation
+            #endif
         }
     }
 
-    /// Shuts down the lane. Accepted jobs always run to completion.
+    /// Shutdown the lane (Mode B: accepted jobs always run).
     ///
     /// ## Shutdown Sequence
-    /// 1. Sets shutdown flag
-    /// 2. Resumes all acceptance waiters with `.shutdown`
-    /// 3. Signals workers
-    /// 4. Waits for queue to drain and in-flight jobs to complete
-    /// 5. Joins worker threads
-    func shutdown() async {
+    /// 1. Set shutdown flag
+    /// 2. Resume all acceptance waiters with `.shutdown`
+    /// 3. Signal workers
+    /// 4. Wait for queue to drain and in-flight jobs to complete
+    /// 5. Join worker threads
+    public func shutdown() async {
         guard runtime.isStarted else { return }
 
         let state = runtime.state
@@ -322,7 +283,7 @@ extension IO.Blocking.Threads {
         // Resume acceptance waiters with shutdown (outside lock)
         for var waiter in waitersToResume {
             if !waiter.resumed {
-                waiter.resume(with: .lifecycle(.shutdownInProgress))
+                waiter.resumeThrowing(.shutdown)
             }
         }
 
@@ -338,7 +299,7 @@ extension IO.Blocking.Threads {
                 // Use condvar wait instead of polling
                 state.lock.lock()
                 while !(state.inFlightCount == 0 && state.queue.isEmpty) {
-                    state.lock.worker.wait()
+                    state.lock.waitWorker()
                 }
                 state.lock.unlock()
                 continuation.resume()
@@ -346,7 +307,7 @@ extension IO.Blocking.Threads {
         }
 
         // Join all threads
-        runtime.joinAll()
+        runtime.joinAllThreads()
     }
 }
 
@@ -362,8 +323,8 @@ extension IO.Blocking.Lane {
                 (
                     deadline: IO.Blocking.Deadline?,
                     operation: @Sendable @escaping () -> UnsafeMutableRawPointer
-                ) async throws(IO.Lifecycle.Error<IO.Blocking.Failure>) -> UnsafeMutableRawPointer in
-                try await impl.run.boxed(deadline: deadline, operation)
+                ) async throws(IO.Blocking.Failure) -> UnsafeMutableRawPointer in
+                try await impl.runBoxed(deadline: deadline, operation)
             },
             shutdown: { await impl.shutdown() }
         )

@@ -11,10 +11,10 @@ extension IO.Blocking.Threads {
     /// ## Safety Invariant (for @unchecked Sendable)
     /// - `state` is thread-safe via its internal lock
     /// - `threads` is only mutated in `start()` before any concurrent access
-    /// - `isStarted` and `threads` mutations are synchronized via `state.lock`
+    /// - `isStarted` and `threads` mutations are synchronized via state.lock
     final class Runtime: @unchecked Sendable {
         let state: Thread.Worker.State
-        var threads: Threads = Threads()
+        private(set) var threads: [Thread.Handle] = []
         private(set) var deadlineManagerThread: Thread.Handle?
         private(set) var isStarted: Bool = false
         let options: Options
@@ -50,35 +50,18 @@ extension IO.Blocking.Threads {
             }
         }
 
-        /// Joins all worker threads and the deadline manager.
-        func joinAll() {
-            threads.joinAll()
+        func joinAllThreads() {
+            // Join worker threads
+            for thread in threads {
+                thread.join()
+            }
+            threads.removeAll()
+
+            // Join deadline manager
             if let managerThread = deadlineManagerThread {
                 managerThread.join()
                 deadlineManagerThread = nil
             }
-        }
-    }
-}
-
-// MARK: - Runtime.Threads
-
-extension IO.Blocking.Threads.Runtime {
-    /// Collection of worker thread handles with lifecycle operations.
-    struct Threads {
-        private(set) var handles: [IO.Blocking.Threads.Thread.Handle] = []
-
-        /// Appends a thread handle.
-        mutating func append(_ handle: IO.Blocking.Threads.Thread.Handle) {
-            handles.append(handle)
-        }
-
-        /// Joins all threads and clears the collection.
-        mutating func joinAll() {
-            for thread in handles {
-                thread.join()
-            }
-            handles.removeAll()
         }
     }
 }

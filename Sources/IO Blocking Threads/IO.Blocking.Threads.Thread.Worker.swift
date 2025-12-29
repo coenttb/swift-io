@@ -31,7 +31,7 @@ extension IO.Blocking.Threads.Thread.Worker {
 
             // Wait for job or shutdown
             while state.queue.isEmpty && !state.isShutdown {
-                state.lock.worker.wait()
+                state.lock.waitWorker()
             }
 
             // Check for exit condition: shutdown + empty queue
@@ -55,7 +55,12 @@ extension IO.Blocking.Threads.Thread.Worker {
 
             // Resume acceptance waiters outside lock
             for (var waiter, result) in toResume {
-                waiter.resume(with: result)
+                switch result {
+                case .success(let ticket):
+                    waiter.resumeReturning(ticket)
+                case .failure(let error):
+                    waiter.resumeThrowing(error)
+                }
             }
 
             // Execute job outside lock
@@ -66,7 +71,7 @@ extension IO.Blocking.Threads.Thread.Worker {
             state.inFlightCount -= 1
             // If shutdown and queue empty and no in-flight, signal shutdown waiter
             if state.isShutdown && state.queue.isEmpty && state.inFlightCount == 0 {
-                state.lock.worker.broadcast()
+                state.lock.broadcastWorker()
             }
             state.lock.unlock()
         }
