@@ -23,8 +23,71 @@ import NIOPosix
 import StandardsTestSupport
 import Testing
 
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#endif
+
 enum BackpressureBenchmarks {
     #TestSuites
+}
+
+// MARK: - Blocking Gate (No Foundation)
+
+extension BackpressureBenchmarks {
+    /// Two-phase blocking gate using pthread primitives.
+    ///
+    /// Phase 1: Workers arrive and block, signaling they're ready
+    /// Phase 2: Main task waits for N workers to arrive, then opens gate
+    ///
+    /// This ensures workers are actually blocking before we try to fill the queue.
+    final class Gate: @unchecked Sendable {
+        private var mutex = pthread_mutex_t()
+        private var cond = pthread_cond_t()
+        private var arrivedCount: Int = 0
+        private var isOpen: Bool = false
+
+        init() {
+            pthread_mutex_init(&mutex, nil)
+            pthread_cond_init(&cond, nil)
+        }
+
+        deinit {
+            pthread_cond_destroy(&cond)
+            pthread_mutex_destroy(&mutex)
+        }
+
+        /// Called by workers: signal arrival and block until gate opens.
+        func arriveAndWait() {
+            pthread_mutex_lock(&mutex)
+            arrivedCount += 1
+            pthread_cond_broadcast(&cond)  // Signal that we arrived
+            while !isOpen {
+                pthread_cond_wait(&cond, &mutex)
+            }
+            pthread_mutex_unlock(&mutex)
+        }
+
+        /// Called by main: wait until N workers have arrived.
+        func waitForArrivals(count: Int) {
+            pthread_mutex_lock(&mutex)
+            while arrivedCount < count {
+                pthread_cond_wait(&cond, &mutex)
+            }
+            pthread_mutex_unlock(&mutex)
+        }
+
+        /// Open the gate, releasing all waiters.
+        func open() {
+            pthread_mutex_lock(&mutex)
+            isOpen = true
+            pthread_cond_broadcast(&cond)
+            pthread_mutex_unlock(&mutex)
+        }
+    }
 }
 
 // MARK: - FailFast Strategy
@@ -37,6 +100,14 @@ extension BackpressureBenchmarks.Test.Performance {
         static let queueLimit = 16
         static let threadCount = 2
 
+        /// Deterministic test for failFast backpressure.
+        ///
+        /// ## Design
+        /// 1. Submit `threadCount` blocker jobs that will block inside their closures
+        /// 2. Wait until workers are actually blocked (two-phase gate)
+        /// 3. Submit `queueLimit` jobs to fill the queue
+        /// 4. Submit extra jobs that must reject with `.queueFull`
+        /// 5. Open gate so accepted work completes and shutdown succeeds
         @Test(
             "swift-io: reject when queue full",
             .timed(iterations: 10, warmup: 2, trackAllocations: false)
@@ -51,40 +122,94 @@ extension BackpressureBenchmarks.Test.Performance {
             )
             let lane = IO.Blocking.Lane.threads(options)
 
-            let fillCount = Self.queueLimit + Self.threadCount
+            let gate = BackpressureBenchmarks.Gate()
+            let extra = 10
+
             var accepted = 0
             var rejected = 0
 
-            await withTaskGroup(of: Bool.self) { group in
-                for _ in 0..<(fillCount + 10) {
-                    group.addTask {
-                        do {
-                            let result: Result<Bool, Never> = try await lane.run(deadline: .none) {
-                                ThroughputBenchmarks.simulateWork(microseconds: 1000)
-                                return true
-                            }
-                            switch result {
-                            case .success:
-                                return true
-                            }
-                        } catch {
-                            return false
+            // Phase 1: Submit blocker jobs and wait for workers to be blocked
+            let blockerTasks = (0..<Self.threadCount).map { _ in
+                Task {
+                    do {
+                        let result: Result<Bool, Never> = try await lane.run(deadline: .none) {
+                            gate.arriveAndWait()  // Signal arrival, then block
+                            return true
                         }
-                    }
-                }
-
-                for await wasAccepted in group {
-                    if wasAccepted {
-                        accepted += 1
-                    } else {
-                        rejected += 1
+                        return result == .success(true)
+                    } catch {
+                        return false
                     }
                 }
             }
 
+            // Wait for all workers to be blocked (they've arrived at the gate)
+            gate.waitForArrivals(count: Self.threadCount)
+
+            // Phase 2: Fill the queue
+            let queueFillers = (0..<Self.queueLimit).map { _ in
+                Task {
+                    do {
+                        let result: Result<Bool, Never> = try await lane.run(deadline: .none) {
+                            ThroughputBenchmarks.simulateWork(microseconds: 100)
+                            return true
+                        }
+                        return result == .success(true)
+                    } catch {
+                        return false
+                    }
+                }
+            }
+
+            // Give queue fillers time to enqueue
+            try? await Task.sleep(nanoseconds: 10_000_000)  // 10ms
+
+            // Phase 3: Submit extra jobs - these should be rejected
+            let extraTasks = (0..<extra).map { _ in
+                Task {
+                    do {
+                        let result: Result<Bool, Never> = try await lane.run(deadline: .none) {
+                            ThroughputBenchmarks.simulateWork(microseconds: 100)
+                            return true
+                        }
+                        return result == .success(true)
+                    } catch {
+                        return false
+                    }
+                }
+            }
+
+            // Collect extra task results (these should have immediate rejections)
+            for task in extraTasks {
+                let success = await task.value
+                if success {
+                    accepted += 1
+                } else {
+                    rejected += 1
+                }
+            }
+
+            // Open gate to let blockers complete
+            gate.open()
+
+            // Collect blocker results
+            for task in blockerTasks {
+                let success = await task.value
+                if success { accepted += 1 } else { rejected += 1 }
+            }
+
+            // Collect queue filler results
+            for task in queueFillers {
+                let success = await task.value
+                if success { accepted += 1 } else { rejected += 1 }
+            }
+
             await lane.shutdown()
 
-            #expect(rejected > 0, "Expected some operations to be rejected")
+            #expect(
+                rejected > 0,
+                "Expected some operations to be rejected (accepted=\(accepted), rejected=\(rejected))"
+            )
         }
     }
 }
