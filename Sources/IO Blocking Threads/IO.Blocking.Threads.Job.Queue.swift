@@ -32,6 +32,9 @@ extension IO.Blocking.Threads.Job {
 
         mutating func enqueue(_ job: Instance) {
             precondition(!isFull, "Queue is full")
+            // Invariant: count < capacity implies storage[tail] is nil
+            // This catches double-enqueue or accounting corruption
+            precondition(storage[tail] == nil, "Queue invariant violated: tail slot is not nil")
             storage[tail] = job
             tail = (tail + 1) % capacity
             _count += 1

@@ -45,13 +45,9 @@ extension IO.Blocking.Threads.Test.Unit {
         let threads = IO.Blocking.Threads()
 
         let ptr = try await threads.runBoxed(deadline: nil) {
-            let value = 42
-            let p = UnsafeMutablePointer<Int>.allocate(capacity: 1)
-            p.initialize(to: value)
-            return UnsafeMutableRawPointer(p)
+            IO.Blocking.Box.makeValue(42)
         }
-        let result = ptr.assumingMemoryBound(to: Int.self).pointee
-        ptr.deallocate()
+        let result: Int = IO.Blocking.Box.takeValue(ptr)
         #expect(result == 42)
 
         await threads.shutdown()
@@ -83,12 +79,9 @@ extension IO.Blocking.Threads.Test.EdgeCase {
 
         for i in 0..<10 {
             let ptr = try await threads.runBoxed(deadline: nil) {
-                let p = UnsafeMutablePointer<Int>.allocate(capacity: 1)
-                p.initialize(to: i)
-                return UnsafeMutableRawPointer(p)
+                IO.Blocking.Box.makeValue(i)
             }
-            let result = ptr.assumingMemoryBound(to: Int.self).pointee
-            ptr.deallocate()
+            let result: Int = IO.Blocking.Box.takeValue(ptr)
             #expect(result == i)
         }
 
@@ -119,9 +112,9 @@ extension IO.Blocking.Threads.Test.EdgeCase {
         _ = Task {
             let ptr: UnsafeMutableRawPointer = try await threads.runBoxed(deadline: nil) {
                 Thread.sleep(forTimeInterval: 2.0)  // Block worker for 2 seconds
-                return UnsafeMutableRawPointer.allocate(byteCount: 1, alignment: 1)
+                return IO.Blocking.Box.makeValue(())
             }
-            ptr.deallocate()
+            IO.Blocking.Box.destroy(ptr)
         }
 
         // Small delay to ensure slowJob1 is accepted first
@@ -130,9 +123,9 @@ extension IO.Blocking.Threads.Test.EdgeCase {
         _ = Task {
             let ptr: UnsafeMutableRawPointer = try await threads.runBoxed(deadline: nil) {
                 Thread.sleep(forTimeInterval: 2.0)
-                return UnsafeMutableRawPointer.allocate(byteCount: 1, alignment: 1)
+                return IO.Blocking.Box.makeValue(())
             }
-            ptr.deallocate()
+            IO.Blocking.Box.destroy(ptr)
         }
 
         // Wait for queue to be full (slowJob1 running + slowJob2 in queue = full)
@@ -142,7 +135,7 @@ extension IO.Blocking.Threads.Test.EdgeCase {
         let waitingTask = Task {
             do {
                 let _: UnsafeMutableRawPointer = try await threads.runBoxed(deadline: nil) {
-                    return UnsafeMutableRawPointer.allocate(byteCount: 1, alignment: 1)
+                    return IO.Blocking.Box.makeValue(())
                 }
                 return false // Unexpected success
             } catch let error as IO.Blocking.Failure {
@@ -165,5 +158,98 @@ extension IO.Blocking.Threads.Test.EdgeCase {
 
         // Clean up - just wait for shutdown to handle the slow jobs
         await threads.shutdown()
+    }
+
+    @Test("cancel vs complete race - exactly-once resumption", .timeLimit(.minutes(1)))
+    func cancelVsCompleteRace() async throws {
+        // Tests the atomic context state machine under race conditions.
+        // Either cancellation wins or completion wins, but never both.
+        let threads = IO.Blocking.Threads(.init(workers: 1, queueLimit: 10))
+
+        // Single iteration to isolate issue
+        let task = Task {
+            do {
+                let ptr: UnsafeMutableRawPointer = try await threads.runBoxed(deadline: nil) {
+                    // Minimal work - use Box API for proper ownership
+                    IO.Blocking.Box.makeValue(42)
+                }
+                // Completion won - unbox via Box API
+                let value: Int = IO.Blocking.Box.takeValue(ptr)
+                return "completed:\(value)"
+            } catch let error as IO.Blocking.Failure {
+                return "cancelled:\(error)"
+            } catch {
+                return "unexpected:\(type(of: error))"
+            }
+        }
+
+        // Cancel immediately to race
+        task.cancel()
+
+        let result = await task.value
+        // Either outcome is valid
+        let isValid = result.hasPrefix("completed:") || result.hasPrefix("cancelled:")
+        #expect(isValid, "Expected completed or cancelled, got: \(result)")
+
+        await threads.shutdown()
+    }
+
+    @Test("shutdown vs acceptance-waiter race - waiter resumes exactly once", .timeLimit(.minutes(1)))
+    func shutdownVsAcceptanceWaiterRace() async throws {
+        // Fill queue, put a task into acceptance wait, then initiate shutdown.
+        // The waiter must resume exactly once with shutdown error.
+        let options = IO.Blocking.Threads.Options(
+            workers: 1,
+            policy: IO.Backpressure.Policy(
+                strategy: .wait,
+                laneQueueLimit: 1
+            )
+        )
+        let threads = IO.Blocking.Threads(options)
+
+        // Fill the worker and queue with slow jobs
+        _ = Task {
+            let ptr: UnsafeMutableRawPointer = try await threads.runBoxed(deadline: nil) {
+                Thread.sleep(forTimeInterval: 5.0)  // Long enough to outlast test
+                return IO.Blocking.Box.makeValue(())
+            }
+            IO.Blocking.Box.destroy(ptr)
+        }
+
+        try await Task.sleep(for: .milliseconds(10))
+
+        _ = Task {
+            let ptr: UnsafeMutableRawPointer = try await threads.runBoxed(deadline: nil) {
+                Thread.sleep(forTimeInterval: 5.0)
+                return IO.Blocking.Box.makeValue(())
+            }
+            IO.Blocking.Box.destroy(ptr)
+        }
+
+        try await Task.sleep(for: .milliseconds(50))
+
+        // Submit task that will wait in acceptance queue
+        let waitingTask = Task {
+            do {
+                let _: UnsafeMutableRawPointer = try await threads.runBoxed(deadline: nil) {
+                    return IO.Blocking.Box.makeValue(())
+                }
+                return "unexpected-success"
+            } catch let error as IO.Blocking.Failure {
+                return error == .shutdown ? "shutdown" : "other-failure: \(error)"
+            } catch {
+                return "unexpected-error: \(error)"
+            }
+        }
+
+        // Give time to enter acceptance wait
+        try await Task.sleep(for: .milliseconds(50))
+
+        // Initiate shutdown while waiter is waiting
+        await threads.shutdown()
+
+        // Waiter should have been resumed with shutdown
+        let result = await waitingTask.value
+        #expect(result == "shutdown", "Expected shutdown error, got: \(result)")
     }
 }
