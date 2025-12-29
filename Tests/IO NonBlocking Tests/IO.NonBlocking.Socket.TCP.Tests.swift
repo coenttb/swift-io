@@ -21,13 +21,9 @@ extension IO.NonBlocking.Socket.TCP {
     #TestSuites
 }
 
-// MARK: - Connect/Accept Tests
+// MARK: - Unit Tests
 
-extension IO.NonBlocking.Socket.TCP.Test {
-    @Suite struct ConnectAccept {}
-}
-
-extension IO.NonBlocking.Socket.TCP.Test.ConnectAccept {
+extension IO.NonBlocking.Socket.TCP.Test.Unit {
     @Test("connect to listening server succeeds")
     func connectToServer() async throws {
         let executor = IO.Executor.Thread()
@@ -114,15 +110,7 @@ extension IO.NonBlocking.Socket.TCP.Test.ConnectAccept {
         try await server.close()
         try await listener.close()
     }
-}
 
-// MARK: - Read/Write Tests
-
-extension IO.NonBlocking.Socket.TCP.Test {
-    @Suite struct ReadWrite {}
-}
-
-extension IO.NonBlocking.Socket.TCP.Test.ReadWrite {
     @Test("write and read data")
     func writeAndRead() async throws {
         let executor = IO.Executor.Thread()
@@ -230,17 +218,7 @@ extension IO.NonBlocking.Socket.TCP.Test.ReadWrite {
         try await server.close()
         try await listener.close()
     }
-}
 
-// MARK: - Half-Close Tests
-
-extension IO.NonBlocking.Socket.TCP.Test {
-    @Suite struct HalfClose {}
-}
-
-extension IO.NonBlocking.Socket.TCP.Test.HalfClose {
-    // Test EOF detection after peer shutdownWrite
-    // The kqueue driver should detect FIN and return read-ready with EOF
     @Test("shutdown write causes peer EOF")
     func shutdownWriteCausesPeerEOF() async throws {
         let executor = IO.Executor.Thread()
@@ -320,11 +298,7 @@ extension IO.NonBlocking.Socket.Listener {
     #TestSuites
 }
 
-extension IO.NonBlocking.Socket.Listener.Test {
-    @Suite struct Bind {}
-}
-
-extension IO.NonBlocking.Socket.Listener.Test.Bind {
+extension IO.NonBlocking.Socket.Listener.Test.Unit {
     @Test("bind to ephemeral port assigns port")
     func bindEphemeralPort() async throws {
         let executor = IO.Executor.Thread()
