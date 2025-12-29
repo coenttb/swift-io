@@ -150,7 +150,7 @@ extension IO.NonBlocking {
             // Read loop with retry on EAGAIN
             while true {
                 let result = buffer.withUnsafeMutableBytes { ptr -> ReadResult in
-                    let n = Darwin.read(descriptor, ptr.baseAddress, ptr.count)
+                    let n = systemRead(descriptor, ptr.baseAddress, ptr.count)
                     if n > 0 {
                         return .read(n)
                     } else if n == 0 {
@@ -223,7 +223,7 @@ extension IO.NonBlocking {
             // Write loop with retry on EAGAIN
             while true {
                 let result = buffer.withUnsafeBytes { ptr -> WriteResult in
-                    let n = Darwin.write(descriptor, ptr.baseAddress, ptr.count)
+                    let n = systemWrite(descriptor, ptr.baseAddress, ptr.count)
                     if n > 0 {
                         return .wrote(n)
                     } else if n == 0 {
@@ -361,6 +361,53 @@ extension IO.NonBlocking {
             preconditionFailure("No token available - concurrent operation or already closed?")
         }
 
+        // MARK: - Connect Support
+
+        /// Wait for write readiness without performing I/O.
+        ///
+        /// Used for non-blocking connect completion. After connect() returns EINPROGRESS,
+        /// call this to wait for the connection to complete, then check SO_ERROR.
+        ///
+        /// Note: This method does NOT check error flags. For connect, always check
+        /// SO_ERROR unconditionally after this returns.
+        ///
+        /// - Throws: `Failure` on selector error or cancellation.
+        mutating func waitForWriteReadiness() async throws(Failure) {
+            // Try registering token first (swap to extract)
+            var takenRegistering: Token<Registering>? = nil
+            swap(&registering, &takenRegistering)
+
+            if let taken = takenRegistering {
+                switch await selector.armPreservingToken(consume taken, interest: .write) {
+                case .armed(let result):
+                    armed = consume result.token
+                    // Do NOT check error flags here - connect checks SO_ERROR separately
+                case .failed(token: let restoredToken, failure: let failure):
+                    registering = consume restoredToken
+                    throw failure
+                }
+                return
+            }
+
+            // Try armed token (swap to extract)
+            var takenArmed: Token<Armed>? = nil
+            swap(&armed, &takenArmed)
+
+            if let taken = takenArmed {
+                switch await selector.armPreservingToken(consume taken, interest: .write) {
+                case .armed(let result):
+                    armed = consume result.token
+                    // Do NOT check error flags here - connect checks SO_ERROR separately
+                case .failed(token: let restoredToken, failure: let failure):
+                    armed = consume restoredToken
+                    throw failure
+                }
+                return
+            }
+
+            preconditionFailure("No token available - concurrent operation or already closed?")
+        }
+
         // MARK: - Half-Close
 
         /// Shutdown the read direction.
@@ -379,7 +426,7 @@ extension IO.NonBlocking {
             await lifecycle.transitionToReadClosed()
 
             // Perform syscall, normalize errors for idempotence
-            let result = Darwin.shutdown(descriptor, SHUT_RD)
+            let result = systemShutdown(descriptor, SHUT_RD)
             if result != 0 {
                 let err = errno
                 // ENOTCONN is OK - socket wasn't connected
@@ -406,7 +453,7 @@ extension IO.NonBlocking {
             await lifecycle.transitionToWriteClosed()
 
             // Perform syscall, normalize errors for idempotence
-            let result = Darwin.shutdown(descriptor, SHUT_WR)
+            let result = systemShutdown(descriptor, SHUT_WR)
             if result != 0 {
                 let err = errno
                 // ENOTCONN is OK - socket wasn't connected
@@ -443,7 +490,7 @@ extension IO.NonBlocking {
                     try await selector.deregister(taken)
                 } catch {
                     // Deregister failed - best effort: close the fd anyway
-                    _ = Darwin.close(descriptor)
+                    _ = systemClose(descriptor)
                     throw error
                 }
             } else {
@@ -455,7 +502,7 @@ extension IO.NonBlocking {
                         try await selector.deregister(taken)
                     } catch {
                         // Deregister failed - best effort: close the fd anyway
-                        _ = Darwin.close(descriptor)
+                        _ = systemClose(descriptor)
                         throw error
                     }
                 }
@@ -463,7 +510,7 @@ extension IO.NonBlocking {
             }
 
             // Close file descriptor
-            let result = Darwin.close(descriptor)
+            let result = systemClose(descriptor)
             if result != 0 {
                 let err = errno
                 // EBADF means already closed - treat as success
@@ -588,4 +635,46 @@ extension IO.NonBlocking.Channel {
         case wouldBlock
         case error(Int32)
     }
+}
+
+// MARK: - Platform Syscall Shims
+
+/// Platform-agnostic read syscall.
+@usableFromInline
+func systemRead(_ fd: Int32, _ buf: UnsafeMutableRawPointer?, _ count: Int) -> Int {
+    #if canImport(Darwin)
+    return Darwin.read(fd, buf, count)
+    #else
+    return Glibc.read(fd, buf, count)
+    #endif
+}
+
+/// Platform-agnostic write syscall.
+@usableFromInline
+func systemWrite(_ fd: Int32, _ buf: UnsafeRawPointer?, _ count: Int) -> Int {
+    #if canImport(Darwin)
+    return Darwin.write(fd, buf, count)
+    #else
+    return Glibc.write(fd, buf, count)
+    #endif
+}
+
+/// Platform-agnostic shutdown syscall.
+@usableFromInline
+func systemShutdown(_ fd: Int32, _ how: Int32) -> Int32 {
+    #if canImport(Darwin)
+    return Darwin.shutdown(fd, how)
+    #else
+    return Glibc.shutdown(fd, how)
+    #endif
+}
+
+/// Platform-agnostic close syscall.
+@usableFromInline
+func systemClose(_ fd: Int32) -> Int32 {
+    #if canImport(Darwin)
+    return Darwin.close(fd)
+    #else
+    return Glibc.close(fd)
+    #endif
 }

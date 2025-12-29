@@ -112,7 +112,7 @@ extension IO.NonBlocking.Socket.TCP {
             // EINPROGRESS is expected for non-blocking connect
         }
 
-        // Register with selector and wait for write readiness
+        // Register with selector for write interest
         var channel: IO.NonBlocking.Channel
         do throws(IO.NonBlocking.Failure) {
             channel = try await IO.NonBlocking.Channel.wrap(
@@ -125,7 +125,17 @@ extension IO.NonBlocking.Socket.TCP {
             throw error
         }
 
-        // Check SO_ERROR to verify connection succeeded
+        // Wait for write readiness (connect completion)
+        // For non-blocking connect, writability indicates connect finished (success or failure)
+        do throws(IO.NonBlocking.Failure) {
+            try await channel.waitForWriteReadiness()
+        } catch {
+            try? await channel.close()
+            throw error
+        }
+
+        // Check SO_ERROR unconditionally after writability
+        // For connect, always check SO_ERROR - don't rely on error flags
         let socketError = pendingSocketError(fd)
         if let err = socketError {
             try? await channel.close()

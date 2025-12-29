@@ -394,7 +394,9 @@ extension IO.NonBlocking.Socket.Address {
             var addr = sockaddr_in()
             addr.sin_family = sa_family_t(AF_INET)
             addr.sin_port = port.bigEndian
-            addr.sin_addr.s_addr = UInt32(a) | (UInt32(b) << 8) | (UInt32(c) << 16) | (UInt32(d) << 24)
+            // Build IPv4 in logical order (a.b.c.d where a is most significant), then convert to network byte order
+            let ipValue = (UInt32(a) << 24) | (UInt32(b) << 16) | (UInt32(c) << 8) | UInt32(d)
+            addr.sin_addr.s_addr = ipValue.bigEndian
             #if canImport(Darwin)
             addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
             #endif
@@ -466,12 +468,13 @@ extension IO.NonBlocking.Socket.Address {
             guard length >= socklen_t(MemoryLayout<sockaddr_in>.size) else { return nil }
             return addr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { ptr in
                 let sin = ptr.pointee
-                let ip = sin.sin_addr.s_addr
+                // Convert from network byte order (big-endian) to host byte order
+                let ip = UInt32(bigEndian: sin.sin_addr.s_addr)
                 return .ipv4(
-                    UInt8(ip & 0xFF),
-                    UInt8((ip >> 8) & 0xFF),
-                    UInt8((ip >> 16) & 0xFF),
-                    UInt8((ip >> 24) & 0xFF),
+                    UInt8((ip >> 24) & 0xFF),  // a - most significant byte
+                    UInt8((ip >> 16) & 0xFF),  // b
+                    UInt8((ip >> 8) & 0xFF),   // c
+                    UInt8(ip & 0xFF),          // d - least significant byte
                     port: UInt16(bigEndian: sin.sin_port)
                 )
             }
