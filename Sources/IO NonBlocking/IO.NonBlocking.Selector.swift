@@ -219,20 +219,27 @@ extension IO.NonBlocking {
             //
             // Cancellation model (mirrors IO.Handle.Waiter):
             // - cancel() flips state synchronously from onCancel handler
-            // - Actor drains on next touch (event dispatch, shutdown)
+            // - cancel() triggers wakeup so actor drains on next touch
             // - Actor is the single resumption funnel
             //
             // Uses non-throwing continuation with Result payload to achieve
             // typed errors without any existential error handling.
             let waiter = Waiter(id: id)
 
+            // Capture wakeup channel for cancellation handler
+            let wakeup = wakeupChannel
+
             let result: Result<Event, Failure> = await withTaskCancellationHandler {
                 await withCheckedContinuation { continuation in
-                    waiter.arm(continuation: continuation)
+                    let armed = waiter.arm(continuation: continuation)
+                    precondition(armed, "Waiter must arm exactly once before insertion")
                     waiters[id] = waiter
                 }
             } onCancel: {
+                // Sync flip only - never resume from onCancel
                 waiter.cancel()
+                // Trigger a touch so actor drains cancelled waiters
+                wakeup.wake()
             }
 
             switch result {
@@ -254,7 +261,14 @@ extension IO.NonBlocking {
 
             // Remove from local state
             registrations.removeValue(forKey: id)
-            waiters.removeValue(forKey: id)
+
+            // Drain any armed waiter with .deregistered error
+            // Never drop a waiter - always resume with deterministic outcome
+            if let waiter = waiters.removeValue(forKey: id) {
+                if let (continuation, _) = waiter.takeForResume() {
+                    continuation.resume(returning: .failure(.failure(.deregistered)))
+                }
+            }
 
             // Remove permits for this ID
             for interest in [Interest.read, .write, .priority] {
@@ -287,8 +301,24 @@ extension IO.NonBlocking {
                 for event in batch {
                     processEvent(event)
                 }
+                // Drain any waiters that were cancelled during this touch
+                drainCancelledWaiters()
             }
             // Bridge returned nil = shutdown
+        }
+
+        /// Drain all cancelled waiters.
+        ///
+        /// Called after each event batch to ensure cancelled waiters are resumed
+        /// promptly. The cancellation handler triggers a wakeup to ensure the
+        /// actor touches this method even if no events are pending.
+        private func drainCancelledWaiters() {
+            for (id, waiter) in waiters where waiter.wasCancelled {
+                waiters.removeValue(forKey: id)
+                if let (continuation, _) = waiter.takeForResume() {
+                    continuation.resume(returning: .failure(.cancelled))
+                }
+            }
         }
 
         private func processEvent(_ event: Event) {
