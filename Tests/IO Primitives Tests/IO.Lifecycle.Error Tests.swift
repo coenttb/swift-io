@@ -24,7 +24,7 @@ extension IO.Lifecycle.Error<TestLifecycleLeafError>.Test.Unit {
     func shutdownInProgressCase() {
         let error = IO.Lifecycle.Error<TestLifecycleLeafError>.shutdownInProgress
         if case .shutdownInProgress = error {
-            #expect(true)
+            #expect(Bool(true))
         } else {
             Issue.record("Expected shutdownInProgress case")
         }
@@ -34,7 +34,7 @@ extension IO.Lifecycle.Error<TestLifecycleLeafError>.Test.Unit {
     func cancelledCase() {
         let error = IO.Lifecycle.Error<TestLifecycleLeafError>.cancelled
         if case .cancelled = error {
-            #expect(true)
+            #expect(Bool(true))
         } else {
             Issue.record("Expected cancelled case")
         }
@@ -55,7 +55,7 @@ extension IO.Lifecycle.Error<TestLifecycleLeafError>.Test.Unit {
         let error = IO.Lifecycle.Error<TestLifecycleLeafError>.shutdownInProgress
         await Task {
             if case .shutdownInProgress = error {
-                #expect(true)
+                #expect(Bool(true))
             } else {
                 Issue.record("Expected shutdownInProgress case")
             }
@@ -79,19 +79,19 @@ extension IO.Lifecycle.Error<TestLifecycleLeafError>.Test.EdgeCase {
         let failure: IO.Lifecycle.Error<TestLifecycleLeafError> = .failure(TestLifecycleLeafError(message: ""))
 
         if case .shutdownInProgress = shutdown {
-            #expect(true)
+            #expect(Bool(true))
         } else {
             Issue.record("shutdown should be .shutdownInProgress case")
         }
 
         if case .cancelled = cancelled {
-            #expect(true)
+            #expect(Bool(true))
         } else {
             Issue.record("cancelled should be .cancelled case")
         }
 
         if case .failure = failure {
-            #expect(true)
+            #expect(Bool(true))
         } else {
             Issue.record("failure should be .failure case")
         }

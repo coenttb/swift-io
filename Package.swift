@@ -16,6 +16,9 @@ let package = Package(
         .library(name: "IO Blocking", targets: ["IO Blocking"]),
         .library(name: "IO Blocking Threads", targets: ["IO Blocking Threads"]),
     ],
+    traits: [
+        .trait(name: "Codable", description: "Enable Codable conformances for Handle.ID and other types"),
+    ],
     dependencies: [
         .package(url: "https://github.com/swift-standards/swift-time-standard.git", from: "0.2.0"),
         .package(url: "https://github.com/swift-standards/swift-standards", from: "0.19.4"),
@@ -82,11 +85,11 @@ let package = Package(
 )
 
 for target in package.targets where ![.system, .binary, .plugin].contains(target.type) {
-    let existing = target.swiftSettings ?? []
-    target.swiftSettings =
-        existing + [
-            .enableUpcomingFeature("ExistentialAny"),
-            .enableUpcomingFeature("InternalImportsByDefault"),
-            .enableUpcomingFeature("MemberImportVisibility"),
-        ]
+    let settings: [SwiftSetting] = [
+        .enableUpcomingFeature("ExistentialAny"),
+        .enableUpcomingFeature("InternalImportsByDefault"),
+        .enableUpcomingFeature("MemberImportVisibility"),
+        .define("CODABLE", .when(traits: ["Codable"])),
+    ]
+    target.swiftSettings = (target.swiftSettings ?? []) + settings
 }

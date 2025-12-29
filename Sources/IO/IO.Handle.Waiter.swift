@@ -17,10 +17,6 @@ extension IO.Handle {
     /// - The actor calls `takeForResume()` during drain to get the continuation
     /// - The actor resumes the continuation on its executor
     ///
-    /// This ensures:
-    /// - Single funnel for continuation resumption (actor executor only)
-    /// - No "resume under lock" hazards
-    /// - No continuation resumed from arbitrary cancellation threads
     ///
     /// ## Two-Phase Initialization
     ///
@@ -38,28 +34,27 @@ extension IO.Handle {
     /// }
     /// ```
     ///
-    /// ## State Machine
-    /// ```
-    /// unarmed ─────arm()─────▶ armed ──cancel()──▶ armedCancelled
-    ///    │                       │                      │
-    ///    │cancel()               │                      │
-    ///    ▼                       ▼                      ▼
-    /// cancelledUnarmed       takeForResume()       takeForResume()
-    ///    │                       │                      │
-    ///    │arm()                  ▼                      ▼
-    ///    ▼                    drained            cancelledDrained
-    /// armedCancelled
-    /// ```
-    ///
     /// ## Thread Safety
     /// `@unchecked Sendable` because it provides internal synchronization via `Atomic`.
     public final class Waiter: @unchecked Sendable {
-        /// Internal state representation.
-        ///
-        /// Uses bit patterns for atomic operations:
-        /// - Bit 0: cancelled flag
-        /// - Bit 1: armed flag (continuation bound)
-        /// - Bit 2: drained flag (continuation taken)
+        // Internal state representation.
+        //
+        // Uses bit patterns for atomic operations:
+        // - Bit 0: cancelled flag
+        // - Bit 1: armed flag (continuation bound)
+        // - Bit 2: drained flag (continuation taken)
+    // ```
+    // unarmed ─────arm()─────▶ armed ──cancel()──▶ armedCancelled
+    //    │                       │                      │
+    //    │cancel()               │                      │
+    //    ▼                       ▼                      ▼
+    // cancelledUnarmed       takeForResume()       takeForResume()
+    //    │                       │                      │
+    //    │arm()                  ▼                      ▼
+    //    ▼                    drained            cancelledDrained
+    // armedCancelled
+    // ```
+    //
         private struct State: RawRepresentable, AtomicRepresentable, Equatable {
             var rawValue: UInt8
 

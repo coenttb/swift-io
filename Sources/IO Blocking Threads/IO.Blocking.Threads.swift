@@ -70,10 +70,10 @@ extension IO.Blocking.Threads {
     /// - Cancellation while waiting for acceptance: throw `.cancellationRequested`, no job runs
     /// - Cancellation after acceptance: job runs to completion, result is drained, throw `.cancellationRequested`
     ///
-    /// ## Invariants
-    /// - No helper `Task {}` spawned inside lane machinery
-    /// - Exactly-once resume for all continuations
-    /// - Cancel-wait-but-drain-completion: cancelled callers don't leak boxes
+    // ## Invariants
+    // - No helper `Task {}` spawned inside lane machinery
+    // - Exactly-once resume for all continuations
+    // - Cancel-wait-but-drain-completion: cancelled callers don't leak boxes
     public func runBoxed(
         deadline: IO.Blocking.Deadline?,
         _ operation: @Sendable @escaping () -> UnsafeMutableRawPointer
@@ -177,19 +177,18 @@ extension IO.Blocking.Threads {
 
     /// Stage 2: Wait for job completion (cancellable, immediate unblock on cancel).
     ///
-    /// ## Single-Resumer Authority
-    /// Exactly one path resumes the continuation:
-    /// - **Cancellation path**: removes waiter (if registered) and resumes with `.cancelled`
-    /// - **Completion path**: removes waiter and resumes with box
-    ///
-    /// Both paths remove the waiter under lock before resuming, so only one can succeed.
-    /// The `abandonedTickets` set ensures resource cleanup when no waiter will consume the box.
-    ///
-    /// ## Error Handling
     /// Uses `any Error` at the continuation boundary due to Swift stdlib limitations,
     /// but catches and maps to `IO.Blocking.Failure` to preserve typed throws.
-    /// The `Box.Pointer` wrapper provides `@unchecked Sendable` capability at the FFI boundary.
     private func awaitCompletion(ticket: Ticket) async throws(IO.Blocking.Failure) -> IO.Blocking.Box.Pointer {
+        // ## Single-Resumer Authority
+        // Exactly one path resumes the continuation:
+        // - Cancellation path: removes waiter (if registered) and resumes with `.cancelled`
+        // - Completion path: removes waiter and resumes with box
+        //
+        // Both paths remove the waiter under lock before resuming, so only one can succeed.
+        // The `abandonedTickets` set ensures resource cleanup when no waiter will consume the box.
+        //
+        // The `Box.Pointer` wrapper provides `@unchecked Sendable` capability at the FFI boundary.
         let state = runtime.state
 
         do {

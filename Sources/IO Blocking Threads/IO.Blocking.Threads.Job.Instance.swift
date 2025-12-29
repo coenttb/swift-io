@@ -7,13 +7,6 @@
 
 extension IO.Blocking.Threads.Job {
     /// A job that executes a non-throwing operation and calls onComplete with the result pointer.
-    ///
-    /// ## Safety Invariant (for @unchecked Sendable)
-    /// Jobs are created and consumed under the Worker.State lock.
-    /// The work closure is marked @Sendable and captures only Sendable state.
-    ///
-    /// ## Boxing Ownership
-    /// The operation returns a boxed Result (UnsafeMutableRawPointer).
     /// Allocation happens inside job execution, not before enqueue.
     struct Instance: @unchecked Sendable {
         /// The ticket identifying this job for completion correlation.
@@ -22,6 +15,14 @@ extension IO.Blocking.Threads.Job {
         private let work: @Sendable () -> Void
 
         /// Creates a job that executes a non-throwing operation and calls onComplete.
+
+    //
+    // ## Safety Invariant (for @unchecked Sendable)
+    // Jobs are created and consumed under the Worker.State lock.
+    // The work closure is marked @Sendable and captures only Sendable state.
+    //
+    // ## Boxing Ownership
+    // The operation returns a boxed Result (UnsafeMutableRawPointer).
         /// The operation returns a boxed Result (already containing any error).
         ///
         /// The `sending` annotation on `onComplete` parameter indicates ownership

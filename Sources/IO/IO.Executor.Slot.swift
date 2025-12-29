@@ -11,17 +11,6 @@ extension IO.Executor {
     /// Slots provide internal bridging for ~Copyable resources across await
     /// boundaries via lane.run.
     ///
-    /// ## Relationship to IO.Handoff
-    /// Slot uses `IO.Handoff.Token` as its address capability type (via typealias).
-    /// Both solve "cross Sendable boundary" problems using the same opaque token pattern.
-    ///
-    /// - **IO.Handoff.Cell**: Simple one-shot ownership transfer (init → token → take)
-    /// - **IO.Executor.Slot.Container**: Two-phase lane execution pattern with
-    ///   separate allocation, initialization, and consumption phases
-    ///
-    /// Slot has richer lifecycle semantics because lane workers may initialize
-    /// the resource (not just receive it), and cleanup must handle partial failures.
-    ///
     /// ## Safety Invariants
     /// 1. The slot is initialized exactly once (via static `initializeMemory`)
     /// 2. After successful lane.run, caller marks initialized and calls `take()`
@@ -44,6 +33,18 @@ extension IO.Executor {
     /// // register resource
     /// ```
     public enum Slot {}
+
+    // ## Relationship to IO.Handoff
+    // Slot uses `IO.Handoff.Token` as its address capability type (via typealias).
+    // Both solve "cross Sendable boundary" problems using the same opaque token pattern.
+    //
+    // - **IO.Handoff.Cell**: Simple one-shot ownership transfer (init → token → take)
+    // - **IO.Executor.Slot.Container**: Two-phase lane execution pattern with
+    //   separate allocation, initialization, and consumption phases
+    //
+    // Slot has richer lifecycle semantics because lane workers may initialize
+    // the resource (not just receive it), and cleanup must handle partial failures.
+    //
 }
 
 extension IO.Executor.Slot {

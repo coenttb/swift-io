@@ -66,6 +66,26 @@ extension IO.Handle {
             return true
         }
 
+        /// Dequeue the next waiter (structural only; no resumption side effects).
+        ///
+        /// Returns `nil` if the queue is empty.
+        /// Skips nil slots (which can occur if the buffer has been corrupted).
+        ///
+        /// MUST be called on the actor executor.
+        public mutating func dequeue() -> Waiter? {
+            while _count > 0 {
+                let waiter = storage[head]
+                storage[head] = nil
+                head = (head + 1) % capacity
+                _count -= 1
+                if let waiter {
+                    return waiter
+                }
+                // Nil slot - skip and continue
+            }
+            return nil
+        }
+
         /// Resume exactly one waiter (cancelled or not).
         ///
         /// Drains from head until a waiter's continuation is successfully taken.
@@ -88,30 +108,40 @@ extension IO.Handle {
             }
         }
 
-        /// Dequeue the next armed waiter without resuming it.
+        /// Dequeue the next armed, non-cancelled waiter without resuming it.
         ///
-        /// This is used for reservation-based handoff where the caller wants to:
-        /// 1. Dequeue the waiter
-        /// 2. Set up the reservation state
-        /// 3. Resume the waiter after reservation is committed
-        ///
-        /// Skips cancelled waiters (they're drained).
-        /// Returns the waiter if found, nil if queue is empty or all waiters are cancelled.
+        /// This is a structural operation with no resumption side effects.
+        /// Cancelled/unarmed waiters are re-enqueued; cancellation draining
+        /// is centralized in `_checkInHandle`.
         ///
         /// MUST be called on the actor executor.
         public mutating func dequeueNextArmed() -> Waiter? {
-            while _count > 0 {
+            var scanned = 0
+            let initialCount = _count
+
+            while _count > 0, scanned < initialCount {
                 let waiter = storage[head]
                 storage[head] = nil
                 head = (head + 1) % capacity
                 _count -= 1
+                scanned += 1
 
-                if let waiter = waiter, waiter.isArmed && !waiter.isDrained {
-                    // Found an armed, non-drained waiter
+                guard let waiter else { continue }
+
+                // Already completed; drop it.
+                if waiter.isDrained {
+                    continue
+                }
+
+                // Armed and not cancelled: eligible for reservation.
+                if waiter.isArmed, !waiter.wasCancelled {
                     return waiter
                 }
-                // Waiter was nil, unarmed, or already drained - continue
+
+                // Not eligible (cancelled or unarmed): preserve in queue.
+                _ = enqueue(waiter)
             }
+
             return nil
         }
 

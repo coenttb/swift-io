@@ -31,8 +31,9 @@ extension IO.Blocking {
         /// Callers may retry with backoff.
         case overloaded
 
-        /// Internal invariant violation (should never occur in correct code).
+        /// Internal invariant violation.
         case internalInvariantViolation
+        // (should never occur in correct code).
     }
 }
 

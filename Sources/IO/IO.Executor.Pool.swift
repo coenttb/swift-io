@@ -333,24 +333,69 @@ extension IO.Executor {
         /// - Guaranteed check-in after body completes (including errors/cancellation)
         /// - No rollback or atomic commit semantics are implied
         ///
-        /// ## Algorithm
-        /// 1. Validate scope and existence
-        /// 2. If handle available: move out (entry.handle = nil)
-        /// 3. Else: enqueue waiter and suspend (cancellation-safe)
-        /// 4. Execute via slot: allocate slot, run on lane, move handle back
-        /// 5. Check-in: restore handle or close if destroyed
-        /// 6. Resume next non-cancelled waiter
-        ///
-        /// ## Cancellation Semantics (Synchronous State Flip, Actor Drains on Next Touch)
+        /// ## Cancellation Semantics
         ///
         /// - `onCancel` handler only flips a cancelled bit synchronously (no Task, no resume)
-        /// - The actor drains cancelled waiters during `resumeNext()` (on handle check-in)
         /// - Cancelled waiters wake, observe `wasCancelled`, and throw `.cancelled`
         /// - Cancellation after checkout: lane operation completes (if guaranteed),
         ///   handle is checked in, then `.cancelled` is thrown
         ///
-        /// INVARIANT: All continuation resumption happens on the actor executor.
-        /// No continuations are resumed from `onCancel` or while holding locks.
+        // ## Algorithm
+        // 1. Validate scope and existence
+        // 2. If handle available: move out (entry.handle = nil)
+        // 3. Else: enqueue waiter and suspend (cancellation-safe)
+        // 4. Execute via slot: allocate slot, run on lane, move handle back
+        // 5. Check-in: restore handle or close if destroyed
+        // 6. Resume next non-cancelled waiter
+        //
+        // INVARIANT: All continuation resumption happens on the actor executor.
+        // The actor drains cancelled waiters during resumeNext() (on handle check-in).
+        // No continuations are resumed from `onCancel` or while holding locks.
+
+        /// Arms `waiter`, enqueues it, then suspends until resumed by `_checkInHandle`.
+        ///
+        /// This method is actor-isolated and is the only place that may mutate
+        /// `entry.waiters` as part of the wait path. It exists to ensure the
+        /// enqueue happens on the actor executor even when the caller is inside
+        /// an escaping `@Sendable` cancellation handler operation.
+        ///
+        /// - Returns: `true` if enqueued, `nil` if entry not found, `false` if queue was full.
+        private func _park(
+            _ waiter: IO.Handle.Waiter,
+            for id: IO.Handle.ID
+        ) async -> Bool? {
+            // Look up entry inside actor-isolated method to avoid Sendable issues
+            guard let entry = handles[id] else {
+                return nil
+            }
+
+            var enqueued = true
+
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                // Debug guard wraps only the synchronous mutation, not the suspension
+                #if DEBUG
+                entry._debugBeginMutation()
+                defer { entry._debugEndMutation() }
+                #endif
+
+                let didArm = waiter.arm(continuation: continuation)
+                precondition(didArm, "Waiter \(waiter.token) failed to arm exactly once")
+
+                if !entry.waiters.enqueue(waiter) {
+                    enqueued = false
+
+                    // Ensure the task does not hang if we fail to enqueue after installing a continuation.
+                    if let result = waiter.takeForResume() {
+                        result.continuation.resume()
+                    } else {
+                        continuation.resume()
+                    }
+                }
+            }
+
+            return enqueued
+        }
+
         public func transaction<T: Sendable, E: Swift.Error & Sendable>(
             _ id: IO.Handle.ID,
             _ body: @Sendable @escaping (inout Resource) throws(E) -> T
@@ -394,39 +439,36 @@ extension IO.Executor {
                 }
 
                 let token = entry.waiters.generateToken()
-                var enqueueFailed = false
                 let waiter = IO.Handle.Waiter(token: token)
 
-                await withTaskCancellationHandler {
-                    await withCheckedContinuation {
-                        (continuation: CheckedContinuation<Void, Never>) in
-                        waiter.arm(continuation: continuation)
-                        if !entry.waiters.enqueue(waiter) {
-                            // Queue filled between check and enqueue (rare race)
-                            enqueueFailed = true
-                            // Drain immediately - we're on actor, this is safe
-                            if let result = waiter.takeForResume() {
-                                result.continuation.resume()
-                            }
-                        }
-                    }
+                let enqueued = await withTaskCancellationHandler {
+                    await self._park(waiter, for: id)
                 } onCancel: {
-                    // Synchronous state flip - NO Task, NO continuation resume.
-                    // Actor drains cancelled waiters on next touch (resumeNext).
                     waiter.cancel()
                 }
 
-                // Handle enqueue failure
-                if enqueueFailed {
+                // Check if shutdown happened while waiting
+                if isShutdown {
+                    throw .shutdownInProgress
+                }
+
+                guard let enqueued else {
+                    // Entry was removed while waiting (not due to shutdown)
+                    throw .failure(.handle(.invalidID))
+                }
+
+                if !enqueued {
                     throw .failure(.handle(.waitersFull))
                 }
 
-                // Check if we were cancelled (waiter knows, or use Task.isCancelled)
-                if waiter.wasCancelled {
-                    throw .cancelled
-                }
+                // Capture cancellation state now, but still reclaim any reserved handle before throwing.
+                // Cancellation is best-effort; we must not leak a reserved handle if cancellation wins the race.
+                let wasCancelled = waiter.wasCancelled || Task.isCancelled
 
-                // Re-validate after waiting
+                // Re-validate after waiting - check shutdown first for correct error
+                if isShutdown {
+                    throw .shutdownInProgress
+                }
                 guard let entry = handles[id], entry.state != .destroyed else {
                     throw .failure(.handle(.invalidID))
                 }
@@ -437,14 +479,28 @@ extension IO.Executor {
                     guard let h = entry.takeReserved(token: token) else {
                         throw .failure(.handle(.invalidID))
                     }
+                    if wasCancelled {
+                        // Reclaim handle before throwing - don't strand it in reserved state
+                        _checkInHandle(consume h, for: id, entry: entry)
+                        throw .cancelled
+                    }
                     entry.state = .checkedOut
                     checkedOutHandle = h
                 } else if entry.state == .present, let h = entry.take() {
                     // Fallback for edge cases (shouldn't normally happen with reservation)
+                    if wasCancelled {
+                        // Reclaim handle before throwing
+                        _checkInHandle(consume h, for: id, entry: entry)
+                        throw .cancelled
+                    }
                     entry.state = .checkedOut
                     checkedOutHandle = h
                 } else {
-                    // Handle not available - unexpected state
+                    // Handle not available for this waiter
+                    // If cancelled, report cancellation (not invalidID)
+                    if wasCancelled {
+                        throw .cancelled
+                    }
                     throw .failure(.handle(.invalidID))
                 }
             }
@@ -517,24 +573,68 @@ extension IO.Executor {
             for id: IO.Handle.ID,
             entry: IO.Executor.Handle.Entry<Resource>
         ) {
+            #if DEBUG
+            entry._debugBeginMutation()
+            defer { entry._debugEndMutation() }
+            #endif
+
             if entry.state == .destroyed {
                 // Entry marked for destruction - remove from registry
-                // The resource is dropped here (caller should handle cleanup)
                 handles.removeValue(forKey: id)
                 _ = consume handle
-            } else if let waiter = entry.waiters.dequeueNextArmed() {
-                // Reservation path - assign handle to specific waiter
-                entry.reservedHandle = consume handle
-                entry.state = .reserved(waiterToken: waiter.token)
-                // Resume waiter - they will claim by token
-                if let result = waiter.takeForResume() {
-                    result.continuation.resume()
-                }
-            } else {
-                // No waiters - make handle present
-                entry.handle = consume handle
-                entry.state = .present
+                return
             }
+
+            // Single-funnel draining:
+            // Drain the queue completely - resume cancelled waiters, reserve for first eligible.
+            // Only set .present when queue is truly empty.
+
+            var h = consume handle
+
+            while let waiter = entry.waiters.dequeue() {
+                // Invariant: enqueued implies armed.
+                // If this fires, actor isolation is broken.
+                precondition(waiter.isArmed, "Waiter \(waiter.token) enqueued but not armed")
+
+                // Already drained (shouldn't happen, but be defensive).
+                if waiter.isDrained {
+                    continue
+                }
+
+                // Cancelled: resume immediately so task can observe cancellation.
+                if waiter.wasCancelled {
+                    if let result = waiter.takeForResume() {
+                        result.continuation.resume()
+                    }
+                    // Whether or not takeForResume succeeded, waiter is done.
+                    continue
+                }
+
+                // Non-cancelled, armed waiter: reserve and handoff.
+                entry.reservedHandle = consume h
+                entry.state = .reserved(waiterToken: waiter.token)
+
+                guard let result = waiter.takeForResume() else {
+                    // Waiter got cancelled between our check and takeForResume.
+                    // Reclaim handle and continue draining.
+                    guard let reclaimed = entry.takeReserved(token: waiter.token) else {
+                        // Reservation was already claimed somehow - invariant violation.
+                        // Set present and bail (handle is lost but we avoid crash).
+                        entry.state = .present
+                        precondition(entry.waiters.isEmpty, "Setting present with waiters remaining")
+                        return
+                    }
+                    h = consume reclaimed
+                    continue
+                }
+
+                result.continuation.resume()
+                return
+            }
+
+            // Queue is empty, make handle present.
+            entry.handle = consume h
+            entry.state = .present
         }
 
         /// Execute a closure with exclusive access to a handle.

@@ -5,6 +5,8 @@
 //  Created by Coen ten Thije Boonkkamp on 24/12/2025.
 //
 
+import Synchronization
+
 extension IO.Executor.Handle {
     /// Internal entry in the handle registry.
     ///
@@ -12,7 +14,7 @@ extension IO.Executor.Handle {
     /// Actor isolation ensures thread safety without @unchecked Sendable.
     ///
     /// Generic over `Resource` which must be `~Copyable & Sendable`.
-    public final class Entry<Resource: ~Copyable & Sendable> {
+    internal final class Entry<Resource: ~Copyable & Sendable> {
         /// The resource, or nil if currently checked out, reserved, or destroyed.
         public var handle: Resource?
 
@@ -28,6 +30,30 @@ extension IO.Executor.Handle {
 
         /// Current lifecycle state.
         public var state: State
+
+        #if DEBUG
+        /// Debug-only single-writer tripwire for entry mutation.
+        ///
+        /// This detects concurrent mutation of struct-on-class fields (e.g. `waiters`)
+        /// which would otherwise manifest as ring-buffer corruption.
+        private let _mutationDepth = Mutex<Int>(0)
+
+        /// Marks entry mutation scope; traps if concurrent mutation is detected.
+        public func _debugBeginMutation() {
+            _mutationDepth.withLock { depth in
+                depth += 1
+                precondition(depth == 1, "Concurrent Entry mutation detected")
+            }
+        }
+
+        /// Ends entry mutation scope.
+        public func _debugEndMutation() {
+            _mutationDepth.withLock { depth in
+                depth -= 1
+                precondition(depth == 0, "Entry mutation scope imbalance")
+            }
+        }
+        #endif
 
         /// Creates an entry with the given resource and waiter capacity.
         ///
