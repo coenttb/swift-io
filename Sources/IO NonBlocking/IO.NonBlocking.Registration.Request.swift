@@ -43,5 +43,18 @@ extension IO.NonBlocking.Registration {
             id: IO.NonBlocking.ID,
             replyID: ReplyID?
         )
+
+        /// Arm a registration for readiness notification.
+        ///
+        /// This enables the kernel filter for the specified interest.
+        /// With one-shot semantics (EV_DISPATCH on kqueue, EPOLLONESHOT on epoll),
+        /// the filter is automatically disabled after delivering an event.
+        ///
+        /// Fire-and-forget: no reply needed. The selector has already
+        /// created a waiter; the poll thread enables the kernel interest.
+        case arm(
+            id: IO.NonBlocking.ID,
+            interest: IO.NonBlocking.Interest
+        )
     }
 }

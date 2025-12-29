@@ -239,9 +239,9 @@ extension IO.NonBlocking.Socket.TCP.Test {
 }
 
 extension IO.NonBlocking.Socket.TCP.Test.HalfClose {
-    // TODO: Fix EOF detection after peer shutdownWrite - server.read() hangs
+    // Test EOF detection after peer shutdownWrite
     // The kqueue driver should detect FIN and return read-ready with EOF
-    @Test("shutdown write causes peer EOF", .disabled("Hangs - EOF detection issue"))
+    @Test("shutdown write causes peer EOF")
     func shutdownWriteCausesPeerEOF() async throws {
         let executor = IO.Executor.Thread()
         let selector = try await IO.NonBlocking.Selector.make(

@@ -132,6 +132,41 @@ enum EpollOperations {
         }
     }
 
+    /// Arms a registration for readiness notification.
+    ///
+    /// Enables the descriptor for the specified interest using EPOLLONESHOT.
+    /// After an event is delivered, the descriptor is automatically disabled
+    /// and requires another arm() call to receive more events.
+    ///
+    /// This implements the "arm → event → arm" lifecycle that aligns with the
+    /// selector's token typestate and edge-triggered semantics.
+    static func arm(
+        _ handle: borrowing IO.NonBlocking.Driver.Handle,
+        id: IO.NonBlocking.ID,
+        interest: IO.NonBlocking.Interest
+    ) throws(IO.NonBlocking.Error) {
+        let epfd = handle.rawValue
+
+        // Look up the registration
+        let entry: RegistrationEntry? = registry.withLock { $0[epfd]?[id] }
+        guard let entry else {
+            throw IO.NonBlocking.Error.notRegistered
+        }
+
+        let descriptor = entry.descriptor
+
+        // Build epoll_event with EPOLLONESHOT for one-shot arming
+        var event = epoll_event()
+        event.events = interestToEpollEventsOneShot(interest)
+        event.data.u64 = id.raw
+
+        // Use EPOLL_CTL_MOD to re-enable the descriptor
+        let result = epoll_ctl(epfd, EPOLL_CTL_MOD, descriptor, &event)
+        if result < 0 {
+            throw IO.NonBlocking.Error.platform(errno: errno)
+        }
+    }
+
     /// Polls for events.
     static func poll(
         _ handle: borrowing IO.NonBlocking.Driver.Handle,
@@ -251,6 +286,23 @@ enum EpollOperations {
     /// Converts Interest to epoll event flags.
     private static func interestToEpollEvents(_ interest: IO.NonBlocking.Interest) -> UInt32 {
         var events: UInt32 = UInt32(EPOLLET)  // Always edge-triggered
+
+        if interest.contains(.read) {
+            events |= UInt32(EPOLLIN)
+        }
+        if interest.contains(.write) {
+            events |= UInt32(EPOLLOUT)
+        }
+        if interest.contains(.priority) {
+            events |= UInt32(EPOLLPRI)
+        }
+
+        return events
+    }
+
+    /// Converts Interest to epoll event flags with EPOLLONESHOT for one-shot arming.
+    private static func interestToEpollEventsOneShot(_ interest: IO.NonBlocking.Interest) -> UInt32 {
+        var events: UInt32 = UInt32(EPOLLET) | UInt32(EPOLLONESHOT)
 
         if interest.contains(.read) {
             events |= UInt32(EPOLLIN)

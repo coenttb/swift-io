@@ -43,6 +43,7 @@ extension IO.NonBlocking.Epoll {
             register: EpollOperations.register,
             modify: EpollOperations.modify,
             deregister: EpollOperations.deregister,
+            arm: EpollOperations.arm,
             poll: EpollOperations.poll,
             close: EpollOperations.close,
             createWakeupChannel: EpollOperations.createWakeupChannel

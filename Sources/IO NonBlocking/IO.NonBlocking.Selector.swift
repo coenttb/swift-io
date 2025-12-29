@@ -370,14 +370,27 @@ extension IO.NonBlocking {
 
             let key = PermitKey(id: id, interest: interest)
 
-            // Check for existing permit for this specific interest
+            // Check for existing permit for this specific interest.
+            // A permit means an edge already occurred before we armed;
+            // consume it without re-arming the kernel.
             if let flags = permits.removeValue(forKey: key) {
+                // Re-arm the kernel for future edges before returning.
+                // This ensures the filter is ready for the next arm() call.
+                registrationQueue.enqueue(.arm(id: id, interest: interest))
+                wakeupChannel.wake()
+
                 let event = Event(id: id, interest: interest, flags: flags)
                 return Arm.Result(token: Token(id: id), event: event)
             }
 
-            // No permit - create waiter and wait with cancellation support
+            // No permit - arm the kernel and create waiter.
             //
+            // CRITICAL: Send the arm request BEFORE parking the waiter.
+            // With EV_DISPATCH (one-shot), the filter is disabled after
+            // delivering an event. We must enable it to receive the next edge.
+            registrationQueue.enqueue(.arm(id: id, interest: interest))
+            wakeupChannel.wake()
+
             // Cancellation model (mirrors IO.Handle.Waiter):
             // - cancel() flips state synchronously from onCancel handler
             // - cancel() triggers wakeup so actor drains on next touch

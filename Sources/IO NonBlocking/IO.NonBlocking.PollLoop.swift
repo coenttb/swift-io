@@ -138,6 +138,12 @@ extension IO.NonBlocking {
                             replyBridge.push(Registration.Reply(id: replyID, result: .failure(error)))
                         }
                     }
+
+                case .arm(let id, let interest):
+                    // Fire-and-forget: enable the kernel filter for this interest.
+                    // Errors here indicate the registration is invalid (already deregistered),
+                    // which means the waiter will be resumed via deregistration error path.
+                    try? driver.arm(handle, id: id, interest: interest)
                 }
             }
         }
@@ -170,6 +176,10 @@ extension IO.NonBlocking {
                 case .modify(_, _, let replyID):
                     // Reject modifications during shutdown with a sentinel error.
                     replyBridge.push(Registration.Reply(id: replyID, result: .failure(.notRegistered)))
+                case .arm:
+                    // Ignore arm requests during shutdown - waiter will be
+                    // resumed with shutdownInProgress by selector.
+                    break
                 }
             }
 

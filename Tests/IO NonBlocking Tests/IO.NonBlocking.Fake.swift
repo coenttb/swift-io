@@ -43,6 +43,9 @@ extension IO.NonBlocking {
                 deregister: { (handle: borrowing Driver.Handle, id: ID) throws(IO.NonBlocking.Error) in
                     try controller.deregister(handle, id: id)
                 },
+                arm: { (handle: borrowing Driver.Handle, id: ID, interest: Interest) throws(IO.NonBlocking.Error) in
+                    try controller.arm(handle, id: id, interest: interest)
+                },
                 poll: { (handle: borrowing Driver.Handle, deadline: Deadline?, buffer: inout [Event]) throws(IO.NonBlocking.Error) -> Int in
                     controller.poll(handle, deadline: deadline, into: &buffer)
                 },
@@ -213,6 +216,27 @@ extension IO.NonBlocking.Fake {
                 }
                 // Idempotent: succeed silently if not registered
                 _ = state.handles[handleID]?.registrations.removeValue(forKey: id)
+            }
+            if let error { throw error }
+        }
+
+        func arm(
+            _ handle: borrowing IO.NonBlocking.Driver.Handle,
+            id: IO.NonBlocking.ID,
+            interest: IO.NonBlocking.Interest
+        ) throws(IO.NonBlocking.Error) {
+            let handleID = handle.rawValue
+            var error: IO.NonBlocking.Error?
+            state.withLock { state in
+                guard !state.isShutdown else {
+                    error = .invalidDescriptor
+                    return
+                }
+                guard state.handles[handleID]?.registrations[id] != nil else {
+                    error = .notRegistered
+                    return
+                }
+                // In the fake driver, arm is a no-op - events are injected manually
             }
             if let error { throw error }
         }

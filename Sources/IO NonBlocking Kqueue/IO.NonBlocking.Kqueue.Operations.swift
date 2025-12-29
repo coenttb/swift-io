@@ -69,7 +69,13 @@ enum KqueueOperations {
             var ev = Darwin.kevent()
             ev.ident = UInt(descriptor)
             ev.filter = Int16(EVFILT_READ)
-            ev.flags = UInt16(EV_ADD | EV_CLEAR)  // Edge-triggered
+            // EV_ADD: Add filter (starts enabled)
+            // EV_CLEAR: Edge-triggered
+            // EV_DISPATCH: Auto-disable after delivery (requires re-arm)
+            //
+            // We start ENABLED so events that occur before arm() are captured
+            // as permits. If we started disabled, edges would be lost.
+            ev.flags = UInt16(EV_ADD | EV_CLEAR | EV_DISPATCH)
             ev.fflags = 0
             ev.data = 0
             ev.udata = UnsafeMutableRawPointer(bitPattern: UInt(id.raw))
@@ -80,7 +86,13 @@ enum KqueueOperations {
             var ev = Darwin.kevent()
             ev.ident = UInt(descriptor)
             ev.filter = Int16(EVFILT_WRITE)
-            ev.flags = UInt16(EV_ADD | EV_CLEAR)  // Edge-triggered
+            // EV_ADD: Add filter (starts enabled)
+            // EV_CLEAR: Edge-triggered
+            // EV_DISPATCH: Auto-disable after delivery (requires re-arm)
+            //
+            // We start ENABLED so events that occur before arm() are captured
+            // as permits. If we started disabled, edges would be lost.
+            ev.flags = UInt16(EV_ADD | EV_CLEAR | EV_DISPATCH)
             ev.fflags = 0
             ev.data = 0
             ev.udata = UnsafeMutableRawPointer(bitPattern: UInt(id.raw))
@@ -247,6 +259,70 @@ enum KqueueOperations {
             if result < 0 && errno != ENOENT {
                 throw IO.NonBlocking.Error.platform(errno: errno)
             }
+        }
+    }
+
+    /// Arms a registration for readiness notification.
+    ///
+    /// Enables the kernel filter for the specified interest. With EV_DISPATCH,
+    /// the filter is automatically disabled after delivering an event, requiring
+    /// a subsequent arm() call to re-enable.
+    ///
+    /// This implements the "arm → event → arm" lifecycle that aligns with the
+    /// selector's token typestate and edge-triggered semantics.
+    static func arm(
+        _ handle: borrowing IO.NonBlocking.Driver.Handle,
+        id: IO.NonBlocking.ID,
+        interest: IO.NonBlocking.Interest
+    ) throws(IO.NonBlocking.Error) {
+        let kq = handle.rawValue
+
+        // Look up the registration
+        let entry: RegistrationEntry? = registry.withLock { $0[kq]?[id] }
+        guard let entry else {
+            throw IO.NonBlocking.Error.notRegistered
+        }
+
+        let descriptor = entry.descriptor
+        var events: [Darwin.kevent] = []
+
+        if interest.contains(.read) {
+            var ev = Darwin.kevent()
+            ev.ident = UInt(descriptor)
+            ev.filter = Int16(EVFILT_READ)
+            // EV_ADD: Required to modify filter parameters (not just enable/disable)
+            // EV_ENABLE: Re-enable the filter after EV_DISPATCH disabled it
+            // EV_CLEAR: Edge-triggered - reset state after delivery
+            // EV_DISPATCH: Auto-disable after delivery (one-shot arming)
+            ev.flags = UInt16(EV_ADD | EV_ENABLE | EV_CLEAR | EV_DISPATCH)
+            ev.fflags = 0
+            ev.data = 0
+            ev.udata = UnsafeMutableRawPointer(bitPattern: UInt(id.raw))
+            events.append(ev)
+        }
+
+        if interest.contains(.write) {
+            var ev = Darwin.kevent()
+            ev.ident = UInt(descriptor)
+            ev.filter = Int16(EVFILT_WRITE)
+            // EV_ADD: Required to modify filter parameters (not just enable/disable)
+            // EV_ENABLE: Re-enable the filter after EV_DISPATCH disabled it
+            // EV_CLEAR: Edge-triggered - reset state after delivery
+            // EV_DISPATCH: Auto-disable after delivery (one-shot arming)
+            ev.flags = UInt16(EV_ADD | EV_ENABLE | EV_CLEAR | EV_DISPATCH)
+            ev.fflags = 0
+            ev.data = 0
+            ev.udata = UnsafeMutableRawPointer(bitPattern: UInt(id.raw))
+            events.append(ev)
+        }
+
+        guard !events.isEmpty else { return }
+
+        let result = events.withUnsafeBufferPointer { ptr in
+            kevent_c(kq, ptr.baseAddress, Int32(ptr.count), nil, 0, nil)
+        }
+        if result < 0 {
+            throw IO.NonBlocking.Error.platform(errno: errno)
         }
     }
 
