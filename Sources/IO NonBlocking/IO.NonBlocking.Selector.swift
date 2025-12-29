@@ -6,7 +6,6 @@
 //
 
 @_exported public import IO_NonBlocking_Driver
-internal import IO_Blocking
 
 
 extension IO.NonBlocking {

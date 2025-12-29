@@ -61,7 +61,6 @@ let package = Package(
             dependencies: [
                 "IO NonBlocking Driver",
                 "IO NonBlocking Kqueue",
-                "IO Blocking",
             ]
         ),
         .testTarget(
