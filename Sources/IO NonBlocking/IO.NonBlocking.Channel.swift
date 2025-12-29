@@ -257,30 +257,29 @@ extension IO.NonBlocking {
 
         // MARK: - Arming Helpers
 
-        /// Arm for read readiness. On error, marks channel as closed.
+        /// Arm for read readiness.
         ///
-        /// Note: If arm() throws, the token was consumed and cannot be restored.
-        /// This is a fundamental issue with consuming APIs. We mark the channel
-        /// as closed to prevent further use in an inconsistent state.
+        /// Uses `armPreservingToken` to ensure the token is always restored on failure.
+        /// This keeps the channel in a consistent state even after cancellation or shutdown.
         private mutating func armForRead() async throws(Failure) {
             // Try registering token first (swap to extract)
             var takenRegistering: Token<Registering>? = nil
             swap(&registering, &takenRegistering)
 
             if let taken = takenRegistering {
-                do throws(Failure) {
-                    let armResult = try await selector.arm(taken, interest: .read)
-                    armed = consume armResult.token
+                switch await selector.armPreservingToken(consume taken, interest: .read) {
+                case .armed(let result):
+                    armed = consume result.token
                     // Check for socket error
-                    if armResult.event.flags.contains(.error) {
+                    if result.event.flags.contains(.error) {
                         if let err = pendingSocketError() {
                             throw Failure.failure(.platform(errno: err))
                         }
                     }
-                } catch {
-                    // arm() consumed the token - mark channel closed
-                    _ = await lifecycle.transitionToClosed()
-                    throw error
+                case .failed(token: let restoredToken, failure: let failure):
+                    // Restore the token and rethrow - channel remains usable
+                    registering = consume restoredToken
+                    throw failure
                 }
                 return
             }
@@ -290,19 +289,19 @@ extension IO.NonBlocking {
             swap(&armed, &takenArmed)
 
             if let taken = takenArmed {
-                do throws(Failure) {
-                    let armResult = try await selector.arm(taken, interest: .read)
-                    armed = consume armResult.token
+                switch await selector.armPreservingToken(consume taken, interest: .read) {
+                case .armed(let result):
+                    armed = consume result.token
                     // Check for socket error
-                    if armResult.event.flags.contains(.error) {
+                    if result.event.flags.contains(.error) {
                         if let err = pendingSocketError() {
                             throw Failure.failure(.platform(errno: err))
                         }
                     }
-                } catch {
-                    // arm() consumed the token - mark channel closed
-                    _ = await lifecycle.transitionToClosed()
-                    throw error
+                case .failed(token: let restoredToken, failure: let failure):
+                    // Restore the token and rethrow - channel remains usable
+                    armed = consume restoredToken
+                    throw failure
                 }
                 return
             }
@@ -310,25 +309,29 @@ extension IO.NonBlocking {
             preconditionFailure("No token available - concurrent operation or already closed?")
         }
 
-        /// Arm for write readiness. On error, marks channel as closed.
+        /// Arm for write readiness.
+        ///
+        /// Uses `armPreservingToken` to ensure the token is always restored on failure.
+        /// This keeps the channel in a consistent state even after cancellation or shutdown.
         private mutating func armForWrite() async throws(Failure) {
             // Try registering token first (swap to extract)
             var takenRegistering: Token<Registering>? = nil
             swap(&registering, &takenRegistering)
 
             if let taken = takenRegistering {
-                do throws(Failure) {
-                    let armResult = try await selector.arm(taken, interest: .write)
-                    armed = consume armResult.token
+                switch await selector.armPreservingToken(consume taken, interest: .write) {
+                case .armed(let result):
+                    armed = consume result.token
                     // Check for socket error
-                    if armResult.event.flags.contains(.error) {
+                    if result.event.flags.contains(.error) {
                         if let err = pendingSocketError() {
                             throw Failure.failure(.platform(errno: err))
                         }
                     }
-                } catch {
-                    _ = await lifecycle.transitionToClosed()
-                    throw error
+                case .failed(token: let restoredToken, failure: let failure):
+                    // Restore the token and rethrow - channel remains usable
+                    registering = consume restoredToken
+                    throw failure
                 }
                 return
             }
@@ -338,18 +341,19 @@ extension IO.NonBlocking {
             swap(&armed, &takenArmed)
 
             if let taken = takenArmed {
-                do throws(Failure) {
-                    let armResult = try await selector.arm(taken, interest: .write)
-                    armed = consume armResult.token
+                switch await selector.armPreservingToken(consume taken, interest: .write) {
+                case .armed(let result):
+                    armed = consume result.token
                     // Check for socket error
-                    if armResult.event.flags.contains(.error) {
+                    if result.event.flags.contains(.error) {
                         if let err = pendingSocketError() {
                             throw Failure.failure(.platform(errno: err))
                         }
                     }
-                } catch {
-                    _ = await lifecycle.transitionToClosed()
-                    throw error
+                case .failed(token: let restoredToken, failure: let failure):
+                    // Restore the token and rethrow - channel remains usable
+                    armed = consume restoredToken
+                    throw failure
                 }
                 return
             }

@@ -254,18 +254,69 @@ extension IO.NonBlocking {
             }
         }
 
+        // MARK: - Token-Preserving Arm (Internal Power Tool)
+
+        /// Arm a registration, preserving the token on failure.
+        ///
+        /// This is the internal "power tool" that returns an `Outcome` enum,
+        /// making token loss unrepresentable. Channel uses this exclusively.
+        ///
+        /// - Parameters:
+        ///   - token: The registration token (consumed).
+        ///   - interest: The interest to wait for (read, write, or priority).
+        /// - Returns: `.armed(result)` on success, `.failed(token:failure:)` on failure.
+        public func armPreservingToken(
+            _ token: consuming Token<Registering>,
+            interest: Interest
+        ) async -> Arm.Registering.Outcome {
+            do {
+                let result = try await arm(id: token.id, interest: interest)
+                return .armed(result)
+            } catch let failure {
+                return .failed(token: token, failure: failure)
+            }
+        }
+
+        /// Re-arm a registration, preserving the token on failure.
+        ///
+        /// This is the internal "power tool" that returns an `Outcome` enum,
+        /// making token loss unrepresentable. Channel uses this exclusively.
+        ///
+        /// - Parameters:
+        ///   - token: The armed token (consumed).
+        ///   - interest: The interest to wait for (read, write, or priority).
+        /// - Returns: `.armed(result)` on success, `.failed(token:failure:)` on failure.
+        public func armPreservingToken(
+            _ token: consuming Token<Armed>,
+            interest: Interest
+        ) async -> Arm.Armed.Outcome {
+            do {
+                let result = try await arm(id: token.id, interest: interest)
+                return .armed(result)
+            } catch let failure {
+                return .failed(token: token, failure: failure)
+            }
+        }
+
+        // MARK: - Ergonomic Throwing Arm
+
         /// Arm a registration to wait for readiness with a specific interest.
         ///
         /// - Parameters:
         ///   - token: The registration token (consumed).
         ///   - interest: The interest to wait for (read, write, or priority).
         /// - Returns: An armed token and the event when ready.
-        /// - Throws: If shutdown or cancelled.
+        /// - Throws: `Failure` on shutdown or cancellation. Token is lost on failure.
         public func arm(
             _ token: consuming Token<Registering>,
             interest: Interest
         ) async throws(Failure) -> Arm.Result {
-            try await arm(id: token.id, interest: interest)
+            switch await armPreservingToken(consume token, interest: interest) {
+            case .armed(let result):
+                return result
+            case .failed(_, let failure):
+                throw failure
+            }
         }
 
         /// Re-arm a registration to wait for readiness with a specific interest.
@@ -276,12 +327,17 @@ extension IO.NonBlocking {
         ///   - token: The armed token (consumed).
         ///   - interest: The interest to wait for (read, write, or priority).
         /// - Returns: An armed token and the event when ready.
-        /// - Throws: If shutdown or cancelled.
+        /// - Throws: `Failure` on shutdown or cancellation. Token is lost on failure.
         public func arm(
             _ token: consuming Token<Armed>,
             interest: Interest
         ) async throws(Failure) -> Arm.Result {
-            try await arm(id: token.id, interest: interest)
+            switch await armPreservingToken(consume token, interest: interest) {
+            case .armed(let result):
+                return result
+            case .failed(_, let failure):
+                throw failure
+            }
         }
 
         /// Private implementation of interest-specific arming.
@@ -619,15 +675,47 @@ extension IO.NonBlocking {
         /// This struct is ~Copyable because it contains a move-only Token.
         public struct Result: ~Copyable, Sendable {
             /// Token for modifying, deregistering, or cancelling.
-            public var token: Token<Armed>
+            public var token: Token<IO.NonBlocking.Armed>
 
             /// The event that triggered readiness.
             public let event: Event
 
             @usableFromInline
-            package init(token: consuming Token<Armed>, event: Event) {
+            package init(token: consuming Token<IO.NonBlocking.Armed>, event: Event) {
                 self.token = token
                 self.event = event
+            }
+        }
+
+        // MARK: - Token-Preserving Outcome Types
+
+        /// Namespace for arming from `Token<Registering>`.
+        public enum Registering {
+            /// Outcome of arming from a `Token<Registering>`.
+            ///
+            /// Uses an outcome enum instead of throwing because Swift's `Error` protocol
+            /// requires `Copyable`, which is incompatible with move-only tokens.
+            /// This enum makes token loss unrepresentable at the API boundary.
+            public enum Outcome: ~Copyable, Sendable {
+                /// Arming succeeded - returns the armed result with token and event.
+                case armed(Result)
+                /// Arming failed - returns the original token for restoration.
+                case failed(token: Token<IO.NonBlocking.Registering>, failure: Failure)
+            }
+        }
+
+        /// Namespace for arming from `Token<Armed>`.
+        public enum Armed {
+            /// Outcome of arming from a `Token<Armed>`.
+            ///
+            /// Uses an outcome enum instead of throwing because Swift's `Error` protocol
+            /// requires `Copyable`, which is incompatible with move-only tokens.
+            /// This enum makes token loss unrepresentable at the API boundary.
+            public enum Outcome: ~Copyable, Sendable {
+                /// Arming succeeded - returns the armed result with token and event.
+                case armed(Result)
+                /// Arming failed - returns the original token for restoration.
+                case failed(token: Token<IO.NonBlocking.Armed>, failure: Failure)
             }
         }
     }
