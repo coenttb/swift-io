@@ -421,10 +421,9 @@ extension IO.Executor {
                     throw .failure(.handle(.waitersFull))
                 }
 
-                // Check if we were cancelled (waiter knows, or use Task.isCancelled)
-                if waiter.wasCancelled {
-                    throw .cancelled
-                }
+                // Capture cancellation state now, but still reclaim any reserved handle before throwing.
+                // Cancellation is best-effort; we must not leak a reserved handle if cancellation wins the race.
+                let wasCancelled = waiter.wasCancelled || Task.isCancelled
 
                 // Re-validate after waiting
                 guard let entry = handles[id], entry.state != .destroyed else {
@@ -437,14 +436,28 @@ extension IO.Executor {
                     guard let h = entry.takeReserved(token: token) else {
                         throw .failure(.handle(.invalidID))
                     }
+                    if wasCancelled {
+                        // Reclaim handle before throwing - don't strand it in reserved state
+                        _checkInHandle(consume h, for: id, entry: entry)
+                        throw .cancelled
+                    }
                     entry.state = .checkedOut
                     checkedOutHandle = h
                 } else if entry.state == .present, let h = entry.take() {
                     // Fallback for edge cases (shouldn't normally happen with reservation)
+                    if wasCancelled {
+                        // Reclaim handle before throwing
+                        _checkInHandle(consume h, for: id, entry: entry)
+                        throw .cancelled
+                    }
                     entry.state = .checkedOut
                     checkedOutHandle = h
                 } else {
-                    // Handle not available - unexpected state
+                    // Handle not available for this waiter
+                    // If cancelled, report cancellation (not invalidID)
+                    if wasCancelled {
+                        throw .cancelled
+                    }
                     throw .failure(.handle(.invalidID))
                 }
             }

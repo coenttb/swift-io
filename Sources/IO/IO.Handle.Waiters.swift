@@ -107,10 +107,18 @@ extension IO.Handle {
                 _count -= 1
 
                 if let waiter = waiter, waiter.isArmed && !waiter.isDrained {
-                    // Found an armed, non-drained waiter
-                    return waiter
+                    if waiter.wasCancelled {
+                        // Cancelled waiter - resume it so it can throw .cancelled, but don't return it
+                        if let result = waiter.takeForResume() {
+                            result.continuation.resume()
+                        }
+                        // Continue looking for non-cancelled waiter
+                    } else {
+                        // Found an armed, non-drained, non-cancelled waiter
+                        return waiter
+                    }
                 }
-                // Waiter was nil, unarmed, or already drained - continue
+                // Waiter was nil, unarmed, or drained - continue
             }
             return nil
         }
