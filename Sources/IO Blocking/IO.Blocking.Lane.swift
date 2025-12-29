@@ -67,81 +67,90 @@ extension IO.Blocking {
             self._run = run
             self._shutdown = shutdown
         }
+    }
+}
 
-        // MARK: - Core Primitive (Result-returning)
+// MARK: - Core Primitive (Result-returning)
 
-        /// Execute a Result-returning operation.
-        ///
-        /// This is the core primitive. The operation produces a `Result<T, E>` directly,
-        /// preserving the typed error without any casting or existentials.
-        ///
-        /// Internal to force callers through the typed-throws `run` wrapper.
-        /// Lane only throws `Failure` for infrastructure failures.
-        @concurrent
-        internal func runResult<T: Sendable, E: Swift.Error & Sendable>(
-            deadline: Deadline?,
-            _ operation: @Sendable @escaping () -> Result<T, E>
-        ) async throws(Failure) -> Result<T, E> {
-            let ptr = try await _run(deadline) {
-                let result = operation()
-                return IO.Blocking.Box.make(result)
-            }
-            return IO.Blocking.Box.take(ptr)
+extension IO.Blocking.Lane {
+    /// Execute a Result-returning operation.
+    ///
+    /// This is the core primitive. The operation produces a `Result<T, E>` directly,
+    /// preserving the typed error without any casting or existentials.
+    ///
+    /// Internal to force callers through the typed-throws `run` wrapper.
+    /// Lane only throws `Failure` for infrastructure failures.
+    @concurrent
+    internal func runResult<T: Sendable, E: Swift.Error & Sendable>(
+        deadline: IO.Blocking.Deadline?,
+        _ operation: @Sendable @escaping () -> Result<T, E>
+    ) async throws(IO.Blocking.Failure) -> Result<T, E> {
+        let ptr = try await _run(deadline) {
+            let result = operation()
+            return IO.Blocking.Box.make(result)
         }
+        return IO.Blocking.Box.take(ptr)
+    }
+}
 
-        // MARK: - Convenience (Typed-Throws)
+// MARK: - Convenience (Typed-Throws)
 
-        /// Execute a typed-throwing operation, returning Result.
-        ///
-        /// This convenience wrapper converts `throws(E) -> T` to `() -> Result<T, E>`.
-        ///
-        /// ## Quarantined Cast (Swift Embedded Safe)
-        /// Swift currently infers `error` as `any Error` even when `operation` throws(E).
-        /// We use a single, localized `as?` cast to recover E without introducing
-        /// existentials into storage or API boundaries. This is the ONLY cast in the
-        /// module and is acceptable for Embedded compatibility.
-        @concurrent
-        public func run<T: Sendable, E: Swift.Error & Sendable>(
-            deadline: Deadline?,
-            _ operation: @Sendable @escaping () throws(E) -> T
-        ) async throws(Failure) -> Result<T, E> {
-            try await runResult(deadline: deadline) {
-                do {
-                    return .success(try operation())
-                } catch {
-                    // Quarantined cast to recover E from `any Error`.
-                    // This is the only cast in the module - do not add others.
-                    guard let e = error as? E else {
-                        // Unreachable if typed-throws is respected by the compiler.
-                        // Trap to surface invariant violations during development.
-                        fatalError(
-                            "Lane.run: typed-throws invariant violated. Expected \(E.self), got \(type(of: error))"
-                        )
-                    }
-                    return .failure(e)
+extension IO.Blocking.Lane {
+    /// Execute a typed-throwing operation, returning Result.
+    ///
+    /// This convenience wrapper converts `throws(E) -> T` to `() -> Result<T, E>`.
+    ///
+    /// ## Quarantined Cast (Swift Embedded Safe)
+    /// Swift currently infers `error` as `any Error` even when `operation` throws(E).
+    /// We use a single, localized `as?` cast to recover E without introducing
+    /// existentials into storage or API boundaries. This is the ONLY cast in the
+    /// module and is acceptable for Embedded compatibility.
+    @concurrent
+    public func run<T: Sendable, E: Swift.Error & Sendable>(
+        deadline: IO.Blocking.Deadline?,
+        _ operation: @Sendable @escaping () throws(E) -> T
+    ) async throws(IO.Blocking.Failure) -> Result<T, E> {
+        try await runResult(deadline: deadline) {
+            do {
+                return .success(try operation())
+            } catch {
+                // Quarantined cast to recover E from `any Error`.
+                // This is the only cast in the module - do not add others.
+                guard let e = error as? E else {
+                    // Unreachable if typed-throws is respected by the compiler.
+                    // Trap to surface invariant violations during development.
+                    fatalError(
+                        "Lane.run: typed-throws invariant violated. Expected \(E.self), got \(type(of: error))"
+                    )
                 }
+                return .failure(e)
             }
         }
+    }
+}
 
-        // MARK: - Convenience (Non-throwing)
+// MARK: - Convenience (Non-throwing)
 
-        /// Execute a non-throwing operation, returning value directly.
-        @concurrent
-        public func run<T: Sendable>(
-            deadline: Deadline?,
-            _ operation: @Sendable @escaping () -> T
-        ) async throws(Failure) -> T {
-            let ptr = try await _run(deadline) {
-                let result = operation()
-                return IO.Blocking.Box.makeValue(result)
-            }
-            return IO.Blocking.Box.takeValue(ptr)
+extension IO.Blocking.Lane {
+    /// Execute a non-throwing operation, returning value directly.
+    @concurrent
+    public func run<T: Sendable>(
+        deadline: IO.Blocking.Deadline?,
+        _ operation: @Sendable @escaping () -> T
+    ) async throws(IO.Blocking.Failure) -> T {
+        let ptr = try await _run(deadline) {
+            let result = operation()
+            return IO.Blocking.Box.makeValue(result)
         }
+        return IO.Blocking.Box.takeValue(ptr)
+    }
+}
 
-        @concurrent
-        public func shutdown() async {
-            await _shutdown()
-        }
+// MARK: - Shutdown
 
+extension IO.Blocking.Lane {
+    @concurrent
+    public func shutdown() async {
+        await _shutdown()
     }
 }

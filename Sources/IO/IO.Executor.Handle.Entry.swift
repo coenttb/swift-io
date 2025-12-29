@@ -37,22 +37,6 @@ extension IO.Executor.Handle {
         /// This detects concurrent mutation of struct-on-class fields (e.g. `waiters`)
         /// which would otherwise manifest as ring-buffer corruption.
         private let _mutationDepth = Mutex<Int>(0)
-
-        /// Marks entry mutation scope; traps if concurrent mutation is detected.
-        public func _debugBeginMutation() {
-            _mutationDepth.withLock { depth in
-                depth += 1
-                precondition(depth == 1, "Concurrent Entry mutation detected")
-            }
-        }
-
-        /// Ends entry mutation scope.
-        public func _debugEndMutation() {
-            _mutationDepth.withLock { depth in
-                depth -= 1
-                precondition(depth == 0, "Entry mutation scope imbalance")
-            }
-        }
         #endif
 
         /// Creates an entry with the given resource and waiter capacity.
@@ -66,43 +50,73 @@ extension IO.Executor.Handle {
             self.waiters = IO.Handle.Waiters(capacity: waitersCapacity)
             self.state = .present
         }
+    }
+}
 
-        /// Whether the handle is logically open (present, checked out, or reserved).
-        public var isOpen: Bool {
-            switch state {
-            case .present, .checkedOut, .reserved:
-                return true
-            case .destroyed:
-                return false
-            }
-        }
+// MARK: - Debug Mutation Tracking
 
-        /// Whether destroy has been requested.
-        public var isDestroyed: Bool {
-            state == .destroyed
+#if DEBUG
+extension IO.Executor.Handle.Entry {
+    /// Marks entry mutation scope; traps if concurrent mutation is detected.
+    public func _debugBeginMutation() {
+        _mutationDepth.withLock { depth in
+            depth += 1
+            precondition(depth == 1, "Concurrent Entry mutation detected")
         }
+    }
 
-        /// Takes the handle out if present, leaving nil.
-        public func take() -> Resource? {
-            guard state == .present else { return nil }
-            guard handle != nil else { return nil }
-            var result: Resource? = nil
-            swap(&result, &handle)
-            return result
+    /// Ends entry mutation scope.
+    public func _debugEndMutation() {
+        _mutationDepth.withLock { depth in
+            depth -= 1
+            precondition(depth == 0, "Entry mutation scope imbalance")
         }
+    }
+}
+#endif
 
-        /// Takes the reserved handle for a specific waiter token.
-        ///
-        /// - Parameter token: The waiter token that must match the reservation.
-        /// - Returns: The reserved resource if token matches, nil otherwise.
-        public func takeReserved(token: UInt64) -> Resource? {
-            guard case .reserved(let reservedToken) = state, reservedToken == token else {
-                return nil
-            }
-            guard reservedHandle != nil else { return nil }
-            var result: Resource? = nil
-            swap(&result, &reservedHandle)
-            return result
+// MARK: - Properties
+
+extension IO.Executor.Handle.Entry {
+    /// Whether the handle is logically open (present, checked out, or reserved).
+    public var isOpen: Bool {
+        switch state {
+        case .present, .checkedOut, .reserved:
+            return true
+        case .destroyed:
+            return false
         }
+    }
+
+    /// Whether destroy has been requested.
+    public var isDestroyed: Bool {
+        state == .destroyed
+    }
+}
+
+// MARK: - Resource Access
+
+extension IO.Executor.Handle.Entry {
+    /// Takes the handle out if present, leaving nil.
+    public func take() -> Resource? {
+        guard state == .present else { return nil }
+        guard handle != nil else { return nil }
+        var result: Resource? = nil
+        swap(&result, &handle)
+        return result
+    }
+
+    /// Takes the reserved handle for a specific waiter token.
+    ///
+    /// - Parameter token: The waiter token that must match the reservation.
+    /// - Returns: The reserved resource if token matches, nil otherwise.
+    public func takeReserved(token: UInt64) -> Resource? {
+        guard case .reserved(let reservedToken) = state, reservedToken == token else {
+            return nil
+        }
+        guard reservedHandle != nil else { return nil }
+        var result: Resource? = nil
+        swap(&result, &reservedHandle)
+        return result
     }
 }
