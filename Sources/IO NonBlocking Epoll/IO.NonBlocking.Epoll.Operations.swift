@@ -85,9 +85,9 @@ enum EpollOperations {
 
         let descriptor = entry.descriptor
 
-        // Build new epoll_event
+        // Build new epoll_event with EPOLLONESHOT to preserve one-shot semantics
         var event = epoll_event()
-        event.events = interestToEpollEvents(newInterest)
+        event.events = interestToEpollEventsOneShot(newInterest)
         event.data.u64 = id.raw
 
         let result = epoll_ctl(epfd, EPOLL_CTL_MOD, descriptor, &event)

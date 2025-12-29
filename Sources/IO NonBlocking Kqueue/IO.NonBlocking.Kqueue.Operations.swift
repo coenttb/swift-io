@@ -167,12 +167,12 @@ enum KqueueOperations {
             events.append(ev)
         }
 
-        // Add new interests
+        // Add new interests with EV_DISPATCH for one-shot semantics
         if toAdd.contains(.read) {
             var ev = Darwin.kevent()
             ev.ident = UInt(descriptor)
             ev.filter = Int16(EVFILT_READ)
-            ev.flags = UInt16(EV_ADD | EV_CLEAR)
+            ev.flags = UInt16(EV_ADD | EV_CLEAR | EV_DISPATCH)
             ev.fflags = 0
             ev.data = 0
             ev.udata = UnsafeMutableRawPointer(bitPattern: UInt(id.raw))
@@ -182,7 +182,7 @@ enum KqueueOperations {
             var ev = Darwin.kevent()
             ev.ident = UInt(descriptor)
             ev.filter = Int16(EVFILT_WRITE)
-            ev.flags = UInt16(EV_ADD | EV_CLEAR)
+            ev.flags = UInt16(EV_ADD | EV_CLEAR | EV_DISPATCH)
             ev.fflags = 0
             ev.data = 0
             ev.udata = UnsafeMutableRawPointer(bitPattern: UInt(id.raw))
