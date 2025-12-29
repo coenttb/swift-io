@@ -369,8 +369,9 @@ extension IO.NonBlocking.Socket.Address {
             var addr = sockaddr_in()
             addr.sin_family = sa_family_t(AF_INET)
             addr.sin_port = port.bigEndian
-            // IPv4.Address stores in network byte order, rawValue gives UInt32
-            addr.sin_addr.s_addr = address.rawValue
+            // IPv4.Address rawValue is in logical big-endian (127 in high byte)
+            // Convert to network byte order for s_addr
+            addr.sin_addr.s_addr = address.rawValue.bigEndian
             #if canImport(Darwin)
             addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
             #endif
@@ -391,11 +392,10 @@ extension IO.NonBlocking.Socket.Address {
             addr.sin6_len = UInt8(MemoryLayout<sockaddr_in6>.size)
             #endif
 
-            // Zero-copy via Binary.Serializable
-            IPv6.Address.withSerializedBytes(address) { span in
-                withUnsafeMutableBytes(of: &addr.sin6_addr) { dest in
-                    for i in 0..<16 { dest[i] = span[i] }
-                }
+            // Serialize via Binary.Serializable
+            let bytes: [UInt8] = [UInt8](address)
+            withUnsafeMutableBytes(of: &addr.sin6_addr) { dest in
+                for i in 0..<16 { dest[i] = bytes[i] }
             }
 
             return try withUnsafePointer(to: &addr) { ptr in
@@ -443,8 +443,8 @@ extension IO.NonBlocking.Socket.Address {
             guard length >= socklen_t(MemoryLayout<sockaddr_in>.size) else { return nil }
             return addr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { ptr in
                 let sin = ptr.pointee
-                // Construct IPv4.Address from raw network-order value
-                let ipv4 = IPv4.Address(rawValue: sin.sin_addr.s_addr)
+                // s_addr is in network byte order, convert to logical big-endian for rawValue
+                let ipv4 = IPv4.Address(rawValue: UInt32(bigEndian: sin.sin_addr.s_addr))
                 return .ipv4(ipv4, port: UInt16(bigEndian: sin.sin_port))
             }
 
@@ -453,10 +453,11 @@ extension IO.NonBlocking.Socket.Address {
             return addr.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { ptr in
                 let sin6 = ptr.pointee
 
-                // UnsafeRawBufferPointer conforms to Collection<UInt8> - no copy needed
-                guard let ipv6 = withUnsafeBytes(of: sin6.sin6_addr, { src in
-                    try? IPv6.Address(binary: src)
-                }) else {
+                // Copy bytes via Array initializer for Binary.Serializable
+                let bytes: [UInt8] = withUnsafeBytes(of: sin6.sin6_addr) { src in
+                    [UInt8](src)
+                }
+                guard let ipv6 = try? IPv6.Address(binary: bytes) else {
                     return nil
                 }
 
