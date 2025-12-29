@@ -43,7 +43,7 @@ Benchmarks comparing swift-io against SwiftNIO's `NIOThreadPool` (release mode, 
 
 | Scenario | swift-io | swift-io sharded | NIOThreadPool | Notes |
 |----------|----------|------------------|---------------|-------|
-| Moderate (10:1) | 216µs | 224µs | 182µs | NIO median wins, but p95: 253µs vs **671µs** |
+| Moderate (10:1) | 216µs | 224µs | 182µs | NIO median wins; p95 swift-io 253µs vs NIO **671µs** |
 | High (100:1) | 1.01ms | 568µs | 632µs | Sharded 10% faster than NIO |
 | Extreme (1000:1) | 3.45ms | 2.54ms | 2.55ms | Sharded ties NIO |
 
