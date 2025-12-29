@@ -68,35 +68,18 @@ extension IO.Handle.Waiter {
     /// - Returns: `true` if successfully armed, `false` if already armed.
     @discardableResult
     public func arm(continuation: CheckedContinuation<Void, Never>) -> Bool {
-        // Try: unarmed → armed
-        var (exchanged, current) = state.compareExchange(
-            expected: .unarmed,
-            desired: .armed,
-            ordering: .acquiringAndReleasing
-        )
-
-        if exchanged {
-            self.continuation = continuation
-            return true
-        }
-
-        // Try: cancelledUnarmed → armedCancelled (cancel-before-arm case)
-        if current == .cancelledUnarmed {
-            (exchanged, _) = state.compareExchange(
-                expected: .cancelledUnarmed,
-                desired: .armedCancelled,
-                ordering: .acquiringAndReleasing
-            )
-            if exchanged {
-                self.continuation = continuation
-                return true
+        let succeeded = transition { current in
+            switch current {
+            case .unarmed: .armed
+            case .cancelledUnarmed: .armedCancelled
+            default: nil  // Already armed or drained
             }
-            // Retry if race
-            return arm(continuation: continuation)
-        }
+        } != nil
 
-        // Already armed or drained
-        return false
+        if succeeded {
+            self.continuation = continuation
+        }
+        return succeeded
     }
 
     /// Mark this waiter as cancelled. Synchronous, lock-free.
@@ -110,26 +93,10 @@ extension IO.Handle.Waiter {
     ///   `false` if already cancelled or already drained.
     @discardableResult
     public func cancel() -> Bool {
-        while true {
-            let current = state.load(ordering: .acquiring)
-
-            // Already cancelled or drained
-            if current.isCancelled || current.isDrained {
-                return false
-            }
-
-            let desired: State = current.isArmed ? .armedCancelled : .cancelledUnarmed
-            let (exchanged, _) = state.compareExchange(
-                expected: current,
-                desired: desired,
-                ordering: .acquiringAndReleasing
-            )
-
-            if exchanged {
-                return true
-            }
-            // Retry on race
-        }
+        transition { current in
+            guard !current.isCancelled && !current.isDrained else { return nil }
+            return current.isArmed ? .armedCancelled : .cancelledUnarmed
+        } != nil
     }
 }
 
@@ -169,6 +136,34 @@ extension IO.Handle.Waiter {
     }
 }
 
+// MARK: - State Transition Primitive
+
+extension IO.Handle.Waiter {
+    /// Atomic state transition with CAS retry.
+    ///
+    /// This is the core primitive for all waiter state transitions. It:
+    /// 1. Loads current state
+    /// 2. Computes desired state via transform (nil = no valid transition)
+    /// 3. Attempts CAS exchange
+    /// 4. Retries on race, returns on success or invalid transition
+    ///
+    /// - Parameter transform: Maps current state to desired state, or nil if no valid transition.
+    /// - Returns: The previous state if transition succeeded, nil if no valid transition.
+    @discardableResult
+    private func transition(_ transform: (State) -> State?) -> State? {
+        while true {
+            let current = state.load(ordering: .acquiring)
+            guard let desired = transform(current) else { return nil }
+            let (exchanged, _) = state.compareExchange(
+                expected: current,
+                desired: desired,
+                ordering: .acquiringAndReleasing
+            )
+            if exchanged { return current }
+        }
+    }
+}
+
 extension IO.Handle.Waiter {
     /// Take the continuation for resumption. Actor-only operation.
     ///
@@ -178,33 +173,19 @@ extension IO.Handle.Waiter {
     /// - Returns: The continuation if available, along with cancellation status.
     ///   Returns `nil` if not yet armed or already drained.
     public func takeForResume() -> (continuation: CheckedContinuation<Void, Never>, wasCancelled: Bool)? {
-        while true {
-            let current = state.load(ordering: .acquiring)
-
-            // Not armed yet or already drained
-            if !current.isArmed || current.isDrained {
-                return nil
-            }
-
-            let desired: State = current.isCancelled ? .cancelledDrained : .drained
-            let (exchanged, _) = state.compareExchange(
-                expected: current,
-                desired: desired,
-                ordering: .acquiringAndReleasing
-            )
-
-            guard exchanged else {
-                // Race - retry
-                continue
-            }
-
-            // Take the continuation (only one caller can reach here per waiter)
-            guard let c = continuation else {
-                preconditionFailure("Waiter armed but continuation was nil")
-            }
-            continuation = nil
-
-            return (c, current.isCancelled)
+        guard let previous = transition({ current in
+            guard current.isArmed && !current.isDrained else { return nil }
+            return current.isCancelled ? .cancelledDrained : .drained
+        }) else {
+            return nil
         }
+
+        // Take the continuation (only one caller can reach here per waiter)
+        guard let c = continuation else {
+            preconditionFailure("Waiter armed but continuation was nil")
+        }
+        continuation = nil
+
+        return (c, previous.isCancelled)
     }
 }
