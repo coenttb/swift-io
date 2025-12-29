@@ -5,6 +5,9 @@
 //  Created by Coen ten Thije Boonkkamp on 24/12/2025.
 //
 
+import Synchronization
+
+
 extension IO.Executor {
     /// The executor pool for async I/O operations.
     ///
@@ -38,8 +41,9 @@ extension IO.Executor {
     ///   does not retain). The shared executor pool outlives any Pool instance.
     /// - **Lane separation**: The Lane handles blocking syscalls only. Actor work (state
     ///   transitions, waiter management, continuation resumes) never goes through the Lane.
-    /// - **Full isolation**: All async methods are actor-isolated. No `nonisolated async`
-    ///   surfaces that could hop to the global executor.
+    /// - **Nonisolated fast path**: `run()` bypasses actor isolation via atomic lifecycle check,
+    ///   eliminating actor hops for stateless blocking operations.
+    /// - **Handle isolation**: `transaction()` remains actor-isolated for handle registry access.
     public actor Pool<Resource: ~Copyable & Sendable> {
         /// The executor this pool runs on.
         ///
@@ -58,27 +62,28 @@ extension IO.Executor {
         /// For standalone pools, this is always 0.
         public nonisolated let shardIndex: UInt16
 
+        /// Atomic lifecycle state for nonisolated access.
+        ///
+        /// This enables `run()` to bypass actor isolation by checking lifecycle
+        /// atomically. Memory ordering:
+        /// - `run()` reads with `.acquiring` to see effects of shutdown
+        /// - `shutdown()` transitions with `.releasing` to publish state change
+        private nonisolated let _lifecycle: Atomic<IO.Lifecycle>
+
         /// Maximum waiters per handle (from backpressure policy).
         private let handleWaitersLimit: Int
 
         /// Counter for generating unique handle IDs.
         private var nextRawID: UInt64 = 0
 
-        /// Whether shutdown has been initiated.
-        private var isShutdown: Bool = false
-
         // MARK: - Submission Gate
 
-        /// Single submission boundary gate.
+        /// Check if the pool is accepting work (actor-isolated path).
         ///
-        /// INVARIANT: All public methods that accept work (`run`, `register`, `transaction`)
-        /// MUST check this at their start and reject immediately if false.
-        ///
-        /// This ensures:
-        /// - Consistent rejection behavior across all entry points
-        /// - Fail-fast before any expensive validation or state changes
-        /// - Single point for future extensions (rate limiting, capacity checks)
-        private var isAcceptingWork: Bool { !isShutdown }
+        /// Used by `register()` and `transaction()` which need actor isolation anyway.
+        private var isAcceptingWork: Bool {
+            _lifecycle.load(ordering: .acquiring) == .running
+        }
 
         /// Actor-owned handle registry.
         /// Each entry holds a Resource (or nil if checked out) plus waiters.
@@ -144,6 +149,7 @@ extension IO.Executor {
         ) {
             self._executor = IO.Executor.shared.next()
             self.lane = lane
+            self._lifecycle = Atomic(.running)
             self.handleWaitersLimit = policy.handleWaitersLimit
             self.scope = IO.Executor.scopeCounter.next()
             self.shardIndex = shardIndex
@@ -167,6 +173,7 @@ extension IO.Executor {
         ) {
             self._executor = executor
             self.lane = lane
+            self._lifecycle = Atomic(.running)
             self.handleWaitersLimit = policy.handleWaitersLimit
             self.scope = IO.Executor.scopeCounter.next()
             self.shardIndex = shardIndex
@@ -185,6 +192,7 @@ extension IO.Executor {
         public init(_ options: IO.Blocking.Threads.Options = .init()) {
             self._executor = IO.Executor.shared.next()
             self.lane = .threads(options)
+            self._lifecycle = Atomic(.running)
             self.handleWaitersLimit = options.policy.handleWaitersLimit
             self.scope = IO.Executor.scopeCounter.next()
             self.shardIndex = 0
@@ -197,6 +205,11 @@ extension IO.Executor {
         /// This method preserves the operation's specific error type while also
         /// capturing I/O infrastructure errors in `IO.Lifecycle.Error<IO.Error<E>>`.
         ///
+        /// ## Performance
+        /// This method is `nonisolated` and bypasses the actor hop by checking
+        /// lifecycle state atomically. This eliminates 2+ actor hops per operation,
+        /// significantly improving throughput for stateless blocking work.
+        ///
         /// ## Cancellation Semantics
         /// - Cancellation before acceptance → `.cancelled`
         /// - Cancellation after acceptance → operation completes, then `.cancelled`
@@ -204,10 +217,11 @@ extension IO.Executor {
         /// - Parameter operation: The blocking operation to execute.
         /// - Returns: The result of the operation.
         /// - Throws: `IO.Lifecycle.Error<IO.Error<E>>` with lifecycle or operation errors.
-        public func run<T: Sendable, E: Swift.Error & Sendable>(
+        public nonisolated func run<T: Sendable, E: Swift.Error & Sendable>(
             _ operation: @Sendable @escaping () throws(E) -> T
         ) async throws(IO.Lifecycle.Error<IO.Error<E>>) -> T {
-            guard isAcceptingWork else {
+            // Check lifecycle atomically - no actor hop required
+            guard _lifecycle.load(ordering: .acquiring) == .running else {
                 throw .shutdownInProgress
             }
 
@@ -217,6 +231,7 @@ extension IO.Executor {
             }
 
             // Lane.run throws(Failure) and returns Result<T, E>
+            // Lane is Sendable and accessed via nonisolated let - safe for direct access
             let result: Result<T, E>
             do {
                 result = try await lane.run(deadline: nil, operation)
@@ -256,8 +271,14 @@ extension IO.Executor {
         /// Note: Handle cleanup should be done by the caller before shutdown,
         /// or by providing a cleanup closure.
         public func shutdown() async {
-            guard !isShutdown else { return }  // Idempotent
-            isShutdown = true
+            // Atomically transition to shutdownInProgress
+            // Use compare-exchange to ensure idempotency
+            let (exchanged, _) = _lifecycle.compareExchange(
+                expected: .running,
+                desired: .shutdownInProgress,
+                ordering: .releasing
+            )
+            guard exchanged else { return }  // Already shutting down or shut down
 
             // Resume all waiters so they can observe shutdown
             for (_, entry) in handles {
@@ -269,6 +290,9 @@ extension IO.Executor {
 
             // Shutdown the lane
             await lane.shutdown()
+
+            // Mark shutdown complete
+            _lifecycle.store(.shutdownComplete, ordering: .releasing)
         }
 
         // MARK: - Handle Management
@@ -448,7 +472,7 @@ extension IO.Executor {
                 }
 
                 // Check if shutdown happened while waiting
-                if isShutdown {
+                if !isAcceptingWork {
                     throw .shutdownInProgress
                 }
 
@@ -466,7 +490,7 @@ extension IO.Executor {
                 let wasCancelled = waiter.wasCancelled || Task.isCancelled
 
                 // Re-validate after waiting - check shutdown first for correct error
-                if isShutdown {
+                if !isAcceptingWork {
                     throw .shutdownInProgress
                 }
                 guard let entry = handles[id], entry.state != .destroyed else {
