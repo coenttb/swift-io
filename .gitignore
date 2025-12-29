@@ -13,14 +13,12 @@ Thumbs.db
 !/.swiftformat
 !/.swiftlint.yml
 
-# Folders (opt-in only)
-/*/
+# Top-level entries (opt-in only)
+# First ignore all, then whitelist specific folders and files
+/*
 !/Sources/
 !/Tests/
 !/.github/
-
-# Top-level files (whitelist only)
-/*
 !/Package.swift
 !/LICENSE.md
 
