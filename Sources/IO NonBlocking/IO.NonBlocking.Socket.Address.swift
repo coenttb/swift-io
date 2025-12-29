@@ -11,22 +11,25 @@ import Darwin
 import Glibc
 #endif
 
+public import IPv4_Standard
+public import IPv6_Standard
+
 extension IO.NonBlocking.Socket {
     /// A network socket address.
     ///
     /// Supports IPv4, IPv6, and Unix domain socket addresses.
-    /// No Foundation types are used - addresses are stored as raw values.
+    /// Uses RFC 791 for IPv4 and RFC 4291 for IPv6 address types.
     ///
     /// ## Creation
     /// ```swift
-    /// let ipv4 = Address.ipv4(127, 0, 0, 1, port: 8080)
-    /// let ipv6 = Address.ipv6Loopback(port: 8080)
+    /// let ipv4 = Address.ipv4(.loopback, port: 8080)
+    /// let ipv6 = Address.ipv6(.loopback, port: 8080)
     /// let unix = Address.unix("/tmp/my.sock")
     /// ```
     ///
     /// ## Network Byte Order
-    /// Addresses are stored in host byte order internally.
-    /// Conversion to network byte order happens when creating sockaddr structures.
+    /// IP addresses use standard types that handle byte order internally.
+    /// Conversion to sockaddr structures is handled automatically.
     public struct Address: Sendable, Equatable {
         /// The address storage.
         @usableFromInline
@@ -45,52 +48,15 @@ extension IO.NonBlocking.Socket {
 extension IO.NonBlocking.Socket.Address {
     /// Internal storage for address data.
     @usableFromInline
-    enum Storage: Sendable {
-        /// IPv4 address (4 bytes) + port.
-        case ipv4(a: UInt8, b: UInt8, c: UInt8, d: UInt8, port: UInt16)
+    enum Storage: Sendable, Equatable {
+        /// IPv4 address + port.
+        case ipv4(address: IPv4.Address, port: UInt16)
 
-        /// IPv6 address (16 bytes) + port + flow info + scope ID.
-        case ipv6(
-            bytes: (UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
-                    UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8),
-            port: UInt16,
-            flowInfo: UInt32,
-            scopeId: UInt32
-        )
+        /// IPv6 address + port + flow info + scope ID.
+        case ipv6(address: IPv6.Address, port: UInt16, flowInfo: UInt32, scopeId: UInt32)
 
         /// Unix domain socket path.
-        ///
-        /// Stored as a fixed-size buffer (max 104 bytes on Darwin, 108 on Linux).
-        /// The path must be null-terminated.
         case unix(path: UnixPath)
-    }
-}
-
-// MARK: - Storage Equatable
-
-extension IO.NonBlocking.Socket.Address.Storage: Equatable {
-    @usableFromInline
-    static func == (lhs: Self, rhs: Self) -> Bool {
-        switch (lhs, rhs) {
-        case (.ipv4(let a1, let b1, let c1, let d1, let p1),
-              .ipv4(let a2, let b2, let c2, let d2, let p2)):
-            return a1 == a2 && b1 == b2 && c1 == c2 && d1 == d2 && p1 == p2
-
-        case (.ipv6(let bytes1, let port1, let flow1, let scope1),
-              .ipv6(let bytes2, let port2, let flow2, let scope2)):
-            guard port1 == port2 && flow1 == flow2 && scope1 == scope2 else { return false }
-            return withUnsafeBytes(of: bytes1) { b1 in
-                withUnsafeBytes(of: bytes2) { b2 in
-                    b1.elementsEqual(b2)
-                }
-            }
-
-        case (.unix(let path1), .unix(let path2)):
-            return path1 == path2
-
-        default:
-            return false
-        }
     }
 }
 
@@ -137,7 +103,6 @@ extension IO.NonBlocking.Socket.Address {
         ///
         /// - Parameter path: The path string.
         /// - Returns: `nil` if the path exceeds the maximum length.
-        
         public init?(_ path: StaticString) {
             let len = path.utf8CodeUnitCount
             guard len < Self.maxLength else { return nil }
@@ -175,7 +140,6 @@ extension IO.NonBlocking.Socket.Address {
         ///
         /// - Parameter buffer: The path bytes (must be null-terminated or within maxLength).
         /// - Returns: `nil` if the path exceeds the maximum length.
-        
         public init?(bytes buffer: UnsafeBufferPointer<UInt8>) {
             // Find null terminator or use buffer count
             var len = 0
@@ -219,12 +183,10 @@ extension IO.NonBlocking.Socket.Address {
 // MARK: - UnixPath Equatable
 
 extension IO.NonBlocking.Socket.Address.UnixPath: Equatable {
-    
     public static func == (lhs: Self, rhs: Self) -> Bool {
         guard lhs.length == rhs.length else { return false }
         return withUnsafeBytes(of: lhs.bytes) { b1 in
             withUnsafeBytes(of: rhs.bytes) { b2 in
-                // Compare only up to the length (not the full buffer)
                 for i in 0..<lhs.length {
                     if b1[i] != b2[i] { return false }
                 }
@@ -237,7 +199,17 @@ extension IO.NonBlocking.Socket.Address.UnixPath: Equatable {
 // MARK: - Factory Methods
 
 extension IO.NonBlocking.Socket.Address {
-    /// Creates an IPv4 address.
+    /// Creates an IPv4 socket address.
+    ///
+    /// - Parameters:
+    ///   - address: The IPv4 address.
+    ///   - port: Port number (host byte order).
+    /// - Returns: An IPv4 socket address.
+    public static func ipv4(_ address: IPv4.Address, port: UInt16) -> Self {
+        Self(storage: .ipv4(address: address, port: port))
+    }
+
+    /// Creates an IPv4 address from octets.
     ///
     /// - Parameters:
     ///   - a: First octet.
@@ -245,22 +217,20 @@ extension IO.NonBlocking.Socket.Address {
     ///   - c: Third octet.
     ///   - d: Fourth octet.
     ///   - port: Port number (host byte order).
-    /// - Returns: An IPv4 address.
-    
+    /// - Returns: An IPv4 socket address.
     public static func ipv4(
         _ a: UInt8, _ b: UInt8, _ c: UInt8, _ d: UInt8,
         port: UInt16
     ) -> Self {
-        Self(storage: .ipv4(a: a, b: b, c: c, d: d, port: port))
+        Self(storage: .ipv4(address: IPv4.Address(a, b, c, d), port: port))
     }
 
     /// Creates an IPv4 loopback address (127.0.0.1).
     ///
     /// - Parameter port: Port number (host byte order).
     /// - Returns: An IPv4 loopback address.
-    
     public static func ipv4Loopback(port: UInt16) -> Self {
-        ipv4(127, 0, 0, 1, port: port)
+        ipv4(.loopback, port: port)
     }
 
     /// Creates an IPv4 any address (0.0.0.0).
@@ -269,37 +239,33 @@ extension IO.NonBlocking.Socket.Address {
     ///
     /// - Parameter port: Port number (host byte order).
     /// - Returns: An IPv4 any address.
-    
     public static func ipv4Any(port: UInt16) -> Self {
-        ipv4(0, 0, 0, 0, port: port)
+        ipv4(.any, port: port)
     }
 
-    /// Creates an IPv6 address.
+    /// Creates an IPv6 socket address.
     ///
     /// - Parameters:
-    ///   - bytes: 16 bytes of the IPv6 address.
+    ///   - address: The IPv6 address.
     ///   - port: Port number (host byte order).
     ///   - flowInfo: IPv6 flow information (default 0).
     ///   - scopeId: IPv6 scope ID (default 0).
-    /// - Returns: An IPv6 address.
-    
+    /// - Returns: An IPv6 socket address.
     public static func ipv6(
-        _ bytes: (UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
-                  UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8),
+        _ address: IPv6.Address,
         port: UInt16,
         flowInfo: UInt32 = 0,
         scopeId: UInt32 = 0
     ) -> Self {
-        Self(storage: .ipv6(bytes: bytes, port: port, flowInfo: flowInfo, scopeId: scopeId))
+        Self(storage: .ipv6(address: address, port: port, flowInfo: flowInfo, scopeId: scopeId))
     }
 
     /// Creates an IPv6 loopback address (::1).
     ///
     /// - Parameter port: Port number (host byte order).
     /// - Returns: An IPv6 loopback address.
-    
     public static func ipv6Loopback(port: UInt16) -> Self {
-        ipv6((0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1), port: port)
+        ipv6(.loopback, port: port)
     }
 
     /// Creates an IPv6 any address (::).
@@ -308,16 +274,14 @@ extension IO.NonBlocking.Socket.Address {
     ///
     /// - Parameter port: Port number (host byte order).
     /// - Returns: An IPv6 any address.
-    
     public static func ipv6Any(port: UInt16) -> Self {
-        ipv6((0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), port: port)
+        ipv6(.unspecified, port: port)
     }
 
     /// Creates a Unix domain socket address.
     ///
     /// - Parameter path: The socket file path.
     /// - Returns: A Unix address, or `nil` if the path is too long.
-    
     public static func unix(_ path: StaticString) -> Self? {
         guard let unixPath = UnixPath(path) else { return nil }
         return Self(storage: .unix(path: unixPath))
@@ -330,10 +294,9 @@ extension IO.NonBlocking.Socket.Address {
     /// The port number (for IP addresses).
     ///
     /// Returns `nil` for Unix domain socket addresses.
-    
     public var port: UInt16? {
         switch storage {
-        case .ipv4(_, _, _, _, let port):
+        case .ipv4(_, let port):
             return port
         case .ipv6(_, let port, _, _):
             return port
@@ -342,22 +305,35 @@ extension IO.NonBlocking.Socket.Address {
         }
     }
 
+    /// The IPv4 address, if this is an IPv4 socket address.
+    public var ipv4Address: IPv4.Address? {
+        if case .ipv4(let address, _) = storage {
+            return address
+        }
+        return nil
+    }
+
+    /// The IPv6 address, if this is an IPv6 socket address.
+    public var ipv6Address: IPv6.Address? {
+        if case .ipv6(let address, _, _, _) = storage {
+            return address
+        }
+        return nil
+    }
+
     /// Whether this is an IPv4 address.
-    
     public var isIPv4: Bool {
         if case .ipv4 = storage { return true }
         return false
     }
 
     /// Whether this is an IPv6 address.
-    
     public var isIPv6: Bool {
         if case .ipv6 = storage { return true }
         return false
     }
 
     /// Whether this is a Unix domain socket address.
-    
     public var isUnix: Bool {
         if case .unix = storage { return true }
         return false
@@ -368,7 +344,6 @@ extension IO.NonBlocking.Socket.Address {
 
 extension IO.NonBlocking.Socket.Address {
     /// The socket address family.
-    
     public var family: Int32 {
         switch storage {
         case .ipv4:
@@ -390,13 +365,12 @@ extension IO.NonBlocking.Socket.Address {
         _ body: (UnsafePointer<sockaddr>, socklen_t) throws -> R
     ) rethrows -> R {
         switch storage {
-        case .ipv4(let a, let b, let c, let d, let port):
+        case .ipv4(let address, let port):
             var addr = sockaddr_in()
             addr.sin_family = sa_family_t(AF_INET)
             addr.sin_port = port.bigEndian
-            // Build IPv4 in logical order (a.b.c.d where a is most significant), then convert to network byte order
-            let ipValue = (UInt32(a) << 24) | (UInt32(b) << 16) | (UInt32(c) << 8) | UInt32(d)
-            addr.sin_addr.s_addr = ipValue.bigEndian
+            // IPv4.Address stores in network byte order, rawValue gives UInt32
+            addr.sin_addr.s_addr = address.rawValue
             #if canImport(Darwin)
             addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
             #endif
@@ -407,7 +381,7 @@ extension IO.NonBlocking.Socket.Address {
                 }
             }
 
-        case .ipv6(let bytes, let port, let flowInfo, let scopeId):
+        case .ipv6(let address, let port, let flowInfo, let scopeId):
             var addr = sockaddr_in6()
             addr.sin6_family = sa_family_t(AF_INET6)
             addr.sin6_port = port.bigEndian
@@ -417,9 +391,10 @@ extension IO.NonBlocking.Socket.Address {
             addr.sin6_len = UInt8(MemoryLayout<sockaddr_in6>.size)
             #endif
 
-            withUnsafeMutableBytes(of: &addr.sin6_addr) { dest in
-                withUnsafeBytes(of: bytes) { src in
-                    dest.copyMemory(from: src)
+            // Zero-copy via Binary.Serializable
+            IPv6.Address.withSerializedBytes(address) { span in
+                withUnsafeMutableBytes(of: &addr.sin6_addr) { dest in
+                    for i in 0..<16 { dest[i] = span[i] }
                 }
             }
 
@@ -468,33 +443,25 @@ extension IO.NonBlocking.Socket.Address {
             guard length >= socklen_t(MemoryLayout<sockaddr_in>.size) else { return nil }
             return addr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { ptr in
                 let sin = ptr.pointee
-                // Convert from network byte order (big-endian) to host byte order
-                let ip = UInt32(bigEndian: sin.sin_addr.s_addr)
-                return .ipv4(
-                    UInt8((ip >> 24) & 0xFF),  // a - most significant byte
-                    UInt8((ip >> 16) & 0xFF),  // b
-                    UInt8((ip >> 8) & 0xFF),   // c
-                    UInt8(ip & 0xFF),          // d - least significant byte
-                    port: UInt16(bigEndian: sin.sin_port)
-                )
+                // Construct IPv4.Address from raw network-order value
+                let ipv4 = IPv4.Address(rawValue: sin.sin_addr.s_addr)
+                return .ipv4(ipv4, port: UInt16(bigEndian: sin.sin_port))
             }
 
         case AF_INET6:
             guard length >= socklen_t(MemoryLayout<sockaddr_in6>.size) else { return nil }
             return addr.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { ptr in
                 let sin6 = ptr.pointee
-                var bytes: (UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
-                            UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8) =
-                    (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 
-                withUnsafeBytes(of: sin6.sin6_addr) { src in
-                    withUnsafeMutableBytes(of: &bytes) { dest in
-                        dest.copyMemory(from: src)
-                    }
+                // UnsafeRawBufferPointer conforms to Collection<UInt8> - no copy needed
+                guard let ipv6 = withUnsafeBytes(of: sin6.sin6_addr, { src in
+                    try? IPv6.Address(binary: src)
+                }) else {
+                    return nil
                 }
 
                 return .ipv6(
-                    bytes,
+                    ipv6,
                     port: UInt16(bigEndian: sin6.sin6_port),
                     flowInfo: UInt32(bigEndian: sin6.sin6_flowinfo),
                     scopeId: sin6.sin6_scope_id

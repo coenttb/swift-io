@@ -26,6 +26,8 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/swift-standards/swift-time-standard.git", from: "0.2.0"),
         .package(url: "https://github.com/swift-standards/swift-standards", from: "0.19.4"),
+        .package(url: "https://github.com/swift-standards/swift-ipv4-standard.git", from: "0.1.6"),
+        .package(url: "https://github.com/swift-standards/swift-ipv6-standard.git", from: "0.1.5"),
         .package(url: "https://github.com/apple/swift-nio", from: "2.70.0"),
     ],
     targets: [
@@ -69,6 +71,8 @@ let package = Package(
                 "IO NonBlocking Driver",
                 .target(name: "IO NonBlocking Kqueue", condition: .when(platforms: [.macOS, .iOS, .tvOS, .watchOS])),
                 .target(name: "IO NonBlocking Epoll", condition: .when(platforms: [.linux])),
+                .product(name: "IPv4 Standard", package: "swift-ipv4-standard"),
+                .product(name: "IPv6 Standard", package: "swift-ipv6-standard"),
             ]
         ),
         .testTarget(
