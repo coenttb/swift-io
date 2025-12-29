@@ -260,11 +260,13 @@ extension IO.NonBlocking.Channel.Test {
 }
 
 extension IO.NonBlocking.Channel.Test.HalfClose {
-    /// Helper to create a non-blocking pipe
-    private static func makeNonBlockingPipe() throws -> (read: Int32, write: Int32) {
+    /// Helper to create a non-blocking socket pair
+    private static func makeNonBlockingSocketPair() throws -> (Int32, Int32) {
         var fds: (Int32, Int32) = (0, 0)
         let result = withUnsafeMutablePointer(to: &fds) { ptr in
-            ptr.withMemoryRebound(to: Int32.self, capacity: 2) { pipe($0) }
+            ptr.withMemoryRebound(to: Int32.self, capacity: 2) {
+                socketpair(AF_UNIX, SOCK_STREAM, 0, $0)
+            }
         }
         guard result == 0 else {
             throw IO.NonBlocking.Error.platform(errno: errno)
@@ -287,14 +289,14 @@ extension IO.NonBlocking.Channel.Test.HalfClose {
             executor: executor
         )
 
-        let pipe = try Self.makeNonBlockingPipe()
+        let sockets = try Self.makeNonBlockingSocketPair()
         defer {
-            close(pipe.read)
-            close(pipe.write)
+            close(sockets.0)
+            close(sockets.1)
         }
 
         var channel = try await IO.NonBlocking.Channel.wrap(
-            pipe.read,
+            sockets.0,
             selector: selector,
             interest: .read
         )
@@ -322,14 +324,14 @@ extension IO.NonBlocking.Channel.Test.HalfClose {
             executor: executor
         )
 
-        let pipe = try Self.makeNonBlockingPipe()
+        let sockets = try Self.makeNonBlockingSocketPair()
         defer {
-            close(pipe.read)
-            close(pipe.write)
+            close(sockets.0)
+            close(sockets.1)
         }
 
         var channel = try await IO.NonBlocking.Channel.wrap(
-            pipe.write,
+            sockets.0,
             selector: selector,
             interest: .write
         )

@@ -14,13 +14,19 @@ import Glibc
 public import IO_Primitives
 
 extension IO.NonBlocking {
-    /// A non-blocking I/O channel for reading and writing bytes.
+    /// A non-blocking I/O channel for socket-based read and write operations.
     ///
-    /// Channel provides the user-facing API for non-blocking I/O operations.
-    /// It wraps a file descriptor registered with a `Selector` and handles:
+    /// Channel provides the user-facing API for non-blocking I/O operations on sockets.
+    /// It wraps a socket file descriptor registered with a `Selector` and handles:
     /// - Async read/write with automatic retry on `EAGAIN`/`EWOULDBLOCK`
-    /// - Half-close state tracking
+    /// - Half-close state tracking via `shutdown(2)`
     /// - Cancellation via Swift's structured concurrency
+    ///
+    /// ## Socket-Only
+    ///
+    /// This type is designed for socket file descriptors. It uses `shutdown(2)` for
+    /// half-close and `getsockopt(SO_ERROR)` for error detection. For non-socket
+    /// descriptors (pipes, files), use a lower-level API.
     ///
     /// ## Serialization (v1 Constraint)
     ///
@@ -30,7 +36,7 @@ extension IO.NonBlocking {
     ///
     /// ## Usage
     /// ```swift
-    /// let channel = try await Channel.wrap(fd, selector: selector, interest: .read)
+    /// let channel = try await Channel.wrap(socketFd, selector: selector, interest: .read)
     /// defer { Task { try? await channel.close() } }
     ///
     /// var buffer = [UInt8](repeating: 0, count: 1024)
@@ -61,9 +67,10 @@ extension IO.NonBlocking {
         /// Actor for lifecycle state synchronization.
         private let lifecycle: Lifecycle
 
-        /// Token for arming (Optional to allow consumption across await).
-        /// Access must be serialized by caller (v1 constraint).
-        private var token: Token<Armed>?
+        /// Token phase: registering (before first arm) or armed (after first arm).
+        /// Uses two optionals to maintain proper typestate - never fabricate tokens.
+        private var registering: Token<Registering>?
+        private var armed: Token<Armed>?
 
         /// Private initializer - use `wrap()` factory.
         private init(
@@ -76,17 +83,18 @@ extension IO.NonBlocking {
             self.descriptor = descriptor
             self.id = id
             self.lifecycle = Lifecycle()
-            // Convert registering token to armed token for the state
-            self.token = Token(id: id)
+            // Store the actual token - no fabrication
+            self.registering = consume token
+            self.armed = nil
         }
 
-        /// Wrap an existing file descriptor in a Channel.
+        /// Wrap an existing socket file descriptor in a Channel.
         ///
         /// The descriptor must already be set to non-blocking mode.
         /// The Channel takes ownership and will close it on `close()`.
         ///
         /// - Parameters:
-        ///   - descriptor: The file descriptor to wrap.
+        ///   - descriptor: The socket file descriptor to wrap.
         ///   - selector: The selector to register with.
         ///   - interest: Initial interest (typically `.read` or [.read, .write]).
         /// - Returns: A new Channel.
@@ -167,24 +175,8 @@ extension IO.NonBlocking {
                     return 0
 
                 case .wouldBlock:
-                    // Take token for arm call (swap with nil to avoid partial consumption)
-                    var takenToken: Token<Armed>? = nil
-                    swap(&token, &takenToken)
-                    guard let actualToken = takenToken else {
-                        preconditionFailure("Token not available - concurrent operation?")
-                    }
-
-                    // Wait for read readiness
-                    let armResult = try await selector.arm(actualToken, interest: .read)
-                    token = consume armResult.token
-
-                    // Check for error flags - fetch real socket error via SO_ERROR
-                    if armResult.event.flags.contains(.error) {
-                        if let err = pendingSocketError() {
-                            throw .failure(.platform(errno: err))
-                        }
-                        // SO_ERROR == 0, fall through and retry syscall
-                    }
+                    // Arm for read readiness, restoring token on error
+                    try await armForRead()
                     // Continue loop to retry read
 
                 case .error(let err):
@@ -253,30 +245,116 @@ extension IO.NonBlocking {
                     return n
 
                 case .wouldBlock:
-                    // Take token for arm call (swap with nil to avoid partial consumption)
-                    var takenToken: Token<Armed>? = nil
-                    swap(&token, &takenToken)
-                    guard let actualToken = takenToken else {
-                        preconditionFailure("Token not available - concurrent operation?")
-                    }
-
-                    // Wait for write readiness
-                    let armResult = try await selector.arm(actualToken, interest: .write)
-                    token = consume armResult.token
-
-                    // Check for error flags - fetch real socket error via SO_ERROR
-                    if armResult.event.flags.contains(.error) {
-                        if let err = pendingSocketError() {
-                            throw .failure(.platform(errno: err))
-                        }
-                        // SO_ERROR == 0, fall through and retry syscall
-                    }
+                    // Arm for write readiness, restoring token on error
+                    try await armForWrite()
                     // Continue loop to retry write
 
                 case .error(let err):
                     throw .failure(.platform(errno: err))
                 }
             }
+        }
+
+        // MARK: - Arming Helpers
+
+        /// Arm for read readiness. On error, marks channel as closed.
+        ///
+        /// Note: If arm() throws, the token was consumed and cannot be restored.
+        /// This is a fundamental issue with consuming APIs. We mark the channel
+        /// as closed to prevent further use in an inconsistent state.
+        private mutating func armForRead() async throws(Failure) {
+            // Try registering token first (swap to extract)
+            var takenRegistering: Token<Registering>? = nil
+            swap(&registering, &takenRegistering)
+
+            if let taken = takenRegistering {
+                do throws(Failure) {
+                    let armResult = try await selector.arm(taken, interest: .read)
+                    armed = consume armResult.token
+                    // Check for socket error
+                    if armResult.event.flags.contains(.error) {
+                        if let err = pendingSocketError() {
+                            throw Failure.failure(.platform(errno: err))
+                        }
+                    }
+                } catch {
+                    // arm() consumed the token - mark channel closed
+                    _ = await lifecycle.transitionToClosed()
+                    throw error
+                }
+                return
+            }
+
+            // Try armed token (swap to extract)
+            var takenArmed: Token<Armed>? = nil
+            swap(&armed, &takenArmed)
+
+            if let taken = takenArmed {
+                do throws(Failure) {
+                    let armResult = try await selector.arm(taken, interest: .read)
+                    armed = consume armResult.token
+                    // Check for socket error
+                    if armResult.event.flags.contains(.error) {
+                        if let err = pendingSocketError() {
+                            throw Failure.failure(.platform(errno: err))
+                        }
+                    }
+                } catch {
+                    // arm() consumed the token - mark channel closed
+                    _ = await lifecycle.transitionToClosed()
+                    throw error
+                }
+                return
+            }
+
+            preconditionFailure("No token available - concurrent operation or already closed?")
+        }
+
+        /// Arm for write readiness. On error, marks channel as closed.
+        private mutating func armForWrite() async throws(Failure) {
+            // Try registering token first (swap to extract)
+            var takenRegistering: Token<Registering>? = nil
+            swap(&registering, &takenRegistering)
+
+            if let taken = takenRegistering {
+                do throws(Failure) {
+                    let armResult = try await selector.arm(taken, interest: .write)
+                    armed = consume armResult.token
+                    // Check for socket error
+                    if armResult.event.flags.contains(.error) {
+                        if let err = pendingSocketError() {
+                            throw Failure.failure(.platform(errno: err))
+                        }
+                    }
+                } catch {
+                    _ = await lifecycle.transitionToClosed()
+                    throw error
+                }
+                return
+            }
+
+            // Try armed token (swap to extract)
+            var takenArmed: Token<Armed>? = nil
+            swap(&armed, &takenArmed)
+
+            if let taken = takenArmed {
+                do throws(Failure) {
+                    let armResult = try await selector.arm(taken, interest: .write)
+                    armed = consume armResult.token
+                    // Check for socket error
+                    if armResult.event.flags.contains(.error) {
+                        if let err = pendingSocketError() {
+                            throw Failure.failure(.platform(errno: err))
+                        }
+                    }
+                } catch {
+                    _ = await lifecycle.transitionToClosed()
+                    throw error
+                }
+                return
+            }
+
+            preconditionFailure("No token available - concurrent operation or already closed?")
         }
 
         // MARK: - Half-Close
@@ -302,8 +380,7 @@ extension IO.NonBlocking {
                 let err = errno
                 // ENOTCONN is OK - socket wasn't connected
                 // EINVAL is OK - may already be shut down
-                // ENOTSOCK is OK - not a socket (e.g., pipe)
-                if err != ENOTCONN && err != EINVAL && err != ENOTSOCK {
+                if err != ENOTCONN && err != EINVAL {
                     throw .failure(.platform(errno: err))
                 }
             }
@@ -330,8 +407,7 @@ extension IO.NonBlocking {
                 let err = errno
                 // ENOTCONN is OK - socket wasn't connected
                 // EINVAL is OK - may already be shut down
-                // ENOTSOCK is OK - not a socket (e.g., pipe)
-                if err != ENOTCONN && err != EINVAL && err != ENOTSOCK {
+                if err != ENOTCONN && err != EINVAL {
                     throw .failure(.platform(errno: err))
                 }
             }
@@ -354,15 +430,33 @@ extension IO.NonBlocking {
                 return
             }
 
-            // Take token for deregister (swap with nil to avoid partial consumption)
-            var takenToken: Token<Armed>? = nil
-            swap(&token, &takenToken)
-            guard let actualToken = takenToken else {
-                preconditionFailure("Token not available")
-            }
+            // Take whichever token we have (registering or armed)
+            var takenRegistering: Token<Registering>? = nil
+            swap(&registering, &takenRegistering)
 
-            // Deregister from selector
-            try await selector.deregister(actualToken)
+            if let taken = takenRegistering {
+                do throws(Failure) {
+                    try await selector.deregister(taken)
+                } catch {
+                    // Deregister failed - best effort: close the fd anyway
+                    _ = Darwin.close(descriptor)
+                    throw error
+                }
+            } else {
+                var takenArmed: Token<Armed>? = nil
+                swap(&armed, &takenArmed)
+
+                if let taken = takenArmed {
+                    do throws(Failure) {
+                        try await selector.deregister(taken)
+                    } catch {
+                        // Deregister failed - best effort: close the fd anyway
+                        _ = Darwin.close(descriptor)
+                        throw error
+                    }
+                }
+                // else: No token - channel was closed due to prior error, just close fd
+            }
 
             // Close file descriptor
             let result = Darwin.close(descriptor)
@@ -415,6 +509,10 @@ extension IO.NonBlocking.Channel {
             case .writeClosed, .closed: return true
             case .open, .readClosed: return false
             }
+        }
+
+        var isClosed: Bool {
+            state == .closed
         }
 
         func transitionToReadClosed() {

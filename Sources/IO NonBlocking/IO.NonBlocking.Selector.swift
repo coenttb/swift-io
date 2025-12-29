@@ -342,14 +342,31 @@ extension IO.NonBlocking {
             }
         }
 
-        /// Deregister a descriptor.
+        /// Deregister a descriptor (from armed state).
         ///
         /// - Parameter token: The armed token (consumed).
         /// - Throws: If deregistration fails.
         public func deregister(
             _ token: consuming Token<Armed>
         ) async throws(Failure) {
-            let id = token.id
+            try await deregister(id: token.id)
+        }
+
+        /// Deregister a descriptor (from registering state).
+        ///
+        /// Use this when closing a channel that was registered but never armed.
+        ///
+        /// - Parameter token: The registering token (consumed).
+        /// - Throws: If deregistration fails.
+        public func deregister(
+            _ token: consuming Token<Registering>
+        ) async throws(Failure) {
+            try await deregister(id: token.id)
+        }
+
+        /// Internal deregister implementation.
+        private func deregister(id: ID) async throws(Failure) {
+            let id = id
 
             // Remove from local state
             registrations.removeValue(forKey: id)
