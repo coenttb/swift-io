@@ -2,15 +2,21 @@
 //  ThroughputBenchmarks.swift
 //  swift-io
 //
-//  Benchmarks measuring throughput with simulated blocking work.
+//  ## Category: System
+//  These benchmarks measure throughput under realistic load conditions.
+//  They exercise the full system with multiple concurrent operations.
 //
 //  ## What These Benchmarks Measure
-//  - Operations per second with actual work
-//  - Thread utilization efficiency
-//  - Scheduling overhead under load
+//  - Operations per second with simulated blocking work
+//  - Thread utilization efficiency under sequential and concurrent load
+//  - Scheduling overhead amortized across many operations
 //
 //  ## Running
 //  swift test -c release --filter ThroughputBenchmarks
+//
+//  ## Comparison with NIO
+//  These are the primary benchmarks for comparing swift-io vs NIOThreadPool
+//  throughput. The target is ≤1.3× NIO throughput for concurrent workloads.
 //
 
 import IO

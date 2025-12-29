@@ -2,12 +2,15 @@
 //  BackpressureBenchmarks.swift
 //  swift-io
 //
-//  Benchmarks measuring backpressure behavior when queues are full.
+//  ## Category: Scenario
+//  These are correctness-focused tests where timing is incidental.
+//  They validate that backpressure behavior works correctly, not measure
+//  the exact latency of rejection or resumption.
 //
-//  ## What These Benchmarks Measure
-//  - Time to reject when queue is full (failFast)
-//  - Time to resume when queue has capacity (wait)
-//  - Memory behavior under sustained load
+//  ## What These Benchmarks Validate
+//  - Rejection happens when queue is full (failFast strategy)
+//  - Suspension and resumption work correctly (wait strategy)
+//  - Memory stays bounded under sustained load
 //
 //  ## Running
 //  swift test -c release --filter BackpressureBenchmarks
@@ -16,6 +19,12 @@
 //  NIOThreadPool doesn't have explicit backpressure - it uses unbounded queues.
 //  These benchmarks primarily characterize swift-io behavior and show the
 //  difference in backpressure strategies.
+//
+//  ## Timing Caveat
+//  The measured times include setup delays (e.g., gate synchronization, queue
+//  filling) that are necessary for correctness but not representative of
+//  individual operation costs. For isolated latency measurements, see
+//  MicroBenchmarks.swift.
 //
 
 import IO

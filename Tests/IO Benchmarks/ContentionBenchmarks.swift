@@ -2,12 +2,14 @@
 //  ContentionBenchmarks.swift
 //  swift-io
 //
-//  Benchmarks measuring behavior under thread contention.
+//  ## Category: System
+//  These benchmarks measure behavior under thread contention.
+//  They exercise the system with concurrent tasks exceeding thread count.
 //
 //  ## What These Benchmarks Measure
 //  - Fairness when tasks exceed thread count
-//  - Queue management overhead
-//  - Latency distribution under contention
+//  - Queue management overhead under contention
+//  - Latency distribution with varying contention ratios
 //
 //  ## Running
 //  swift test -c release --filter ContentionBenchmarks

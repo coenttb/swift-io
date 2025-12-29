@@ -2,12 +2,14 @@
 //  OverheadBenchmarks.swift
 //  swift-io
 //
-//  Benchmarks measuring framework overhead with trivial operations.
+//  ## Category: Micro
+//  These benchmarks isolate framework overhead with trivial operations.
+//  They measure individual operation costs without work interference.
 //
 //  ## What These Benchmarks Measure
 //  - Pure dispatch overhead (no actual blocking work)
-//  - Lane/pool machinery cost
-//  - Boxing and unboxing overhead
+//  - Lane/pool machinery cost per operation
+//  - Typed error handling overhead
 //
 //  ## Running
 //  swift test -c release --filter OverheadBenchmarks

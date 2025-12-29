@@ -2,7 +2,9 @@
 //  SchedulingLatencyBenchmarks.swift
 //  swift-io
 //
-//  Benchmarks measuring actor scheduling latency with executor pinning.
+//  ## Category: Micro
+//  These benchmarks isolate scheduling latency in tight loops.
+//  They measure individual operation overhead without confounding factors.
 //
 //  ## What These Benchmarks Measure
 //  - Pool actor method call latency (non-blocking actor work)

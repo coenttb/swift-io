@@ -2,15 +2,24 @@
 //  CancellationBenchmarks.swift
 //  swift-io
 //
-//  Benchmarks measuring cancellation overhead and semantics.
+//  ## Category: Scenario
+//  These are correctness-focused tests where timing is incidental.
+//  They validate that cancellation semantics work correctly under various
+//  conditions, not measure the exact latency of cancellation.
 //
-//  ## What These Benchmarks Measure
-//  - Cost of cancellation before acceptance
-//  - Cost of cancellation after acceptance
-//  - Cleanup overhead when operations are cancelled
+//  ## What These Benchmarks Validate
+//  - Pre-acceptance cancellation aborts without running work
+//  - Post-acceptance cancellation allows work to complete (swift-io semantics)
+//  - Batch cancellation cleans up correctly
 //
 //  ## Running
 //  swift test -c release --filter CancellationBenchmarks
+//
+//  ## Timing Caveat
+//  The measured times include staging delays (e.g., queue filling, timing
+//  coordination) that are necessary for correctness but not representative
+//  of individual operation costs. For isolated cancellation latency, see
+//  MicroBenchmarks.swift and the unit test cancellationDuringAcceptanceWait.
 //
 
 import IO

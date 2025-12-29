@@ -2,19 +2,22 @@
 //  MemoryBenchmarks.swift
 //  swift-io
 //
-//  Benchmarks measuring memory allocation patterns.
+//  ## Category: System
+//  These benchmarks measure memory behavior under sustained load.
+//  They track allocations, boxing overhead, and peak memory.
 //
 //  ## What These Benchmarks Measure
 //  - Per-operation allocation overhead
-//  - Boxing/unboxing cost
-//  - Memory pressure under sustained load
+//  - Boxing/unboxing cost for large values and errors
+//  - Memory pressure under sustained concurrent load
 //
 //  ## Running
 //  swift test -c release --filter MemoryBenchmarks
 //
 //  ## Note
-//  Set trackAllocations: true to see allocation counts.
-//  These benchmarks focus on relative allocation behavior.
+//  trackAllocations: true is used to measure allocation counts.
+//  These benchmarks focus on relative allocation behavior between
+//  swift-io and NIOThreadPool.
 //
 
 import IO
