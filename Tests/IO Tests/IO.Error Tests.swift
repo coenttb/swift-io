@@ -97,25 +97,25 @@ extension IO.Error<TestLeafError>.Test.EdgeCase {
 
         // Verify each case matches expected pattern
         if case .leaf = leaf {
-            #expect(true)
+            #expect(Bool(true))
         } else {
             Issue.record("leaf should be .leaf case")
         }
 
         if case .handle = handle {
-            #expect(true)
+            #expect(Bool(true))
         } else {
             Issue.record("handle should be .handle case")
         }
 
         if case .executor = executor {
-            #expect(true)
+            #expect(Bool(true))
         } else {
             Issue.record("executor should be .executor case")
         }
 
         if case .lane = lane {
-            #expect(true)
+            #expect(Bool(true))
         } else {
             Issue.record("lane should be .lane case")
         }

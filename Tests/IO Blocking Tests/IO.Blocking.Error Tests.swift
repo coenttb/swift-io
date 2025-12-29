@@ -19,7 +19,7 @@ extension IO.Blocking.Error.Test.Unit {
     func queueFullCase() {
         let error = IO.Blocking.Error.queueFull
         if case .queueFull = error {
-            #expect(true)
+            #expect(Bool(true))
         } else {
             Issue.record("Expected queueFull case")
         }
@@ -29,7 +29,7 @@ extension IO.Blocking.Error.Test.Unit {
     func deadlineExceededCase() {
         let error = IO.Blocking.Error.deadlineExceeded
         if case .deadlineExceeded = error {
-            #expect(true)
+            #expect(Bool(true))
         } else {
             Issue.record("Expected deadlineExceeded case")
         }
@@ -39,7 +39,7 @@ extension IO.Blocking.Error.Test.Unit {
     func overloadedCase() {
         let error = IO.Blocking.Error.overloaded
         if case .overloaded = error {
-            #expect(true)
+            #expect(Bool(true))
         } else {
             Issue.record("Expected overloaded case")
         }
@@ -49,7 +49,7 @@ extension IO.Blocking.Error.Test.Unit {
     func internalInvariantViolationCase() {
         let error = IO.Blocking.Error.internalInvariantViolation
         if case .internalInvariantViolation = error {
-            #expect(true)
+            #expect(Bool(true))
         } else {
             Issue.record("Expected internalInvariantViolation case")
         }
@@ -60,7 +60,7 @@ extension IO.Blocking.Error.Test.Unit {
         let error = IO.Blocking.Error.queueFull
         await Task {
             if case .queueFull = error {
-                #expect(true)
+                #expect(Bool(true))
             } else {
                 Issue.record("Expected queueFull case")
             }
