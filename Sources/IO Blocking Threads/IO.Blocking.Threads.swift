@@ -102,8 +102,8 @@ extension IO.Blocking.Threads {
         let state = runtime.state
         let options = runtime.options
 
-        // Generate ticket under lock
-        let ticket: Ticket = state.lock.withLock { state.makeTicket() }
+        // Generate ticket (lock-free atomic)
+        let ticket: Ticket = state.makeTicket()
 
         do {
             return try await withTaskCancellationHandler {

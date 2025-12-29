@@ -5,6 +5,8 @@
 //  Created by Coen ten Thije Boonkkamp on 24/12/2025.
 //
 
+import Synchronization
+
 extension IO.Blocking.Threads.Thread.Worker {
     /// Shared mutable state for all workers in the lane.
     ///
@@ -27,8 +29,8 @@ extension IO.Blocking.Threads.Thread.Worker {
         var isShutdown: Bool
         var inFlightCount: Int
 
-        // Ticket generation
-        var nextTicketRaw: UInt64
+        // Ticket generation (atomic - no lock required)
+        private let ticketCounter: Atomic<UInt64>
 
         // Acceptance waiters (queue full, backpressure .suspend)
         // Bounded ring buffer - fails with .overloaded when full
@@ -51,18 +53,18 @@ extension IO.Blocking.Threads.Thread.Worker {
             self.queue = IO.Blocking.Threads.Job.Queue(capacity: queueLimit)
             self.isShutdown = false
             self.inFlightCount = 0
-            self.nextTicketRaw = 1
+            self.ticketCounter = Atomic(1)
             self.acceptanceWaiters = IO.Blocking.Threads.Acceptance.Queue(capacity: acceptanceWaitersLimit)
             self.completions = [:]
             self.completionWaiters = [:]
             self.abandonedTickets = []
         }
 
-        /// Generate a unique ticket. Must be called under lock.
+        /// Generate a unique ticket. Lock-free via atomic increment.
         func makeTicket() -> IO.Blocking.Threads.Ticket {
-            let ticket = IO.Blocking.Threads.Ticket(rawValue: nextTicketRaw)
-            nextTicketRaw &+= 1
-            return ticket
+            // wrappingAdd returns the old value, which is what we want for the ticket
+            let raw = ticketCounter.wrappingAdd(1, ordering: .relaxed).oldValue
+            return IO.Blocking.Threads.Ticket(rawValue: raw)
         }
 
         /// Try to enqueue a job. Returns true if successful, false if queue is full or shutdown.
