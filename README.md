@@ -104,43 +104,61 @@ dependencies: [
 
 ## Quick Start
 
+### One-Shot Blocking Work
+
+The simplest pattern—run blocking operations on dedicated threads:
+
 ```swift
 import IO
 
-// Create a pool for your resource type
-let pool = IO.Executor.Pool<MyResource>()
+let pool = IO.Executor.Pool<Void>()
 
-// Register a resource
-let id = try await pool.register {
-    try MyResource.open(path)
+let data = try await pool.run {
+    try blockingSyscall()  // Runs on dedicated thread, not cooperative pool
 }
 
-// Execute with exclusive access
-let result = try await pool.transaction(id) { resource in
-    try resource.read()
-}
-
-// Cleanup
-try await pool.destroy(id)
 await pool.shutdown()
 ```
 
-### Running Blocking Operations
+### Managed Resources
+
+For long-lived resources (file handles, connections), register them and use transactions:
 
 ```swift
-// Run blocking work on dedicated threads
-let data = try await pool.run {
-    try blockingSyscall()
+import IO
+
+let pool = IO.Executor.Pool<FileHandle>()
+
+// Register → get ID
+let id = try await pool.register {
+    try FileHandle.open(path)
 }
+
+// Transaction → exclusive access
+let data = try await pool.transaction(id) { handle in
+    try handle.read()
+}
+
+// Destroy → cleanup
+try pool.destroy(id)
+await pool.shutdown()
 ```
 
-### Transaction-Based Access
+### Domain Facade Pattern
+
+For production use, wrap the pool in a domain-specific API (see [swift-file-system](https://github.com/coenttb/swift-file-system)):
 
 ```swift
-// Exclusive access to a resource
-try await pool.transaction(handleID) { resource in
-    try resource.write(data)
-    return try resource.read()
+public actor FileSystem {
+    private let pool: IO.Executor.Pool<FileHandle>
+
+    public init() { self.pool = IO.Executor.Pool() }
+
+    public func read(at path: String) async throws -> Data {
+        try await pool.run { try Data(contentsOfFile: path) }
+    }
+
+    public func shutdown() async { await pool.shutdown() }
 }
 ```
 
