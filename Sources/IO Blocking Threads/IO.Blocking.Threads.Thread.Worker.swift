@@ -8,12 +8,13 @@
 extension IO.Blocking.Threads.Thread {
     /// Worker loop running on a dedicated OS thread.
     ///
-    /// ## Design
+    /// ## Design (Unified Single-Stage)
     /// Each worker:
     /// 1. Waits for jobs on the shared queue (via condition variable)
     /// 2. Executes jobs to completion
-    /// 3. Signals capacity waiters when queue space becomes available
-    /// 4. Exits when shutdown flag is set and queue is drained
+    /// 3. Calls `job.context.tryComplete()` directly (no dictionary lookup)
+    /// 4. Promotes acceptance waiters when capacity available
+    /// 5. Exits when shutdown flag is set and queue is drained
     struct Worker {
         let id: Int
         let state: State
@@ -49,21 +50,14 @@ extension IO.Blocking.Threads.Thread.Worker {
             state.inFlightCount += 1
 
             // Promote acceptance waiters now that we have capacity
-            let toResume = state.promoteAcceptanceWaiters()
+            // With unified design, this enqueues jobs directly -
+            // contexts are completed by workers, not here
+            state.promoteAcceptanceWaiters()
 
             state.lock.unlock()
 
-            // Resume acceptance waiters outside lock
-            for (var waiter, result) in toResume {
-                switch result {
-                case .success(let ticket):
-                    waiter.resumeReturning(ticket)
-                case .failure(let error):
-                    waiter.resumeThrowing(error)
-                }
-            }
-
             // Execute job outside lock
+            // Job.run() calls context.tryComplete() directly
             job.run()
 
             // Mark completion

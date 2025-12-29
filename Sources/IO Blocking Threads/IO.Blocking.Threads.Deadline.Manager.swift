@@ -59,9 +59,9 @@ extension IO.Blocking.Threads.Deadline {
                     let expired = expireDeadlines()
                     state.lock.unlock()
 
-                    // Resume expired waiters outside lock
-                    for var waiter in expired {
-                        waiter.resumeThrowing(.deadlineExceeded)
+                    // Fail expired waiters via their contexts (outside lock)
+                    for waiter in expired {
+                        _ = waiter.job.context.tryFail(.deadlineExceeded)
                     }
                 } else {
                     // No deadlines - wait indefinitely for signal on deadline condvar

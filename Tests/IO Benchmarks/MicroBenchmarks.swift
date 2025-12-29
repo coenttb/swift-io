@@ -292,6 +292,181 @@ extension MicroBenchmarks.Test.Performance {
     }
 }
 
+// MARK: - Completion Cost
+
+extension MicroBenchmarks.Test.Performance {
+
+    /// Measures completion-side dictionary operations under lock.
+    ///
+    /// This isolates the cost of:
+    /// 1. Lock acquisition
+    /// 2. Dictionary lookup/insert (completionWaiters, completions, abandonedTickets)
+    /// 3. Lock release
+    ///
+    /// Compares:
+    /// - Dictionary-based: current swift-io approach (lookup waiter by ticket)
+    /// - Context-based: proposed approach (continuation bundled with job)
+    @Suite("Completion Cost")
+    struct Completion {
+
+        /// Simulates the current two-stage completion path.
+        final class DictionaryBasedState: @unchecked Sendable {
+            private var mutex = pthread_mutex_t()
+            private var completions: [UInt64: Int] = [:]
+            private var waiters: [UInt64: Int] = [:]
+            private var abandoned: Set<UInt64> = []
+
+            init() {
+                pthread_mutex_init(&mutex, nil)
+                // Pre-size dictionaries to avoid allocation during benchmark
+                completions.reserveCapacity(1000)
+                waiters.reserveCapacity(1000)
+            }
+
+            deinit {
+                pthread_mutex_destroy(&mutex)
+            }
+
+            /// Simulates waiter registration (caller side)
+            func registerWaiter(ticket: UInt64, waiter: Int) {
+                pthread_mutex_lock(&mutex)
+                // Check if completion already arrived
+                if completions.removeValue(forKey: ticket) != nil {
+                    pthread_mutex_unlock(&mutex)
+                    return
+                }
+                waiters[ticket] = waiter
+                pthread_mutex_unlock(&mutex)
+            }
+
+            /// Simulates completion delivery (worker side)
+            func complete(ticket: UInt64, value: Int) {
+                pthread_mutex_lock(&mutex)
+                // Check abandoned
+                if abandoned.remove(ticket) != nil {
+                    pthread_mutex_unlock(&mutex)
+                    return
+                }
+                // Check waiter
+                if waiters.removeValue(forKey: ticket) != nil {
+                    pthread_mutex_unlock(&mutex)
+                    return
+                }
+                // Store for later
+                completions[ticket] = value
+                pthread_mutex_unlock(&mutex)
+            }
+        }
+
+        /// Simulates the proposed context-based approach.
+        /// No dictionary lookup - worker has direct reference to context.
+        final class ContextBasedState: @unchecked Sendable {
+            private var mutex = pthread_mutex_t()
+
+            init() {
+                pthread_mutex_init(&mutex, nil)
+            }
+
+            deinit {
+                pthread_mutex_destroy(&mutex)
+            }
+
+            /// Context that would be bundled with the job.
+            /// Uses atomic state for exactly-once resumption.
+            final class Context: @unchecked Sendable {
+                private var state: UInt8 = 0  // 0=pending, 1=completed, 2=cancelled
+                private var value: Int = 0
+
+                func tryComplete(value: Int) -> Bool {
+                    // Simulated atomic compareExchange
+                    if state == 0 {
+                        state = 1
+                        self.value = value
+                        return true
+                    }
+                    return false
+                }
+            }
+
+            /// Simulates completion with bundled context (no lookup needed)
+            func complete(context: Context, value: Int) {
+                // No lock needed for completion - context owns its state
+                _ = context.tryComplete(value: value)
+            }
+        }
+
+        @Test(
+            "dictionary-based: register + complete cycle",
+            .timed(iterations: 5000, warmup: 500, trackAllocations: false)
+        )
+        func dictionaryBasedCycle() async throws {
+            let state = DictionaryBasedState()
+            let ticket: UInt64 = 42
+
+            // Simulate the two-stage dance
+            state.registerWaiter(ticket: ticket, waiter: 1)
+            state.complete(ticket: ticket, value: 42)
+        }
+
+        @Test(
+            "context-based: direct complete (no lookup)",
+            .timed(iterations: 5000, warmup: 500, trackAllocations: false)
+        )
+        func contextBasedComplete() async throws {
+            let state = ContextBasedState()
+            let context = ContextBasedState.Context()
+
+            // Single-stage - worker has context reference
+            state.complete(context: context, value: 42)
+        }
+
+        @Test(
+            "dictionary-based: concurrent register + complete",
+            .timed(iterations: 1000, warmup: 100, trackAllocations: false)
+        )
+        func dictionaryBasedConcurrent() async throws {
+            let state = DictionaryBasedState()
+            let iterations = 100
+
+            await withTaskGroup(of: Void.self) { group in
+                // Simulate concurrent waiters registering
+                for i in 0..<iterations {
+                    group.addTask {
+                        state.registerWaiter(ticket: UInt64(i), waiter: i)
+                    }
+                }
+                // Simulate concurrent completions
+                for i in 0..<iterations {
+                    group.addTask {
+                        state.complete(ticket: UInt64(i), value: i)
+                    }
+                }
+            }
+        }
+
+        @Test(
+            "context-based: concurrent complete",
+            .timed(iterations: 1000, warmup: 100, trackAllocations: false)
+        )
+        func contextBasedConcurrent() async throws {
+            let state = ContextBasedState()
+            let iterations = 100
+
+            // Pre-create contexts (would be created at job submission time)
+            let contexts = (0..<iterations).map { _ in ContextBasedState.Context() }
+
+            await withTaskGroup(of: Void.self) { group in
+                // Simulate concurrent completions - no lock contention!
+                for i in 0..<iterations {
+                    group.addTask {
+                        state.complete(context: contexts[i], value: i)
+                    }
+                }
+            }
+        }
+    }
+}
+
 // MARK: - Baseline Comparisons
 
 extension MicroBenchmarks.Test.Performance {
