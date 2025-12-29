@@ -447,8 +447,13 @@ extension IO.Executor {
                     waiter.cancel()
                 }
 
+                // Check if shutdown happened while waiting
+                if isShutdown {
+                    throw .shutdownInProgress
+                }
+
                 guard let enqueued else {
-                    // Entry was removed while waiting
+                    // Entry was removed while waiting (not due to shutdown)
                     throw .failure(.handle(.invalidID))
                 }
 
@@ -460,7 +465,10 @@ extension IO.Executor {
                 // Cancellation is best-effort; we must not leak a reserved handle if cancellation wins the race.
                 let wasCancelled = waiter.wasCancelled || Task.isCancelled
 
-                // Re-validate after waiting
+                // Re-validate after waiting - check shutdown first for correct error
+                if isShutdown {
+                    throw .shutdownInProgress
+                }
                 guard let entry = handles[id], entry.state != .destroyed else {
                     throw .failure(.handle(.invalidID))
                 }
