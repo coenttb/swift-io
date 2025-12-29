@@ -54,6 +54,10 @@ Benchmarks comparing swift-io against SwiftNIO's `NIOThreadPool` (release mode, 
 | Context-based completion | Eliminates shared dictionary lookup | 83ns vs 1.50µs (**18×**) |
 | Sharded lanes | Reduces lock contention under load | 40% faster than unsharded at 100:1 |
 
+### Summary
+
+swift-io prioritizes predictable latency, bounded resource usage, and deterministic shutdown over peak throughput. NIOThreadPool retains an advantage under highly concurrent workloads with unbounded queues; swift-io demonstrates lower per-operation overhead and more stable tail behavior under load.
+
 ### When to Use swift-io vs NIOThreadPool
 
 - **Use swift-io** when you need bounded queues, deterministic shutdown, typed error preservation, or predictable tail latencies.
