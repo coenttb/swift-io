@@ -11,6 +11,7 @@ import Darwin
 import Glibc
 #endif
 
+import IO_NonBlocking
 public import IPv4_Standard
 public import IPv6_Standard
 

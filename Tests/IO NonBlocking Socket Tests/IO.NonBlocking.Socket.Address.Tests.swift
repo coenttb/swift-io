@@ -14,7 +14,7 @@ import Testing
 import IPv4_Standard
 import IPv6_Standard
 
-@testable import IO_NonBlocking
+@testable import IO_NonBlocking_Socket
 
 extension IO.NonBlocking.Socket.Address {
     #TestSuites

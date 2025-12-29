@@ -372,7 +372,7 @@ extension IO.NonBlocking {
         /// SO_ERROR unconditionally after this returns.
         ///
         /// - Throws: `Failure` on selector error or cancellation.
-        mutating func waitForWriteReadiness() async throws(Failure) {
+        package mutating func waitForWriteReadiness() async throws(Failure) {
             // Try registering token first (swap to extract)
             var takenRegistering: Token<Registering>? = nil
             swap(&registering, &takenRegistering)

@@ -5,6 +5,8 @@
 //  Created by Coen ten Thije Boonkkamp on 29/12/2025.
 //
 
+@_exported public import IO_NonBlocking
+
 extension IO.NonBlocking {
     /// Socket types for non-blocking network I/O.
     ///

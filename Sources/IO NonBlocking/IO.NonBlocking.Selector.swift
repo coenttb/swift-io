@@ -678,6 +678,7 @@ extension IO.NonBlocking {
         ///
         /// Contains the registration ID and a token for arming.
         /// This struct is ~Copyable because it contains a move-only Token.
+        @frozen
         public struct Result: ~Copyable, Sendable {
             /// The registration ID.
             public let id: ID
@@ -699,6 +700,7 @@ extension IO.NonBlocking {
         ///
         /// Contains an armed token and the event that triggered it.
         /// This struct is ~Copyable because it contains a move-only Token.
+        @frozen
         public struct Result: ~Copyable, Sendable {
             /// Token for modifying, deregistering, or cancelling.
             public var token: Token<IO.NonBlocking.Armed>

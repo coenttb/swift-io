@@ -11,6 +11,8 @@ import Darwin
 import Glibc
 #endif
 
+import IO_NonBlocking
+
 extension IO.NonBlocking.Socket {
     /// A TCP listening socket.
     ///

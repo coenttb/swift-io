@@ -19,6 +19,7 @@ let package = Package(
         .library(name: "IO NonBlocking Driver", targets: ["IO NonBlocking Driver"]),
         .library(name: "IO NonBlocking Kqueue", targets: ["IO NonBlocking Kqueue"]),
         .library(name: "IO NonBlocking", targets: ["IO NonBlocking"]),
+        .library(name: "IO NonBlocking Socket", targets: ["IO NonBlocking Socket"]),
     ],
     traits: [
         .trait(name: "Codable", description: "Enable Codable conformances for Handle.ID and other types"),
@@ -71,6 +72,12 @@ let package = Package(
                 "IO NonBlocking Driver",
                 .target(name: "IO NonBlocking Kqueue", condition: .when(platforms: [.macOS, .iOS, .tvOS, .watchOS])),
                 .target(name: "IO NonBlocking Epoll", condition: .when(platforms: [.linux])),
+            ]
+        ),
+        .target(
+            name: "IO NonBlocking Socket",
+            dependencies: [
+                "IO NonBlocking",
                 .product(name: "IPv4 Standard", package: "swift-ipv4-standard"),
                 .product(name: "IPv6 Standard", package: "swift-ipv6-standard"),
             ]
@@ -114,6 +121,14 @@ let package = Package(
             name: "IO NonBlocking Tests",
             dependencies: [
                 "IO NonBlocking",
+                .product(name: "StandardsTestSupport", package: "swift-standards"),
+            ]
+        ),
+        .testTarget(
+            name: "IO NonBlocking Socket Tests",
+            dependencies: [
+                "IO NonBlocking Socket",
+                "IO NonBlocking Kqueue",
                 .product(name: "StandardsTestSupport", package: "swift-standards"),
             ]
         ),

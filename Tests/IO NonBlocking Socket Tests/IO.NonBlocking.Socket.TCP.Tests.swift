@@ -14,7 +14,7 @@ import Testing
 
 import IPv4_Standard
 
-@testable import IO_NonBlocking
+@testable import IO_NonBlocking_Socket
 import IO_NonBlocking_Kqueue
 
 extension IO.NonBlocking.Socket.TCP {
