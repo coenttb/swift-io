@@ -7,6 +7,8 @@
 
 #if canImport(Darwin)
 import IO_NonBlocking_Kqueue
+#elseif canImport(Glibc)
+import IO_NonBlocking_Epoll
 #endif
 
 extension IO.NonBlocking.Driver {
@@ -14,7 +16,7 @@ extension IO.NonBlocking.Driver {
     ///
     /// Selects the best available event notification mechanism:
     /// - **Darwin (macOS/iOS)**: kqueue
-    /// - **Linux**: epoll (when implemented)
+    /// - **Linux**: epoll
     /// - **Windows**: IOCP (when implemented)
     ///
     /// ## Usage
@@ -25,7 +27,7 @@ extension IO.NonBlocking.Driver {
         #if canImport(Darwin)
         IO.NonBlocking.Kqueue.driver()
         #elseif canImport(Glibc)
-        fatalError("Linux epoll driver not yet implemented")
+        IO.NonBlocking.Epoll.driver()
         #elseif os(Windows)
         fatalError("Windows IOCP driver not yet implemented")
         #else

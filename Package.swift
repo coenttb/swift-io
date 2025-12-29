@@ -60,10 +60,15 @@ let package = Package(
             dependencies: ["IO NonBlocking Driver"]
         ),
         .target(
+            name: "IO NonBlocking Epoll",
+            dependencies: ["IO NonBlocking Driver"]
+        ),
+        .target(
             name: "IO NonBlocking",
             dependencies: [
                 "IO NonBlocking Driver",
-                "IO NonBlocking Kqueue",
+                .target(name: "IO NonBlocking Kqueue", condition: .when(platforms: [.macOS, .iOS, .tvOS, .watchOS])),
+                .target(name: "IO NonBlocking Epoll", condition: .when(platforms: [.linux])),
             ]
         ),
         .testTarget(
