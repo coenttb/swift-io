@@ -504,7 +504,7 @@ extension IO.Executor.Pool where Resource: ~Copyable {
         let laneResult: Result<Void, E>
         do {
             laneResult = try await lane.run(deadline: deadline) {
-                () throws(E) -> Void in
+                () throws(E) in
                 let resource = try make()
                 storeToken.store(resource)
             }

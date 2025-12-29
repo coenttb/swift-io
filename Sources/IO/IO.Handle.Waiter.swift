@@ -68,13 +68,14 @@ extension IO.Handle.Waiter {
     /// - Returns: `true` if successfully armed, `false` if already armed.
     @discardableResult
     public func arm(continuation: CheckedContinuation<Void, Never>) -> Bool {
-        let succeeded = transition { current in
-            switch current {
-            case .unarmed: .armed
-            case .cancelledUnarmed: .armedCancelled
-            default: nil  // Already armed or drained
-            }
-        } != nil
+        let succeeded =
+            transition { current in
+                switch current {
+                case .unarmed: .armed
+                case .cancelledUnarmed: .armedCancelled
+                default: nil  // Already armed or drained
+                }
+            } != nil
 
         if succeeded {
             self.continuation = continuation
@@ -173,10 +174,12 @@ extension IO.Handle.Waiter {
     /// - Returns: The continuation if available, along with cancellation status.
     ///   Returns `nil` if not yet armed or already drained.
     public func takeForResume() -> (continuation: CheckedContinuation<Void, Never>, wasCancelled: Bool)? {
-        guard let previous = transition({ current in
-            guard current.isArmed && !current.isDrained else { return nil }
-            return current.isCancelled ? .cancelledDrained : .drained
-        }) else {
+        guard
+            let previous = transition({ current in
+                guard current.isArmed && !current.isDrained else { return nil }
+                return current.isCancelled ? .cancelledDrained : .drained
+            })
+        else {
             return nil
         }
 

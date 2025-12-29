@@ -61,4 +61,3 @@ extension IO.Executor.Teardown where Resource: ~Copyable {
     @inlinable
     public static var drop: Self { .none }
 }
-
