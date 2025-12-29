@@ -46,7 +46,7 @@ extension IO.Blocking {
         /// The run implementation.
         /// - Operation closure returns boxed value (never throws)
         /// - Lane throws only Failure for infrastructure failures
-        private let _run:
+        package let _run:
             @Sendable @concurrent (
                 Deadline?,
                 @Sendable @escaping () -> UnsafeMutableRawPointer  // Returns boxed value

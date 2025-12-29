@@ -56,6 +56,30 @@ extension ContentionBenchmarks.Test.Performance {
         }
 
         @Test(
+            "swift-io sharded: 40 tasks / 4 lanes × 1 thread",
+            .timed(iterations: 5, warmup: 2, trackAllocations: false)
+        )
+        func swiftIOSharded() async throws {
+            let lane = IO.Blocking.Lane.sharded(count: Self.threadCount) {
+                .threads(.init(workers: 1))
+            }
+
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                for _ in 0..<Self.taskCount {
+                    group.addTask {
+                        let result: Result<Void, Never> = try await lane.run(deadline: .none) {
+                            ThroughputBenchmarks.simulateWork(microseconds: Self.workMicroseconds)
+                        }
+                        _ = result
+                    }
+                }
+                try await group.waitForAll()
+            }
+
+            await lane.shutdown()
+        }
+
+        @Test(
             "NIOThreadPool: 40 tasks / 4 threads",
             .timed(iterations: 5, warmup: 2, trackAllocations: false)
         )
@@ -96,6 +120,30 @@ extension ContentionBenchmarks.Test.Performance {
         )
         func swiftIO() async throws {
             let lane = IO.Blocking.Lane.threads(.init(workers: Self.threadCount))
+
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                for _ in 0..<Self.taskCount {
+                    group.addTask {
+                        let result: Result<Void, Never> = try await lane.run(deadline: .none) {
+                            ThroughputBenchmarks.simulateWork(microseconds: Self.workMicroseconds)
+                        }
+                        _ = result
+                    }
+                }
+                try await group.waitForAll()
+            }
+
+            await lane.shutdown()
+        }
+
+        @Test(
+            "swift-io sharded: 400 tasks / 4 lanes × 1 thread",
+            .timed(iterations: 3, warmup: 1, trackAllocations: false)
+        )
+        func swiftIOSharded() async throws {
+            let lane = IO.Blocking.Lane.sharded(count: Self.threadCount) {
+                .threads(.init(workers: 1))
+            }
 
             try await withThrowingTaskGroup(of: Void.self) { group in
                 for _ in 0..<Self.taskCount {
@@ -157,6 +205,34 @@ extension ContentionBenchmarks.Test.Performance {
                 queueLimit: Self.taskCount,
                 acceptanceWaitersLimit: Self.taskCount
             ))
+
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                for _ in 0..<Self.taskCount {
+                    group.addTask {
+                        let result: Result<Void, Never> = try await lane.run(deadline: .none) {
+                            ThroughputBenchmarks.simulateWork(microseconds: Self.workMicroseconds)
+                        }
+                        _ = result
+                    }
+                }
+                try await group.waitForAll()
+            }
+
+            await lane.shutdown()
+        }
+
+        @Test(
+            "swift-io sharded: 2000 tasks / 2 lanes × 1 thread",
+            .timed(iterations: 3, warmup: 1, trackAllocations: false)
+        )
+        func swiftIOSharded() async throws {
+            let lane = IO.Blocking.Lane.sharded(count: Self.threadCount) {
+                .threads(.init(
+                    workers: 1,
+                    queueLimit: Self.taskCount,
+                    acceptanceWaitersLimit: Self.taskCount
+                ))
+            }
 
             try await withThrowingTaskGroup(of: Void.self) { group in
                 for _ in 0..<Self.taskCount {
