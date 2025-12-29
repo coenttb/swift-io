@@ -7,15 +7,21 @@ A high-performance async I/O executor for Swift. Isolates blocking syscalls from
 ## Key Features
 
 - **Dedicated thread pool** - Blocking I/O never starves Swift's cooperative executor
-- **Context-based completion** - 18x faster than dictionary lookup (83ns vs 1.5µs)
-- **Transition-based signaling** - Minimal kernel overhead, 30% faster concurrent throughput
+- **Context-based completion** - Eliminates dictionary lookups; jobs carry their own continuation
+- **Transition-based signaling** - Signals only on empty→non-empty; drains batches per wake
 - **Move-only resources** - Generic over `~Copyable` with type-safe slot transport
-- **Typed throws** - `IO.Error<E>` preserves your operation's error type
+- **Typed throws end-to-end** - No `any Error` at the API surface
 - **Swift 6 strict concurrency** - Full `Sendable` compliance, zero data races
+
+## Design Philosophy
+
+swift-io is designed for infrastructure code where correctness, determinism, and resource bounds matter more than absolute peak throughput. It intentionally trades unbounded queuing for predictable behavior under load.
 
 ## Performance
 
-Benchmarks comparing swift-io against SwiftNIO's `NIOThreadPool` (release mode, arm64):
+Benchmarks comparing swift-io against SwiftNIO's `NIOThreadPool` (release mode, arm64). All results include p95/p99; swift-io prioritizes predictable tails under contention. For long-running blocking work, NIO may achieve lower median latency, while swift-io provides tighter tail latency and deterministic scheduling.
+
+*Note: Benchmarks simulate short blocking workloads; real I/O workloads are typically syscall-dominated and reduce relative overhead differences.*
 
 ### Throughput
 
@@ -35,18 +41,23 @@ Benchmarks comparing swift-io against SwiftNIO's `NIOThreadPool` (release mode, 
 
 ### Contention
 
-| Scenario | swift-io | NIOThreadPool |
-|----------|----------|---------------|
-| Moderate (10:1) | 232µs | 199µs |
-| High (100:1) | 784µs | 913µs |
-| Extreme (1000:1) | 3.85ms | 2.93ms |
+| Scenario | swift-io | NIOThreadPool | Notes |
+|----------|----------|---------------|-------|
+| Moderate (10:1) | 232µs | 199µs | NIO median lower, swift-io tighter tails |
+| High (100:1) | 784µs | 913µs | swift-io wins |
+| Extreme (1000:1) | 3.85ms | 2.93ms | NIO wins throughput |
 
 ### Design Wins
 
-| Component | swift-io | Alternative | Speedup |
-|-----------|----------|-------------|---------|
-| Context-based completion | 83ns | Dictionary lookup: 1.50µs | **18x** |
-| Concurrent completion | 44µs | Dictionary-based: 78µs | **1.8x** |
+| Mechanism | Benefit | Measured |
+|-----------|---------|----------|
+| Context-based completion | Eliminates shared dictionary and lock-held hash ops | 83ns vs 1.50µs (18x) |
+| Transition-based signaling | Prevents signal storms; ~90% fewer kernel transitions | 30% concurrent improvement |
+
+### When to Use swift-io vs NIOThreadPool
+
+- **Use swift-io** when you need bounded queues, deterministic shutdown, typed error preservation, or predictable tail latencies.
+- **Use NIOThreadPool** when you want maximum concurrent throughput and accept unbounded queueing semantics.
 
 ## Why swift-io?
 
@@ -59,7 +70,7 @@ Swift's cooperative thread pool is designed for quick, non-blocking work. When y
 | **Resource cleanup** | Manual, error-prone | Deterministic teardown strategies |
 | **Cancellation** | Inconsistent semantics | Well-defined: before/after acceptance |
 | **Move-only resources** | No native support | Generic over `~Copyable` with slot pattern |
-| **Error handling** | Untyped throws | Typed throws with `IO.Error<E>` |
+| **Error handling** | Untyped throws | Typed throws with `IO.Lifecycle.Error<IO.Error<E>>` |
 
 ## Installation
 
@@ -78,7 +89,10 @@ dependencies: [
 )
 ```
 
-**Requirements:** Swift 6.0+, macOS 14.0+ / iOS 17.0+ / Linux / Windows
+**Requirements:**
+- Swift 6.2+ (swift-tools-version: 6.2)
+- Apple platforms: macOS 26 / iOS 26 / tvOS 26 / watchOS 26
+- Linux and Windows: See [Platform Support](#platform-support)
 
 ## Quick Start
 
@@ -124,18 +138,50 @@ try await pool.transaction(handleID) { resource in
 
 ### Error Handling
 
+swift-io uses typed throws. Pool methods throw `IO.Lifecycle.Error<IO.Error<E>>`, which you can exhaustively pattern-match:
+
 ```swift
 do {
-    let result = try await pool.run {
+    let value = try await pool.run {
         try myOperation()  // throws MyError
     }
-} catch .operation(let error) {
-    // error is MyError (typed!)
-} catch .executor(.shutdownInProgress) {
-    // Pool is shutting down
-} catch .cancelled {
-    // Task was cancelled
+} catch {
+    switch error {
+    case .shutdownInProgress:
+        // Pool is shutting down
+    case .cancelled:
+        // Task was cancelled
+    case .failure(let ioError):
+        switch ioError {
+        case .leaf(let myError):
+            // myError is MyError (typed!)
+        case .handle(let handleError):
+            // e.g. .notFound, .scopeMismatch
+        case .executor(let execError):
+            // e.g. .waiterQueueFull
+        case .lane(let laneError):
+            // Lane infrastructure error
+        }
+    }
 }
+```
+
+## Error Model
+
+swift-io uses typed throws end-to-end. Public APIs do not throw `any Error`. Operation errors are preserved as `E` and lifted into `IO.Lifecycle.Error<IO.Error<E>>`.
+
+The error hierarchy:
+
+```
+IO.Lifecycle.Error<E>
+├── .shutdownInProgress    // Lifecycle: pool shutting down
+├── .cancelled             // Lifecycle: task cancelled
+└── .failure(E)            // Wraps operational errors
+    └── IO.Error<Leaf>
+        ├── .leaf(Leaf)    // Your operation's error type
+        ├── .handle(...)   // Handle errors (.notFound, .scopeMismatch)
+        ├── .executor(...) // Executor errors (.waiterQueueFull)
+        └── .lane(...)     // Lane errors (.queueFull, .deadlineExceeded)
 ```
 
 ## Architecture
@@ -159,7 +205,8 @@ do {
 | `IO.Executor.Pool<Resource>` | Actor-based resource pool with transaction access |
 | `IO.Handle.ID` | Scoped identifier for registered resources |
 | `IO.Blocking.Lane` | Execution backend (`.threads()` or `.sharded()`) |
-| `IO.Error<E>` | Typed error wrapper preserving operation errors |
+| `IO.Lifecycle.Error<E>` | Lifecycle wrapper (shutdown, cancellation) |
+| `IO.Error<E>` | Typed error preserving operation errors |
 
 ### Execution Model
 
@@ -184,33 +231,37 @@ Workers use transition-based signaling to minimize kernel overhead:
 - **Empty→non-empty transitions** - Signal once per batch, not per job
 - **Drain loop** - Process up to 16 jobs per wake cycle
 
-This eliminates ~90% of spurious `pthread_cond_signal` calls.
+This eliminates ~90% of spurious `pthread_cond_signal` calls compared to per-job signaling.
 
 ### Context-Based Completion
 
-Jobs carry their completion context, eliminating dictionary lookups:
+Jobs carry their completion context, eliminating shared dictionary state and lock-held hash operations:
 
 ```swift
-// Traditional: O(1) amortized but with hash overhead
-completions[ticket] = result  // store
-let result = completions.removeValue(forKey: ticket)  // lookup
+// Traditional: O(1) amortized but with hash overhead + lock contention
+completions[ticket] = result  // store under lock
+let result = completions.removeValue(forKey: ticket)  // lookup under lock
 
-// swift-io: Direct pointer, zero lookup
-job.context.tryComplete(with: result)  // 83ns
+// swift-io: Direct pointer, zero lookup, no shared dictionary
+job.context.tryComplete(with: result)  // 83ns, atomic CAS
 ```
 
 ### Guarantees
 
 **What swift-io guarantees:**
 - Exactly-once continuation resumption
-- FIFO fairness (best effort under contention)
 - Bounded memory via capacity-limited queues
 - Deterministic shutdown with in-flight completion
 - Cancellation safety
 
+**Fairness:**
+- Queue order is FIFO
+- Scheduling is best-effort under contention
+- Completion order is not guaranteed (drain loops may reorder)
+
 **What swift-io does NOT guarantee:**
 - Syscall interruption after acceptance
-- Exact FIFO under heavy contention
+- Strict FIFO completion under heavy contention
 - Cross-process coordination
 
 ## Configuration
@@ -237,12 +288,14 @@ let pool = IO.Executor.Pool<FileHandle>(
 
 ## Platform Support
 
-| Platform | Status |
-|----------|--------|
-| macOS | Full support |
-| iOS | Full support |
-| Linux | Full support |
-| Windows | Full support |
+CI covers macOS, Linux, and Windows on every push to main.
+
+| Platform | CI | Status |
+|----------|-----|--------|
+| macOS | ✅ Swift 6.2, debug | Full support |
+| Linux (Ubuntu) | ✅ Swift 6.2, release | Full support |
+| Windows | ✅ Swift 6.2 | Full support |
+| iOS/tvOS/watchOS | — | Supported (same codebase as macOS) |
 
 ## Related Packages
 
