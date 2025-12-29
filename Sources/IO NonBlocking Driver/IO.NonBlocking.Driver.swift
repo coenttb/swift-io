@@ -43,33 +43,33 @@ extension IO.NonBlocking {
         // MARK: - Witness Closures
 
         /// Create a new selector handle.
-        private let _create: @Sendable () throws -> Handle
+        let _create: @Sendable () throws(Error) -> Handle
 
         /// Register a descriptor for the given interests.
         ///
         /// Called from poll thread only.
-        private let _register: @Sendable (
+        let _register: @Sendable (
             borrowing Handle,
             Int32,  // Raw file descriptor
             Interest
-        ) throws -> ID
+        ) throws(Error) -> ID
 
         /// Modify the interests for a registered descriptor.
         ///
         /// Called from poll thread only.
-        private let _modify: @Sendable (
+        let _modify: @Sendable (
             borrowing Handle,
             ID,
             Interest
-        ) throws -> Void
+        ) throws(Error) -> Void
 
         /// Remove a descriptor from the selector.
         ///
         /// Called from poll thread only.
-        private let _deregister: @Sendable (
+        let _deregister: @Sendable (
             borrowing Handle,
             ID
-        ) throws -> Void
+        ) throws(Error) -> Void
 
         /// Wait for events with optional timeout.
         ///
@@ -80,16 +80,16 @@ extension IO.NonBlocking {
         ///   - deadline: Optional timeout deadline
         ///   - buffer: Pre-allocated event buffer
         /// - Returns: Number of events written to buffer
-        private let _poll: @Sendable (
+        let _poll: @Sendable (
             borrowing Handle,
             Deadline?,
             inout [Event]
-        ) throws -> Int
+        ) throws(Error) -> Int
 
         /// Close the selector handle.
         ///
         /// Called from poll thread only. Consumes the handle.
-        private let _close: @Sendable (consuming Handle) -> Void
+        let _close: @Sendable (consuming Handle) -> Void
 
         /// Create a wakeup channel for this handle.
         ///
@@ -98,20 +98,20 @@ extension IO.NonBlocking {
         /// - kqueue: `EVFILT_USER`
         /// - epoll: `eventfd`
         /// - IOCP: `PostQueuedCompletionStatus`
-        private let _createWakeupChannel: @Sendable (borrowing Handle) throws -> Wakeup.Channel
+        let _createWakeupChannel: @Sendable (borrowing Handle) throws(Error) -> Wakeup.Channel
 
         // MARK: - Initialization
 
         /// Creates a driver with the given witness closures.
         public init(
             capabilities: Capabilities,
-            create: @escaping @Sendable () throws -> Handle,
-            register: @escaping @Sendable (borrowing Handle, Int32, Interest) throws -> ID,
-            modify: @escaping @Sendable (borrowing Handle, ID, Interest) throws -> Void,
-            deregister: @escaping @Sendable (borrowing Handle, ID) throws -> Void,
-            poll: @escaping @Sendable (borrowing Handle, Deadline?, inout [Event]) throws -> Int,
+            create: @escaping @Sendable () throws(Error) -> Handle,
+            register: @escaping @Sendable (borrowing Handle, Int32, Interest) throws(Error) -> ID,
+            modify: @escaping @Sendable (borrowing Handle, ID, Interest) throws(Error) -> Void,
+            deregister: @escaping @Sendable (borrowing Handle, ID) throws(Error) -> Void,
+            poll: @escaping @Sendable (borrowing Handle, Deadline?, inout [Event]) throws(Error) -> Int,
             close: @escaping @Sendable (consuming Handle) -> Void,
-            createWakeupChannel: @escaping @Sendable (borrowing Handle) throws -> Wakeup.Channel
+            createWakeupChannel: @escaping @Sendable (borrowing Handle) throws(Error) -> Wakeup.Channel
         ) {
             self.capabilities = capabilities
             self._create = create
@@ -126,7 +126,7 @@ extension IO.NonBlocking {
         // MARK: - Public API
 
         /// Create a new selector handle.
-        public func create() throws -> Handle {
+        public func create() throws(Error) -> Handle {
             try _create()
         }
 
@@ -135,7 +135,7 @@ extension IO.NonBlocking {
             _ handle: borrowing Handle,
             descriptor: Int32,
             interest: Interest
-        ) throws -> ID {
+        ) throws(Error) -> ID {
             try _register(handle, descriptor, interest)
         }
 
@@ -144,7 +144,7 @@ extension IO.NonBlocking {
             _ handle: borrowing Handle,
             id: ID,
             interest: Interest
-        ) throws {
+        ) throws(Error) {
             try _modify(handle, id, interest)
         }
 
@@ -152,7 +152,7 @@ extension IO.NonBlocking {
         public func deregister(
             _ handle: borrowing Handle,
             id: ID
-        ) throws {
+        ) throws(Error) {
             try _deregister(handle, id)
         }
 
@@ -161,7 +161,7 @@ extension IO.NonBlocking {
             _ handle: borrowing Handle,
             deadline: Deadline?,
             into buffer: inout [Event]
-        ) throws -> Int {
+        ) throws(Error) -> Int {
             try _poll(handle, deadline, &buffer)
         }
 
@@ -171,7 +171,7 @@ extension IO.NonBlocking {
         }
 
         /// Create a wakeup channel.
-        public func createWakeupChannel(_ handle: borrowing Handle) throws -> Wakeup.Channel {
+        public func createWakeupChannel(_ handle: borrowing Handle) throws(Error) -> Wakeup.Channel {
             try _createWakeupChannel(handle)
         }
     }

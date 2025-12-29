@@ -27,7 +27,7 @@ enum KqueueOperations {
     private static let nextID = Atomic<UInt64>(0)
 
     /// Creates a new kqueue handle.
-    static func create() throws -> IO.NonBlocking.Driver.Handle {
+    static func create() throws(IO.NonBlocking.Error) -> IO.NonBlocking.Driver.Handle {
         let kq = Darwin.kqueue()
         guard kq >= 0 else {
             throw IO.NonBlocking.Error.platform(errno: errno)
@@ -40,7 +40,7 @@ enum KqueueOperations {
         _ handle: borrowing IO.NonBlocking.Driver.Handle,
         descriptor: Int32,
         interest: IO.NonBlocking.Interest
-    ) throws -> IO.NonBlocking.ID {
+    ) throws(IO.NonBlocking.Error) -> IO.NonBlocking.ID {
         let id = IO.NonBlocking.ID(raw: nextID.wrappingAdd(1, ordering: .relaxed).newValue)
 
         // Prepare kevent structures for registration
@@ -87,7 +87,7 @@ enum KqueueOperations {
         _ handle: borrowing IO.NonBlocking.Driver.Handle,
         id: IO.NonBlocking.ID,
         interest: IO.NonBlocking.Interest
-    ) throws {
+    ) throws(IO.NonBlocking.Error) {
         // For kqueue, modification is done by re-adding with new flags
         // We need the original descriptor, which we'd need to track
         // For now, this is a simplified implementation
@@ -98,7 +98,7 @@ enum KqueueOperations {
     static func deregister(
         _ handle: borrowing IO.NonBlocking.Driver.Handle,
         id: IO.NonBlocking.ID
-    ) throws {
+    ) throws(IO.NonBlocking.Error) {
         // For kqueue, events are automatically removed when the fd is closed
         // Explicit removal would require tracking ID -> descriptor mapping
     }
@@ -108,7 +108,7 @@ enum KqueueOperations {
         _ handle: borrowing IO.NonBlocking.Driver.Handle,
         deadline: IO.NonBlocking.Deadline?,
         into buffer: inout [IO.NonBlocking.Event]
-    ) throws -> Int {
+    ) throws(IO.NonBlocking.Error) -> Int {
         var timeout: timespec?
 
         if let deadline = deadline {
@@ -213,7 +213,7 @@ enum KqueueOperations {
     /// Creates a wakeup channel using EVFILT_USER.
     static func createWakeupChannel(
         _ handle: borrowing IO.NonBlocking.Driver.Handle
-    ) throws -> IO.NonBlocking.Wakeup.Channel {
+    ) throws(IO.NonBlocking.Error) -> IO.NonBlocking.Wakeup.Channel {
         // Register a user event for wakeup
         let wakeupIdent: UInt = 1  // Special ident for wakeup
 

@@ -118,7 +118,7 @@ extension IO.NonBlocking {
         public static func make(
             driver: Driver,
             executor: IO.Executor.Thread
-        ) throws -> Selector {
+        ) throws(Error) -> Selector {
             // Create driver handle
             let handle = try driver.create()
 
@@ -167,13 +167,13 @@ extension IO.NonBlocking {
         public func register(
             _ descriptor: Int32,
             interest: Interest
-        ) async throws(IO.Lifecycle.Error<Error>) -> Register.Result {
+        ) async throws(Failure) -> Register.Result {
             guard state == .running else {
                 throw .shutdownInProgress
             }
 
             // Enqueue request to poll thread
-            let result: Result<ID, any Swift.Error> = await withCheckedContinuation { continuation in
+            let result: Result<ID, Error> = await withCheckedContinuation { continuation in
                 let request = IO.NonBlocking.Registration.Request.register(
                     descriptor: descriptor,
                     interest: interest,
@@ -188,10 +188,7 @@ extension IO.NonBlocking {
                 registrations[id] = Registration(descriptor: descriptor, interest: interest)
                 return Register.Result(id: id, token: Token(id: id))
             case .failure(let error):
-                if let nbError = error as? Error {
-                    throw .failure(nbError)
-                }
-                throw .failure(.platform(errno: -1))
+                throw .failure(error)
             }
         }
 
@@ -202,7 +199,7 @@ extension IO.NonBlocking {
         /// - Throws: If shutdown or cancelled.
         public func arm(
             _ token: consuming Token<Registering>
-        ) async throws(IO.Lifecycle.Error<Error>) -> Arm.Result {
+        ) async throws(Failure) -> Arm.Result {
             let id = token.id
 
             guard state == .running else {
@@ -218,17 +215,27 @@ extension IO.NonBlocking {
                 }
             }
 
-            // No permit - create waiter and wait
+            // No permit - create waiter and wait with cancellation support
+            //
+            // Cancellation model (mirrors IO.Handle.Waiter):
+            // - cancel() flips state synchronously from onCancel handler
+            // - Actor drains on next touch (event dispatch, shutdown)
+            // - Actor is the single resumption funnel
+            let waiter = Waiter(id: id)
+
             let event: Event
             do {
-                event = try await withCheckedThrowingContinuation { continuation in
-                    waiters[id] = Waiter(continuation: continuation)
+                event = try await withTaskCancellationHandler {
+                    try await withCheckedThrowingContinuation { continuation in
+                        waiter.arm(continuation: continuation)
+                        waiters[id] = waiter
+                    }
+                } onCancel: {
+                    waiter.cancel()
                 }
-            } catch let error as IO.Lifecycle.Error<Error> {
-                throw error
             } catch {
-                // Unexpected error type - should not happen
-                throw .shutdownInProgress
+                // Safe cast: resume(_:with:) only throws Failure values
+                throw error as! Failure
             }
 
             return Arm.Result(token: Token(id: id), event: event)
@@ -240,7 +247,7 @@ extension IO.NonBlocking {
         /// - Throws: If deregistration fails.
         public func deregister(
             _ token: consuming Token<Armed>
-        ) async throws(IO.Lifecycle.Error<Error>) {
+        ) async throws(Failure) {
             let id = token.id
 
             // Remove from local state
@@ -253,7 +260,7 @@ extension IO.NonBlocking {
             }
 
             // Request deregistration from poll thread
-            let result: Result<Void, any Swift.Error> = await withCheckedContinuation { continuation in
+            let result: Result<Void, Error> = await withCheckedContinuation { continuation in
                 let request = IO.NonBlocking.Registration.Request.deregister(
                     id: id,
                     continuation: continuation
@@ -263,9 +270,7 @@ extension IO.NonBlocking {
             }
 
             if case .failure(let error) = result {
-                if let nbError = error as? Error {
-                    throw .failure(nbError)
-                }
+                throw .failure(error)
             }
         }
 
@@ -288,13 +293,43 @@ extension IO.NonBlocking {
             // For each interest bit in the event
             for interest in [Interest.read, .write, .priority] where event.interest.contains(interest) {
                 if let waiter = waiters.removeValue(forKey: event.id) {
-                    // Resume the waiter
-                    waiter.continuation.resume(returning: event)
+                    // Drain the waiter using state machine
+                    if let (continuation, wasCancelled) = waiter.takeForResume() {
+                        if wasCancelled {
+                            resume(continuation, with: .failure(.cancelled))
+                        } else {
+                            resume(continuation, with: .success(event))
+                        }
+                    }
                 } else {
                     // Store as permit
                     let key = PermitKey(id: event.id, interest: interest)
                     permits[key] = event.flags
                 }
+            }
+        }
+
+        // MARK: - Resumption Funnel
+
+        /// Single funnel for resuming waiter continuations.
+        ///
+        /// This is the **only** place that resumes waiter continuations.
+        /// By funneling all resumptions through here, we guarantee typed
+        /// failures by construction - no casting required.
+        ///
+        /// ## Invariant
+        /// The continuation failure type is `any Error` (due to Swift's
+        /// `withCheckedThrowingContinuation`), but we only ever resume
+        /// with `Failure` values, so callers see typed throws.
+        private func resume(
+            _ continuation: CheckedContinuation<Event, any Swift.Error>,
+            with result: Result<Event, Failure>
+        ) {
+            switch result {
+            case .success(let event):
+                continuation.resume(returning: event)
+            case .failure(let failure):
+                continuation.resume(throwing: failure)  // Upcast to any Error
             }
         }
 
@@ -309,9 +344,12 @@ extension IO.NonBlocking {
             shutdownFlag.set()
             wakeupChannel.wake()
 
-            // Drain all waiters with shutdown error
+            // Drain all waiters with shutdown error using state machine
             for (_, waiter) in waiters {
-                waiter.continuation.resume(throwing: IO.Lifecycle.Error<Error>.shutdownInProgress)
+                if let (continuation, _) = waiter.takeForResume() {
+                    // Regardless of cancellation status, shutdown takes precedence
+                    resume(continuation, with: .failure(.shutdownInProgress))
+                }
             }
             waiters.removeAll()
 
@@ -346,11 +384,6 @@ extension IO.NonBlocking.Selector {
     struct Registration {
         let descriptor: Int32
         var interest: IO.NonBlocking.Interest
-    }
-
-    /// A waiter for a registration.
-    struct Waiter {
-        let continuation: CheckedContinuation<IO.NonBlocking.Event, any Swift.Error>
     }
 
     /// Key for permit storage.

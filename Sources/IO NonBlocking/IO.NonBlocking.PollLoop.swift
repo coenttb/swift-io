@@ -136,19 +136,18 @@ extension IO.NonBlocking {
                     do {
                         try driver.deregister(handle, id: id)
                         continuation?.resume(returning: .success(()))
-                    } catch {
+                    } catch let error {
                         continuation?.resume(returning: .failure(error))
                     }
                 case .register(_, _, let continuation):
-                    // Reject new registrations during shutdown
-                    continuation.resume(returning: .failure(
-                        IO.Lifecycle.Error<IO.NonBlocking.Error>.shutdownInProgress
-                    ))
+                    // Reject new registrations during shutdown with a sentinel error.
+                    // The selector wraps this in IO.Lifecycle.Error.shutdownInProgress.
+                    // Note: The selector should never send register requests during shutdown,
+                    // but we handle it defensively here.
+                    continuation.resume(returning: .failure(.invalidDescriptor))
                 case .modify(_, _, let continuation):
-                    // Reject modifications during shutdown
-                    continuation.resume(returning: .failure(
-                        IO.Lifecycle.Error<IO.NonBlocking.Error>.shutdownInProgress
-                    ))
+                    // Reject modifications during shutdown with a sentinel error.
+                    continuation.resume(returning: .failure(.notRegistered))
                 }
             }
 
