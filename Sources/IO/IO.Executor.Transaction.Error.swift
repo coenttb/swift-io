@@ -10,11 +10,12 @@ extension IO.Executor.Transaction {
     ///
     /// Generic over the body error E - no existentials, full structure preserved.
     ///
-    /// ## Design
-    /// - Lifecycle concerns (shutdown, cancellation) are NOT in this type.
-    /// - They are surfaced through `IO.Lifecycle.Error` at the Pool boundary.
-    /// - Uses `IO.Blocking.Error` (not `Failure`) to exclude lifecycle cases.
     public enum Error<E: Swift.Error & Sendable>: Swift.Error, Sendable {
+
+    // ## Design
+    // - Lifecycle concerns (shutdown, cancellation) are NOT in this type.
+    // - They are surfaced through `IO.Lifecycle.Error` at the Pool boundary.
+    // - Uses `IO.Blocking.Error` (not `Failure`) to exclude lifecycle cases.
         /// Lane infrastructure errors (excludes lifecycle concerns).
         case lane(IO.Blocking.Error)
 

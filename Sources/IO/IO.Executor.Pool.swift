@@ -333,24 +333,24 @@ extension IO.Executor {
         /// - Guaranteed check-in after body completes (including errors/cancellation)
         /// - No rollback or atomic commit semantics are implied
         ///
-        /// ## Algorithm
-        /// 1. Validate scope and existence
-        /// 2. If handle available: move out (entry.handle = nil)
-        /// 3. Else: enqueue waiter and suspend (cancellation-safe)
-        /// 4. Execute via slot: allocate slot, run on lane, move handle back
-        /// 5. Check-in: restore handle or close if destroyed
-        /// 6. Resume next non-cancelled waiter
-        ///
-        /// ## Cancellation Semantics (Synchronous State Flip, Actor Drains on Next Touch)
+        /// ## Cancellation Semantics
         ///
         /// - `onCancel` handler only flips a cancelled bit synchronously (no Task, no resume)
-        /// - The actor drains cancelled waiters during `resumeNext()` (on handle check-in)
         /// - Cancelled waiters wake, observe `wasCancelled`, and throw `.cancelled`
         /// - Cancellation after checkout: lane operation completes (if guaranteed),
         ///   handle is checked in, then `.cancelled` is thrown
         ///
-        /// INVARIANT: All continuation resumption happens on the actor executor.
-        /// No continuations are resumed from `onCancel` or while holding locks.
+        // ## Algorithm
+        // 1. Validate scope and existence
+        // 2. If handle available: move out (entry.handle = nil)
+        // 3. Else: enqueue waiter and suspend (cancellation-safe)
+        // 4. Execute via slot: allocate slot, run on lane, move handle back
+        // 5. Check-in: restore handle or close if destroyed
+        // 6. Resume next non-cancelled waiter
+        //
+        // INVARIANT: All continuation resumption happens on the actor executor.
+        // The actor drains cancelled waiters during resumeNext() (on handle check-in).
+        // No continuations are resumed from `onCancel` or while holding locks.
         public func transaction<T: Sendable, E: Swift.Error & Sendable>(
             _ id: IO.Handle.ID,
             _ body: @Sendable @escaping (inout Resource) throws(E) -> T

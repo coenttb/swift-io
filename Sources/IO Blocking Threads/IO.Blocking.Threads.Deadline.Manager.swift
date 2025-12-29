@@ -8,30 +8,27 @@
 extension IO.Blocking.Threads.Deadline {
     /// A dedicated thread that enforces acceptance deadlines.
     ///
-    /// ## Design
     /// The deadline manager is a fixed infrastructure thread (not per-call).
     /// It ensures acceptance deadlines fire even when the queue is permanently saturated.
     ///
-    /// ## Algorithm
-    /// 1. Wait on condvar with timeout = earliest deadline
-    /// 2. On wakeup (signal or timeout):
-    ///    - Scan acceptance waiters for expired deadlines
-    ///    - Resume expired waiters with `.deadlineExceeded`
-    ///    - Compute next earliest deadline
-    /// 3. Repeat until shutdown
-    ///
-    /// ## Lazy Expiry Strategy
-    /// Expired waiters are marked as resumed but left in the ring buffer.
-    /// Their slots are reclaimed when `promoteAcceptanceWaiters()` dequeues them.
-    /// This ensures:
-    /// - Non-expired waiters behind expired ones are not starved
-    /// - Capacity is recovered as expired entries are drained
-    ///
-    /// ## Invariants
     /// - Single manager thread per Threads instance
     /// - Manager only touches acceptance waiters (not completion waiters)
     /// - All waiter access is under the shared lock
     final class Manager: Sendable {
+        // ## Algorithm
+        // 1. Wait on condvar with timeout = earliest deadline
+        // 2. On wakeup (signal or timeout):
+        //    - Scan acceptance waiters for expired deadlines
+        //    - Resume expired waiters with `.deadlineExceeded`
+        //    - Compute next earliest deadline
+        // 3. Repeat until shutdown
+        //
+        // ## Lazy Expiry Strategy
+        // Expired waiters are marked as resumed but left in the ring buffer.
+        // Their slots are reclaimed when `promoteAcceptanceWaiters()` dequeues them.
+        // This ensures:
+        // - Non-expired waiters behind expired ones are not starved
+        // - Capacity is recovered as expired entries are drained
         private let state: IO.Blocking.Threads.Thread.Worker.State
 
         init(state: IO.Blocking.Threads.Thread.Worker.State) {

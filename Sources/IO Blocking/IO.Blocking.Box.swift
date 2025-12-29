@@ -30,11 +30,6 @@ extension IO.Blocking {
     /// - Type-safe unboxing when the caller knows `T` and `E`
     /// - No leaks in cancel-wait-but-drain paths
     ///
-    /// ## Memory Layout
-    /// The returned pointer points to the Header struct, which contains:
-    /// - `destroyPayload`: function to destroy payload (captures type info)
-    /// - `payload`: pointer to the `Result<T, E>` or `T` storage
-    ///
     /// ## Ownership Rules
     /// **Invariant:** Exactly one party allocates, exactly one party frees.
     ///
@@ -43,16 +38,21 @@ extension IO.Blocking {
     ///
     /// **Never call both `take*()` and `destroy()` on the same pointer.**
     ///
-    /// ## Why Closure (Future: Replace with Thin Function Pointer)
-    /// The closure captures `T` and `E` type information needed for proper
-    /// deinitialization. Ideally we'd use `@convention(thin)` function pointers
-    /// with `unsafeBitCast` to erase the generic signature, eliminating the
-    /// closure allocation. However:
-    /// - Swift 6.2.3 crashes when `unsafeBitCast`ing generic thin function pointers
-    /// - Static witness-per-specialization patterns are blocked by Swift restrictions
-    ///
-    /// Revisit when the compiler bug is fixed.
     public enum Box {
+        // ## Memory Layout
+        // The returned pointer points to the Header struct, which contains:
+        // - `destroyPayload`: function to destroy payload (captures type info)
+        // - `payload`: pointer to the `Result<T, E>` or `T` storage
+        //
+        // ## Why Closure (Future: Replace with Thin Function Pointer)
+        // The closure captures `T` and `E` type information needed for proper
+        // deinitialization. Ideally we'd use `@convention(thin)` function pointers
+        // with `unsafeBitCast` to erase the generic signature, eliminating the
+        // closure allocation. However:
+        // - Swift 6.2.3 crashes when `unsafeBitCast`ing generic thin function pointers
+        // - Static witness-per-specialization patterns are blocked by Swift restrictions
+        //
+        // Revisit when the compiler bug is fixed.
         /// Header for type-erased box.
         ///
         /// Struct-based (not class) to avoid ARC on the container.

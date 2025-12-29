@@ -12,12 +12,6 @@ extension IO.Blocking.Threads.Completion {
     ///
     /// ## Continuation Resumption Invariant
     /// The continuation MUST be resumed exactly once. This is enforced by:
-    /// - Cancellation path: removes waiter from dictionary and resumes with `.cancellationRequested`
-    /// - Completion path: removes waiter from dictionary and resumes with box
-    ///
-    /// Because both paths remove the waiter under lock before resuming,
-    /// only one can ever see and resume a given waiter.
-    ///
     /// ## Error Handling
     /// The continuation uses `any Error` due to Swift stdlib limitations
     /// (`withCheckedThrowingContinuation` doesn't support typed throws in Swift 6.2).
@@ -31,6 +25,13 @@ extension IO.Blocking.Threads.Completion {
         /// The continuation to resume with the boxed result or failure.
         let continuation: Continuation
 
+
+    // - Cancellation path: removes waiter from dictionary and resumes with `.cancellationRequested`
+    // - Completion path: removes waiter from dictionary and resumes with box
+    //
+    // Because both paths remove the waiter under lock before resuming,
+    // only one can ever see and resume a given waiter.
+    //
         /// Whether this waiter has been resumed. Used for DEBUG assertions only.
         var resumed: Bool
 

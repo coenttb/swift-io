@@ -17,13 +17,14 @@ extension IO.Executor {
     /// Internal synchronization primitive for executor job queue.
     ///
     /// Single mutex + single condition variable, minimal API.
-    /// This is intentionally separate from `IO.Blocking.Threads.Lock` which has
-    /// two condition variables for worker/deadline coordination.
     ///
     /// ## Safety
     /// This type is `@unchecked Sendable` because it provides internal synchronization.
     /// All access to protected data must occur within `withLock` or while holding the lock.
     final class Synchronization: @unchecked Sendable {
+
+    // This is intentionally separate from `IO.Blocking.Threads.Lock` which has
+    // two condition variables for worker/deadline coordination.
         #if os(Windows)
         private var srwlock: SRWLOCK = SRWLOCK()
         private var condvar: CONDITION_VARIABLE = CONDITION_VARIABLE()
