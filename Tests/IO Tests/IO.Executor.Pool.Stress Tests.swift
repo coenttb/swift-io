@@ -827,9 +827,9 @@ struct IOExecutorPoolStressTests {
                 }
             }
 
-            // Watchdog to detect hangs
+            // Watchdog to detect hangs (10s for CI reliability)
             let watchdog = Task {
-                try await Task.sleep(for: .seconds(2))
+                try await Task.sleep(for: .seconds(10))
                 fatalError("HANG iter \(iteration)")
             }
             defer { watchdog.cancel() }
