@@ -19,40 +19,40 @@ swift-io is designed for infrastructure code where correctness, determinism, and
 
 ## Performance
 
-Benchmarks comparing swift-io against SwiftNIO's `NIOThreadPool` (release mode, arm64). All results include p95/p99; swift-io prioritizes predictable tails under contention. For long-running blocking work, NIO may achieve lower median latency, while swift-io provides tighter tail latency and deterministic scheduling.
+Benchmarks comparing swift-io against SwiftNIO's `NIOThreadPool` (release mode, arm64, Apple M1). Medians reported; p95/p99 shown where tail latency differs significantly.
 
-*Note: Benchmarks simulate short blocking workloads; real I/O workloads are typically syscall-dominated and reduce relative overhead differences.*
+*Benchmarks simulate short blocking workloads (10µs each). Real I/O is syscall-dominated, reducing relative overhead differences.*
 
 ### Throughput
 
 | Benchmark | swift-io | NIOThreadPool | Difference |
 |-----------|----------|---------------|------------|
-| Sequential (1000 ops) | 4.42ms | 7.39ms | **40% faster** |
-| Concurrent (1000 ops) | 1.88ms | 1.71ms | ~10% slower |
+| Sequential (1000 × 10µs ops) | 4.51ms | 7.15ms | **37% faster** |
+| Concurrent (1000 × 10µs ops) | 1.72ms | 1.43ms | NIO 17% faster |
 
-### Overhead (per-operation)
+### Overhead (per-operation, median)
 
 | Benchmark | swift-io | NIOThreadPool | Difference |
 |-----------|----------|---------------|------------|
-| Thread dispatch | 4.08µs | 7.67µs | **47% faster** |
-| Success path | 4.08µs | 7.46µs | **45% faster** |
-| Failure path | 4.50µs | 10.88µs | **59% faster** |
-| Queue admission | 4.04µs | 7.88µs | **49% faster** |
+| Thread dispatch | 4.00µs | 7.88µs | **49% faster** |
+| Success path | 3.96µs | 7.83µs | **49% faster** |
+| Failure path | 4.46µs | 10.79µs | **59% faster** |
+| Queue admission | 4.13µs | 7.83µs | **47% faster** |
 
 ### Contention
 
-| Scenario | swift-io | NIOThreadPool | Notes |
-|----------|----------|---------------|-------|
-| Moderate (10:1) | 232µs | 199µs | NIO median lower, swift-io tighter tails |
-| High (100:1) | 784µs | 913µs | swift-io wins |
-| Extreme (1000:1) | 3.85ms | 2.93ms | NIO wins throughput |
+| Scenario | swift-io | swift-io sharded | NIOThreadPool | Notes |
+|----------|----------|------------------|---------------|-------|
+| Moderate (10:1) | 216µs | 224µs | 182µs | NIO median wins, but p95: 253µs vs **671µs** |
+| High (100:1) | 1.01ms | 568µs | 632µs | Sharded 10% faster than NIO |
+| Extreme (1000:1) | 3.45ms | 2.54ms | 2.55ms | Sharded ties NIO |
 
 ### Design Wins
 
 | Mechanism | Benefit | Measured |
 |-----------|---------|----------|
-| Context-based completion | Eliminates shared dictionary and lock-held hash ops | 83ns vs 1.50µs (18x) |
-| Transition-based signaling | Prevents signal storms; ~90% fewer kernel transitions | 30% concurrent improvement |
+| Context-based completion | Eliminates shared dictionary lookup | 83ns vs 1.50µs (**18×**) |
+| Sharded lanes | Reduces lock contention under load | 40% faster than unsharded at 100:1 |
 
 ### When to Use swift-io vs NIOThreadPool
 
