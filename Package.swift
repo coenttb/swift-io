@@ -15,6 +15,10 @@ let package = Package(
         .library(name: "IO Primitives", targets: ["IO Primitives"]),
         .library(name: "IO Blocking", targets: ["IO Blocking"]),
         .library(name: "IO Blocking Threads", targets: ["IO Blocking Threads"]),
+        .library(name: "IO NonBlocking Primitives", targets: ["IO NonBlocking Primitives"]),
+        .library(name: "IO NonBlocking Driver", targets: ["IO NonBlocking Driver"]),
+        .library(name: "IO NonBlocking Kqueue", targets: ["IO NonBlocking Kqueue"]),
+        .library(name: "IO NonBlocking", targets: ["IO NonBlocking"]),
     ],
     traits: [
         .trait(name: "Codable", description: "Enable Codable conformances for Handle.ID and other types"),
@@ -22,6 +26,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/swift-standards/swift-time-standard.git", from: "0.2.0"),
         .package(url: "https://github.com/swift-standards/swift-standards", from: "0.19.4"),
+        .package(url: "https://github.com/apple/swift-nio", from: "2.70.0"),
     ],
     targets: [
         .target(
@@ -41,6 +46,25 @@ let package = Package(
         .target(
             name: "IO",
             dependencies: ["IO Blocking", "IO Blocking Threads"]
+        ),
+        .target(
+            name: "IO NonBlocking Primitives",
+            dependencies: ["IO Primitives"]
+        ),
+        .target(
+            name: "IO NonBlocking Driver",
+            dependencies: ["IO NonBlocking Primitives"]
+        ),
+        .target(
+            name: "IO NonBlocking Kqueue",
+            dependencies: ["IO NonBlocking Driver"]
+        ),
+        .target(
+            name: "IO NonBlocking",
+            dependencies: [
+                "IO NonBlocking Driver",
+                "IO NonBlocking Kqueue",
+            ]
         ),
         .testTarget(
             name: "IO Primitives Tests",
@@ -69,6 +93,40 @@ let package = Package(
                 "IO",
                 .product(name: "StandardsTestSupport", package: "swift-standards"),
             ]
+        ),
+        .testTarget(
+            name: "IO NonBlocking Primitives Tests",
+            dependencies: [
+                "IO NonBlocking Primitives",
+                .product(name: "StandardsTestSupport", package: "swift-standards"),
+            ]
+        ),
+        .testTarget(
+            name: "IO NonBlocking Tests",
+            dependencies: [
+                "IO NonBlocking",
+                .product(name: "StandardsTestSupport", package: "swift-standards"),
+            ]
+        ),
+        .testTarget(
+            name: "IO Benchmarks",
+            dependencies: [
+                "IO",
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "StandardsTestSupport", package: "swift-standards"),
+            ],
+            path: "Tests/IO Benchmarks"
+        ),
+        .testTarget(
+            name: "IO NonBlocking Benchmarks",
+            dependencies: [
+                "IO NonBlocking",
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "StandardsTestSupport", package: "swift-standards"),
+            ],
+            path: "Tests/IO NonBlocking Benchmarks"
         ),
     ]
 )
