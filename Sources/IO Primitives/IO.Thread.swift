@@ -18,56 +18,6 @@ extension IO {
     public enum Thread {}
 }
 
-// MARK: - Handle
-
-extension IO.Thread {
-    /// Opaque handle to an OS thread.
-    ///
-    /// ## Safety
-    /// This type is `@unchecked Sendable` because the underlying handle
-    /// (pthread_t or HANDLE) can be safely passed between threads.
-    public struct Handle: @unchecked Sendable {
-        #if os(Windows)
-        let handle: HANDLE
-
-        init(handle: HANDLE) {
-            self.handle = handle
-        }
-
-        /// Wait for the thread to complete.
-        public func join() {
-            WaitForSingleObject(handle, INFINITE)
-            CloseHandle(handle)
-        }
-
-        /// Check if the current thread is this thread.
-        ///
-        /// Used for shutdown safety to prevent join-on-self deadlock.
-        public var isCurrentThread: Bool {
-            GetCurrentThreadId() == GetThreadId(handle)
-        }
-        #else
-        let thread: pthread_t
-
-        init(thread: pthread_t) {
-            self.thread = thread
-        }
-
-        /// Wait for the thread to complete.
-        public func join() {
-            pthread_join(thread, nil)
-        }
-
-        /// Check if the current thread is this thread.
-        ///
-        /// Used for shutdown safety to prevent join-on-self deadlock.
-        public var isCurrentThread: Bool {
-            pthread_equal(pthread_self(), thread) != 0
-        }
-        #endif
-    }
-}
-
 // MARK: - Spawn
 
 extension IO.Thread {
@@ -75,7 +25,7 @@ extension IO.Thread {
     ///
     /// The closure is invoked exactly once on the spawned OS thread.
     /// This guarantee is essential for ownership-transfer patterns using
-    /// `IO.RetainedPointer`, where the closure takes ownership of a retained
+    /// `IO.Pointer.Retained`, where the closure takes ownership of a retained
     /// reference that must be released exactly once.
     ///
     /// - Parameter body: The work to run on the new thread. Executed exactly once.
