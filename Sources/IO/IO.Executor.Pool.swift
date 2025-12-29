@@ -53,6 +53,11 @@ extension IO.Executor {
         /// Unique scope identifier for this executor instance.
         public nonisolated let scope: UInt64
 
+        /// The shard index when used in a `Shards` collection.
+        ///
+        /// For standalone pools, this is always 0.
+        public nonisolated let shardIndex: UInt16
+
         /// Maximum waiters per handle (from backpressure policy).
         private let handleWaitersLimit: Int
 
@@ -131,11 +136,17 @@ extension IO.Executor {
         /// - Parameters:
         ///   - lane: The lane for executing blocking operations.
         ///   - policy: Backpressure policy (default: `.default`).
-        public init(lane: IO.Blocking.Lane, policy: IO.Backpressure.Policy = .default) {
+        ///   - shardIndex: Shard index for use in `Shards` (default: 0).
+        public init(
+            lane: IO.Blocking.Lane,
+            policy: IO.Backpressure.Policy = .default,
+            shardIndex: UInt16 = 0
+        ) {
             self._executor = IO.Executor.shared.next()
             self.lane = lane
             self.handleWaitersLimit = policy.handleWaitersLimit
             self.scope = IO.Executor.scopeCounter.next()
+            self.shardIndex = shardIndex
         }
 
         /// Creates an executor with the given lane, policy, and explicit executor.
@@ -147,15 +158,18 @@ extension IO.Executor {
         ///   - lane: The lane for executing blocking operations.
         ///   - policy: Backpressure policy (default: `.default`).
         ///   - executor: The executor thread to run on.
+        ///   - shardIndex: Shard index for use in `Shards` (default: 0).
         public init(
             lane: IO.Blocking.Lane,
             policy: IO.Backpressure.Policy = .default,
-            executor: IO.Executor.Thread
+            executor: IO.Executor.Thread,
+            shardIndex: UInt16 = 0
         ) {
             self._executor = executor
             self.lane = lane
             self.handleWaitersLimit = policy.handleWaitersLimit
             self.scope = IO.Executor.scopeCounter.next()
+            self.shardIndex = shardIndex
         }
 
         /// Creates an executor with default Threads lane options.
@@ -173,6 +187,7 @@ extension IO.Executor {
             self.lane = .threads(options)
             self.handleWaitersLimit = options.policy.handleWaitersLimit
             self.scope = IO.Executor.scopeCounter.next()
+            self.shardIndex = 0
         }
 
         // MARK: - Execution
@@ -257,7 +272,7 @@ extension IO.Executor {
         private func generateHandleID() -> IO.Handle.ID {
             let raw = nextRawID
             nextRawID += 1
-            return IO.Handle.ID(raw: raw, scope: scope)
+            return IO.Handle.ID(raw: raw, scope: scope, shard: shardIndex)
         }
 
         /// Register a resource and return its ID.
@@ -404,12 +419,22 @@ extension IO.Executor {
                     throw .failure(.handle(.invalidID))
                 }
 
-                guard entry.state == .present, let h = entry.take() else {
+                // Claim handle - either reserved for us or present
+                if case .reserved(let reservedToken) = entry.state, reservedToken == token {
+                    // Reservation path - claim by token (no contention possible)
+                    guard let h = entry.takeReserved(token: token) else {
+                        throw .failure(.handle(.invalidID))
+                    }
+                    entry.state = .checkedOut
+                    checkedOutHandle = h
+                } else if entry.state == .present, let h = entry.take() {
+                    // Fallback for edge cases (shouldn't normally happen with reservation)
+                    entry.state = .checkedOut
+                    checkedOutHandle = h
+                } else {
+                    // Handle not available - unexpected state
                     throw .failure(.handle(.invalidID))
                 }
-
-                entry.state = .checkedOut
-                checkedOutHandle = h
             }
 
             // Step 4: Execute body on lane using slot pattern
@@ -470,6 +495,11 @@ extension IO.Executor {
         }
 
         /// Check-in a handle after transaction.
+        ///
+        /// Uses reservation-based handoff when waiters exist:
+        /// 1. Dequeue next armed waiter
+        /// 2. Store handle in `reservedHandle` with waiter's token
+        /// 3. Resume waiter - they claim by token (no re-validation needed)
         private func _checkInHandle(
             _ handle: consuming Resource,
             for id: IO.Handle.ID,
@@ -480,11 +510,18 @@ extension IO.Executor {
                 // The resource is dropped here (caller should handle cleanup)
                 handles.removeValue(forKey: id)
                 _ = consume handle
+            } else if let waiter = entry.waiters.dequeueNextArmed() {
+                // Reservation path - assign handle to specific waiter
+                entry.reservedHandle = consume handle
+                entry.state = .reserved(waiterToken: waiter.token)
+                // Resume waiter - they will claim by token
+                if let result = waiter.takeForResume() {
+                    result.continuation.resume()
+                }
             } else {
-                // Sync path - store handle back and resume waiter
+                // No waiters - make handle present
                 entry.handle = consume handle
                 entry.state = .present
-                entry.waiters.resumeNext()
             }
         }
 
@@ -539,18 +576,22 @@ extension IO.Executor {
                 return
             }
 
-            // If handle is checked out, mark for destruction on check-in
-            if entry.state == .checkedOut {
+            // If handle is checked out or reserved, mark for destruction on check-in
+            switch entry.state {
+            case .checkedOut, .reserved:
                 entry.state = .destroyed
                 // Drain waiters so they wake and see destroyed state
                 entry.waiters.resumeAll()
                 return
+            case .present:
+                // Handle is present - mark destroyed and remove
+                entry.state = .destroyed
+                entry.waiters.resumeAll()
+                handles.removeValue(forKey: id)
+            case .destroyed:
+                // Already handled above
+                break
             }
-
-            // Handle is present - mark destroyed and remove
-            entry.state = .destroyed
-            entry.waiters.resumeAll()
-            handles.removeValue(forKey: id)
         }
     }
 }

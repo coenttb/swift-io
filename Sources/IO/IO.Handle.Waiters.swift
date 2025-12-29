@@ -88,6 +88,33 @@ extension IO.Handle {
             }
         }
 
+        /// Dequeue the next armed waiter without resuming it.
+        ///
+        /// This is used for reservation-based handoff where the caller wants to:
+        /// 1. Dequeue the waiter
+        /// 2. Set up the reservation state
+        /// 3. Resume the waiter after reservation is committed
+        ///
+        /// Skips cancelled waiters (they're drained).
+        /// Returns the waiter if found, nil if queue is empty or all waiters are cancelled.
+        ///
+        /// MUST be called on the actor executor.
+        public mutating func dequeueNextArmed() -> Waiter? {
+            while _count > 0 {
+                let waiter = storage[head]
+                storage[head] = nil
+                head = (head + 1) % capacity
+                _count -= 1
+
+                if let waiter = waiter, waiter.isArmed && !waiter.isDrained {
+                    // Found an armed, non-drained waiter
+                    return waiter
+                }
+                // Waiter was nil, unarmed, or already drained - continue
+            }
+            return nil
+        }
+
         /// Resume all waiters (cancelled or not).
         ///
         /// Used during shutdown to wake all waiting tasks.

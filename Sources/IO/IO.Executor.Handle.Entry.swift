@@ -13,8 +13,15 @@ extension IO.Executor.Handle {
     ///
     /// Generic over `Resource` which must be `~Copyable & Sendable`.
     public final class Entry<Resource: ~Copyable & Sendable> {
-        /// The resource, or nil if currently checked out or destroyed.
+        /// The resource, or nil if currently checked out, reserved, or destroyed.
         public var handle: Resource?
+
+        /// The resource when reserved for a specific waiter.
+        ///
+        /// Separated from `handle` to distinguish between:
+        /// - `handle`: Available for immediate checkout
+        /// - `reservedHandle`: Committed to a specific waiter by token
+        public var reservedHandle: Resource?
 
         /// Queue of tasks waiting for this handle.
         public var waiters: IO.Handle.Waiters
@@ -29,13 +36,19 @@ extension IO.Executor.Handle {
         ///   - waitersCapacity: Maximum waiters for this handle (default: 64).
         public init(handle: consuming Resource, waitersCapacity: Int = IO.Handle.Waiters.defaultCapacity) {
             self.handle = consume handle
+            self.reservedHandle = nil
             self.waiters = IO.Handle.Waiters(capacity: waitersCapacity)
             self.state = .present
         }
 
-        /// Whether the handle is logically open (present or checked out).
+        /// Whether the handle is logically open (present, checked out, or reserved).
         public var isOpen: Bool {
-            state == .present || state == .checkedOut
+            switch state {
+            case .present, .checkedOut, .reserved:
+                return true
+            case .destroyed:
+                return false
+            }
         }
 
         /// Whether destroy has been requested.
@@ -49,6 +62,20 @@ extension IO.Executor.Handle {
             guard handle != nil else { return nil }
             var result: Resource? = nil
             swap(&result, &handle)
+            return result
+        }
+
+        /// Takes the reserved handle for a specific waiter token.
+        ///
+        /// - Parameter token: The waiter token that must match the reservation.
+        /// - Returns: The reserved resource if token matches, nil otherwise.
+        public func takeReserved(token: UInt64) -> Resource? {
+            guard case .reserved(let reservedToken) = state, reservedToken == token else {
+                return nil
+            }
+            guard reservedHandle != nil else { return nil }
+            var result: Resource? = nil
+            swap(&result, &reservedHandle)
             return result
         }
     }
