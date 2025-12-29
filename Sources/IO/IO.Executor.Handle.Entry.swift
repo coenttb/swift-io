@@ -32,11 +32,11 @@ extension IO.Executor.Handle {
         public var state: State
 
         #if DEBUG
-        /// Debug-only single-writer tripwire for entry mutation.
-        ///
-        /// This detects concurrent mutation of struct-on-class fields (e.g. `waiters`)
-        /// which would otherwise manifest as ring-buffer corruption.
-        private let _mutationDepth = Mutex<Int>(0)
+            /// Debug-only single-writer tripwire for entry mutation.
+            ///
+            /// This detects concurrent mutation of struct-on-class fields (e.g. `waiters`)
+            /// which would otherwise manifest as ring-buffer corruption.
+            private let _mutationDepth = Mutex<Int>(0)
         #endif
 
         /// Creates an entry with the given resource and waiter capacity.
@@ -56,23 +56,23 @@ extension IO.Executor.Handle {
 // MARK: - Debug Mutation Tracking
 
 #if DEBUG
-extension IO.Executor.Handle.Entry {
-    /// Marks entry mutation scope; traps if concurrent mutation is detected.
-    public func _debugBeginMutation() {
-        _mutationDepth.withLock { depth in
-            depth += 1
-            precondition(depth == 1, "Concurrent Entry mutation detected")
+    extension IO.Executor.Handle.Entry {
+        /// Marks entry mutation scope; traps if concurrent mutation is detected.
+        public func _debugBeginMutation() {
+            _mutationDepth.withLock { depth in
+                depth += 1
+                precondition(depth == 1, "Concurrent Entry mutation detected")
+            }
         }
-    }
 
-    /// Ends entry mutation scope.
-    public func _debugEndMutation() {
-        _mutationDepth.withLock { depth in
-            depth -= 1
-            precondition(depth == 0, "Entry mutation scope imbalance")
+        /// Ends entry mutation scope.
+        public func _debugEndMutation() {
+            _mutationDepth.withLock { depth in
+                depth -= 1
+                precondition(depth == 0, "Entry mutation scope imbalance")
+            }
         }
     }
-}
 #endif
 
 // MARK: - Properties

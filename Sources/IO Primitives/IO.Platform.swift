@@ -6,11 +6,11 @@
 //
 
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #elseif canImport(Glibc)
-import Glibc
+    import Glibc
 #elseif os(Windows)
-import WinSDK
+    import WinSDK
 #endif
 
 extension IO {
@@ -26,12 +26,12 @@ extension IO.Platform {
     /// - Windows: `GetSystemInfo`
     public static var processorCount: Int {
         #if os(Windows)
-        var info = SYSTEM_INFO()
-        GetSystemInfo(&info)
-        return Int(info.dwNumberOfProcessors)
+            var info = SYSTEM_INFO()
+            GetSystemInfo(&info)
+            return Int(info.dwNumberOfProcessors)
         #else
-        let count = sysconf(_SC_NPROCESSORS_ONLN)
-        return count > 0 ? Int(count) : 1
+            let count = sysconf(_SC_NPROCESSORS_ONLN)
+            return count > 0 ? Int(count) : 1
         #endif
     }
 }

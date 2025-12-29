@@ -19,7 +19,6 @@ extension IO.Executor.Job.Queue.Test.Unit {
     func emptyQueue() {
         let queue = IO.Executor.Job.Queue()
         #expect(queue.isEmpty)
-        #expect(queue.count == 0)
     }
 
     @Test("default capacity is 64")

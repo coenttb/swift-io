@@ -6,11 +6,11 @@
 //
 
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #elseif canImport(Glibc)
-import Glibc
+    import Glibc
 #elseif os(Windows)
-import WinSDK
+    import WinSDK
 #endif
 
 extension IO.Thread {
@@ -21,17 +21,17 @@ extension IO.Thread {
     /// (pthread_t or HANDLE) can be safely passed between threads.
     public struct Handle: @unchecked Sendable {
         #if os(Windows)
-        let handle: HANDLE
+            let handle: HANDLE
 
-        init(handle: HANDLE) {
-            self.handle = handle
-        }
+            init(handle: HANDLE) {
+                self.handle = handle
+            }
         #else
-        let thread: pthread_t
+            let thread: pthread_t
 
-        init(thread: pthread_t) {
-            self.thread = thread
-        }
+            init(thread: pthread_t) {
+                self.thread = thread
+            }
         #endif
     }
 }
@@ -40,10 +40,10 @@ extension IO.Thread.Handle {
     /// Wait for the thread to complete.
     public func join() {
         #if os(Windows)
-        WaitForSingleObject(handle, INFINITE)
-        CloseHandle(handle)
+            WaitForSingleObject(handle, INFINITE)
+            CloseHandle(handle)
         #else
-        pthread_join(thread, nil)
+            pthread_join(thread, nil)
         #endif
     }
 
@@ -52,9 +52,9 @@ extension IO.Thread.Handle {
     /// Used for shutdown safety to prevent join-on-self deadlock.
     public var isCurrentThread: Bool {
         #if os(Windows)
-        GetCurrentThreadId() == GetThreadId(handle)
+            GetCurrentThreadId() == GetThreadId(handle)
         #else
-        pthread_equal(pthread_self(), thread) != 0
+            pthread_equal(pthread_self(), thread) != 0
         #endif
     }
 }

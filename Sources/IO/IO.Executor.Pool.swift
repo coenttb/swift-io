@@ -7,7 +7,6 @@
 
 import Synchronization
 
-
 extension IO.Executor {
     /// The executor pool for async I/O operations.
     ///
@@ -393,8 +392,8 @@ extension IO.Executor.Pool {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             // Debug guard wraps only the synchronous mutation, not the suspension
             #if DEBUG
-            entry._debugBeginMutation()
-            defer { entry._debugEndMutation() }
+                entry._debugBeginMutation()
+                defer { entry._debugEndMutation() }
             #endif
 
             let didArm = waiter.arm(continuation: continuation)
@@ -434,17 +433,17 @@ extension IO.Executor.Pool {
     /// - Cancellation after checkout: lane operation completes (if guaranteed),
     ///   handle is checked in, then `.cancelled` is thrown
     ///
-    // ## Algorithm
-    // 1. Validate scope and existence
-    // 2. If handle available: move out (entry.handle = nil)
-    // 3. Else: enqueue waiter and suspend (cancellation-safe)
-    // 4. Execute via slot: allocate slot, run on lane, move handle back
-    // 5. Check-in: restore handle or close if destroyed
-    // 6. Resume next non-cancelled waiter
-    //
-    // INVARIANT: All continuation resumption happens on the actor executor.
-    // The actor drains cancelled waiters during resumeNext() (on handle check-in).
-    // No continuations are resumed from `onCancel` or while holding locks.
+    /// ## Algorithm
+    /// 1. Validate scope and existence
+    /// 2. If handle available: move out (entry.handle = nil)
+    /// 3. Else: enqueue waiter and suspend (cancellation-safe)
+    /// 4. Execute via slot: allocate slot, run on lane, move handle back
+    /// 5. Check-in: restore handle or close if destroyed
+    /// 6. Resume next non-cancelled waiter
+    ///
+    /// INVARIANT: All continuation resumption happens on the actor executor.
+    /// The actor drains cancelled waiters during resumeNext() (on handle check-in).
+    /// No continuations are resumed from `onCancel` or while holding locks.
     public func transaction<T: Sendable, E: Swift.Error & Sendable>(
         _ id: IO.Handle.ID,
         _ body: @Sendable @escaping (inout Resource) throws(E) -> T
@@ -627,8 +626,8 @@ extension IO.Executor.Pool {
         entry: IO.Executor.Handle.Entry<Resource>
     ) {
         #if DEBUG
-        entry._debugBeginMutation()
-        defer { entry._debugEndMutation() }
+            entry._debugBeginMutation()
+            defer { entry._debugEndMutation() }
         #endif
 
         if entry.state == .destroyed {

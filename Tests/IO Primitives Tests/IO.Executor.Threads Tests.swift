@@ -18,7 +18,7 @@ extension IO.Executor.Threads.Test.Unit {
     @Test("init with default options creates threads")
     func initDefaultOptions() {
         let pool = IO.Executor.Threads()
-        #expect(pool.count > 0)
+        #expect(!pool.isEmpty)
         #expect(pool.count <= 4)  // Default is min(4, processorCount)
         pool.shutdown()
     }

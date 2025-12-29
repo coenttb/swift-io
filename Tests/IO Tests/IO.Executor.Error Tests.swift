@@ -86,7 +86,7 @@ extension IO.Executor.Error.Test.EdgeCase {
         let allCases: [IO.Executor.Error] = [
             .scopeMismatch,
             .handleNotFound,
-            .invalidState
+            .invalidState,
         ]
         // All 3 cases are operational - no lifecycle
         #expect(allCases.count == 3)

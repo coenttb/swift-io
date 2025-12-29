@@ -6,11 +6,11 @@
 //
 
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #elseif canImport(Glibc)
-import Glibc
+    import Glibc
 #elseif os(Windows)
-import WinSDK
+    import WinSDK
 #endif
 
 extension IO.Executor {
@@ -23,40 +23,40 @@ extension IO.Executor {
     /// All access to protected data must occur within `withLock` or while holding the lock.
     final class Synchronization: @unchecked Sendable {
 
-    // This is intentionally separate from `IO.Blocking.Threads.Lock` which has
-    // two condition variables for worker/deadline coordination.
+        // This is intentionally separate from `IO.Blocking.Threads.Lock` which has
+        // two condition variables for worker/deadline coordination.
         #if os(Windows)
-        private var srwlock: SRWLOCK = SRWLOCK()
-        private var condvar: CONDITION_VARIABLE = CONDITION_VARIABLE()
+            private var srwlock: SRWLOCK = SRWLOCK()
+            private var condvar: CONDITION_VARIABLE = CONDITION_VARIABLE()
         #else
-        private var mutex: pthread_mutex_t = pthread_mutex_t()
-        private var cond: pthread_cond_t = pthread_cond_t()
+            private var mutex: pthread_mutex_t = pthread_mutex_t()
+            private var cond: pthread_cond_t = pthread_cond_t()
         #endif
 
         init() {
             #if os(Windows)
-            InitializeSRWLock(&srwlock)
-            InitializeConditionVariable(&condvar)
+                InitializeSRWLock(&srwlock)
+                InitializeConditionVariable(&condvar)
             #else
-            var mutexAttr = pthread_mutexattr_t()
-            pthread_mutexattr_init(&mutexAttr)
-            pthread_mutex_init(&mutex, &mutexAttr)
-            pthread_mutexattr_destroy(&mutexAttr)
+                var mutexAttr = pthread_mutexattr_t()
+                pthread_mutexattr_init(&mutexAttr)
+                pthread_mutex_init(&mutex, &mutexAttr)
+                pthread_mutexattr_destroy(&mutexAttr)
 
-            var condAttr = pthread_condattr_t()
-            pthread_condattr_init(&condAttr)
-            #if !os(macOS) && !os(iOS) && !os(tvOS) && !os(watchOS)
-            pthread_condattr_setclock(&condAttr, CLOCK_MONOTONIC)
-            #endif
-            pthread_cond_init(&cond, &condAttr)
-            pthread_condattr_destroy(&condAttr)
+                var condAttr = pthread_condattr_t()
+                pthread_condattr_init(&condAttr)
+                #if !os(macOS) && !os(iOS) && !os(tvOS) && !os(watchOS)
+                    pthread_condattr_setclock(&condAttr, CLOCK_MONOTONIC)
+                #endif
+                pthread_cond_init(&cond, &condAttr)
+                pthread_condattr_destroy(&condAttr)
             #endif
         }
 
         deinit {
             #if !os(Windows)
-            pthread_cond_destroy(&cond)
-            pthread_mutex_destroy(&mutex)
+                pthread_cond_destroy(&cond)
+                pthread_mutex_destroy(&mutex)
             #endif
         }
 
@@ -65,18 +65,18 @@ extension IO.Executor {
         /// Acquire the lock.
         func lock() {
             #if os(Windows)
-            AcquireSRWLockExclusive(&srwlock)
+                AcquireSRWLockExclusive(&srwlock)
             #else
-            pthread_mutex_lock(&mutex)
+                pthread_mutex_lock(&mutex)
             #endif
         }
 
         /// Release the lock.
         func unlock() {
             #if os(Windows)
-            ReleaseSRWLockExclusive(&srwlock)
+                ReleaseSRWLockExclusive(&srwlock)
             #else
-            pthread_mutex_unlock(&mutex)
+                pthread_mutex_unlock(&mutex)
             #endif
         }
 
@@ -94,27 +94,27 @@ extension IO.Executor {
         /// The lock is released while waiting and reacquired before returning.
         func wait() {
             #if os(Windows)
-            _ = SleepConditionVariableSRW(&condvar, &srwlock, INFINITE, 0)
+                _ = SleepConditionVariableSRW(&condvar, &srwlock, INFINITE, 0)
             #else
-            pthread_cond_wait(&cond, &mutex)
+                pthread_cond_wait(&cond, &mutex)
             #endif
         }
 
         /// Signal one waiting thread.
         func signal() {
             #if os(Windows)
-            WakeConditionVariable(&condvar)
+                WakeConditionVariable(&condvar)
             #else
-            pthread_cond_signal(&cond)
+                pthread_cond_signal(&cond)
             #endif
         }
 
         /// Signal all waiting threads.
         func broadcast() {
             #if os(Windows)
-            WakeAllConditionVariable(&condvar)
+                WakeAllConditionVariable(&condvar)
             #else
-            pthread_cond_broadcast(&cond)
+                pthread_cond_broadcast(&cond)
             #endif
         }
     }

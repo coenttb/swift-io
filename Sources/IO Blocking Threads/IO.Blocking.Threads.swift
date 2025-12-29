@@ -172,7 +172,7 @@ extension IO.Blocking.Threads {
                         state.lock.signalDeadline()
                     }
                     state.lock.unlock()
-                    // Waiter registered - will be promoted when capacity available
+                // Waiter registered - will be promoted when capacity available
                 }
             }
         } onCancel: {

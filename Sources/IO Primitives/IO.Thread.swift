@@ -6,11 +6,11 @@
 //
 
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #elseif canImport(Glibc)
-import Glibc
+    import Glibc
 #elseif os(Windows)
-import WinSDK
+    import WinSDK
 #endif
 
 extension IO {
@@ -32,66 +32,66 @@ extension IO.Thread {
     /// - Returns: An opaque handle to the thread.
     public static func spawn(_ body: @escaping @Sendable () -> Void) -> Handle {
         #if os(Windows)
-        var threadHandle: HANDLE?
-        let context = UnsafeMutablePointer<(@Sendable () -> Void)>.allocate(capacity: 1)
-        context.initialize(to: body)
+            var threadHandle: HANDLE?
+            let context = UnsafeMutablePointer<(@Sendable () -> Void)>.allocate(capacity: 1)
+            context.initialize(to: body)
 
-        threadHandle = CreateThread(
-            nil,
-            0,
-            { context in
-                guard let ctx = context else { return 0 }
-                let body = ctx.assumingMemoryBound(to: (@Sendable () -> Void).self)
-                let work = body.move()
-                body.deallocate()
-                work()
-                return 0
-            },
-            context,
-            0,
-            nil
-        )
-        return Handle(handle: threadHandle!)
+            threadHandle = CreateThread(
+                nil,
+                0,
+                { context in
+                    guard let ctx = context else { return 0 }
+                    let body = ctx.assumingMemoryBound(to: (@Sendable () -> Void).self)
+                    let work = body.move()
+                    body.deallocate()
+                    work()
+                    return 0
+                },
+                context,
+                0,
+                nil
+            )
+            return Handle(handle: threadHandle!)
         #elseif canImport(Darwin)
-        var thread: pthread_t?
-        let contextPtr = UnsafeMutablePointer<(@Sendable () -> Void)>.allocate(capacity: 1)
-        contextPtr.initialize(to: body)
+            var thread: pthread_t?
+            let contextPtr = UnsafeMutablePointer<(@Sendable () -> Void)>.allocate(capacity: 1)
+            contextPtr.initialize(to: body)
 
-        pthread_create(
-            &thread,
-            nil,
-            { ctx in
-                let bodyPtr = ctx.assumingMemoryBound(to: (@Sendable () -> Void).self)
-                let work = bodyPtr.move()
-                bodyPtr.deallocate()
-                work()
-                return nil
-            },
-            contextPtr
-        )
+            pthread_create(
+                &thread,
+                nil,
+                { ctx in
+                    let bodyPtr = ctx.assumingMemoryBound(to: (@Sendable () -> Void).self)
+                    let work = bodyPtr.move()
+                    bodyPtr.deallocate()
+                    work()
+                    return nil
+                },
+                contextPtr
+            )
 
-        return Handle(thread: thread!)
+            return Handle(thread: thread!)
         #else
-        // Linux: pthread_t is non-optional
-        var thread: pthread_t = 0
-        let contextPtr = UnsafeMutablePointer<(@Sendable () -> Void)>.allocate(capacity: 1)
-        contextPtr.initialize(to: body)
+            // Linux: pthread_t is non-optional
+            var thread: pthread_t = 0
+            let contextPtr = UnsafeMutablePointer<(@Sendable () -> Void)>.allocate(capacity: 1)
+            contextPtr.initialize(to: body)
 
-        pthread_create(
-            &thread,
-            nil,
-            { ctx in
-                guard let ctx else { return nil }
-                let bodyPtr = ctx.assumingMemoryBound(to: (@Sendable () -> Void).self)
-                let work = bodyPtr.move()
-                bodyPtr.deallocate()
-                work()
-                return nil
-            },
-            contextPtr
-        )
+            pthread_create(
+                &thread,
+                nil,
+                { ctx in
+                    guard let ctx else { return nil }
+                    let bodyPtr = ctx.assumingMemoryBound(to: (@Sendable () -> Void).self)
+                    let work = bodyPtr.move()
+                    bodyPtr.deallocate()
+                    work()
+                    return nil
+                },
+                contextPtr
+            )
 
-        return Handle(thread: thread)
+            return Handle(thread: thread)
         #endif
     }
 

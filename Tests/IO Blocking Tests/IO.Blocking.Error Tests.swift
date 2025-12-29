@@ -114,7 +114,7 @@ extension IO.Blocking.Error.Test.EdgeCase {
             .queueFull,
             .deadlineExceeded,
             .overloaded,
-            .internalInvariantViolation
+            .internalInvariantViolation,
         ]
         // All 4 cases are operational - no lifecycle
         #expect(allCases.count == 4)

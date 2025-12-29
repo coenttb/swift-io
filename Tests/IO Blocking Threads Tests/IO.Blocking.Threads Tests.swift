@@ -137,11 +137,11 @@ extension IO.Blocking.Threads.Test.EdgeCase {
                 let _: UnsafeMutableRawPointer = try await threads.runBoxed(deadline: nil) {
                     return IO.Blocking.Box.makeValue(())
                 }
-                return false // Unexpected success
+                return false  // Unexpected success
             } catch let error as IO.Blocking.Failure {
                 return error == .cancellationRequested
             } catch {
-                return false // Unexpected error type
+                return false  // Unexpected error type
             }
         }
 
