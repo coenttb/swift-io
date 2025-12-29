@@ -195,6 +195,19 @@ extension IO.NonBlocking {
             return selector
         }
 
+        /// Creates a new selector with the platform-default driver.
+        ///
+        /// Convenience factory that uses `Driver.platform` for the current OS.
+        ///
+        /// - Parameter executor: The executor to pin the actor to.
+        /// - Returns: A new, running selector.
+        /// - Throws: `Make.Error` if construction fails.
+        public static func make(
+            executor: IO.Executor.Thread
+        ) async throws(Make.Error) -> Selector {
+            try await make(driver: .platform, executor: executor)
+        }
+
         // MARK: - Lifecycle Control
 
         /// Start the selector's event and reply processing loops.
