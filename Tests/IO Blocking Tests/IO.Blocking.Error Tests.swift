@@ -69,8 +69,9 @@ extension IO.Blocking.Error.Test.Unit {
 
     @Test("Error conformance")
     func errorConformance() {
-        let error: any Error = IO.Blocking.Error.queueFull
-        #expect(error is IO.Blocking.Error)
+        // Compiles only if IO.Blocking.Error conforms to Error
+        func assertConformsToError<T: Error>(_: T) {}
+        assertConformsToError(IO.Blocking.Error.queueFull)
     }
 }
 

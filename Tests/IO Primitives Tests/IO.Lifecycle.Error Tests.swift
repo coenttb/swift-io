@@ -64,8 +64,9 @@ extension IO.Lifecycle.Error<TestLifecycleLeafError>.Test.Unit {
 
     @Test("Error conformance")
     func errorConformance() {
-        let error: any Error = IO.Lifecycle.Error<TestLifecycleLeafError>.cancelled
-        #expect(error is IO.Lifecycle.Error<TestLifecycleLeafError>)
+        // Compiles only if IO.Lifecycle.Error conforms to Error
+        func assertConformsToError<T: Error>(_: T) {}
+        assertConformsToError(IO.Lifecycle.Error<TestLifecycleLeafError>.cancelled)
     }
 }
 
