@@ -8,18 +8,25 @@
 import Synchronization
 
 extension IO.Blocking.Threads.Completion {
+    /// Typed result for completion - no existential errors.
+    typealias Result = Swift.Result<IO.Blocking.Box.Pointer, IO.Blocking.Failure>
+
     /// Context for exactly-once completion resumption.
     ///
     /// This class enables the worker to resume the completion continuation directly,
     /// eliminating dictionary lookups. Uses atomic state to ensure exactly-once resumption
     /// between the completion path, cancellation path, and failure paths.
     ///
+    /// ## Typed Errors
+    /// Uses `CheckedContinuation<Result, Never>` instead of throwing continuation.
+    /// This eliminates `any Error` propagation entirely - all error paths are typed.
+    ///
     /// ## State Machine
     /// ```
     /// ┌─────────┐
-    /// │ pending │ ──tryComplete──> [completed] ──resume(returning: box)
-    /// │   (0)   │ ──tryCancel────> [cancelled] ──resume(throwing: .cancellationRequested)
-    /// │         │ ──tryFail──────> [failed]    ──resume(throwing: error)
+    /// │ pending │ ──tryComplete──> [completed] ──resume(returning: .success(box))
+    /// │   (0)   │ ──tryCancel────> [cancelled] ──resume(returning: .failure(.cancellationRequested))
+    /// │         │ ──tryFail──────> [failed]    ──resume(returning: .failure(error))
     /// └─────────┘
     /// ```
     ///
@@ -32,8 +39,9 @@ extension IO.Blocking.Threads.Completion {
     /// Only one of tryComplete/tryCancel/tryFail can succeed.
     /// All others return false and perform no action.
     final class Context: @unchecked Sendable {
-        /// The continuation to resume with result or error.
-        private let continuation: CheckedContinuation<IO.Blocking.Box.Pointer, any Error>
+        /// The continuation to resume with typed result.
+        /// Uses non-throwing continuation with Result to eliminate `any Error`.
+        private let continuation: CheckedContinuation<Result, Never>
 
         /// Atomic state: 0 = pending, 1 = completed, 2 = cancelled, 3 = failed
         private let state: Atomic<UInt8>
@@ -43,7 +51,7 @@ extension IO.Blocking.Threads.Completion {
         private static let cancelled: UInt8 = 2
         private static let failed: UInt8 = 3
 
-        init(continuation: CheckedContinuation<IO.Blocking.Box.Pointer, any Error>) {
+        init(continuation: CheckedContinuation<Result, Never>) {
             self.continuation = continuation
             self.state = Atomic(Self.pending)
         }
@@ -58,7 +66,7 @@ extension IO.Blocking.Threads.Completion {
                 ordering: .acquiringAndReleasing
             )
             if exchanged {
-                continuation.resume(returning: box)
+                continuation.resume(returning: .success(box))
                 return true
             }
             return false
@@ -74,7 +82,7 @@ extension IO.Blocking.Threads.Completion {
                 ordering: .acquiringAndReleasing
             )
             if exchanged {
-                continuation.resume(throwing: IO.Blocking.Failure.cancellationRequested)
+                continuation.resume(returning: .failure(.cancellationRequested))
                 return true
             }
             return false
@@ -94,7 +102,7 @@ extension IO.Blocking.Threads.Completion {
                 ordering: .acquiringAndReleasing
             )
             if exchanged {
-                continuation.resume(throwing: error)
+                continuation.resume(returning: .failure(error))
                 return true
             }
             return false
