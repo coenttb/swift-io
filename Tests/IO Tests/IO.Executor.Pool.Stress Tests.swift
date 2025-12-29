@@ -116,7 +116,7 @@ private actor OrderTracker {
 // MARK: - Stress Tests
 
 @Suite(
-    "IO.Executor.Pool Stress Tests"
+    "IO.Executor.Pool Stress Tests",
 )
 struct IOExecutorPoolStressTests {
 
