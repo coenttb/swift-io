@@ -15,6 +15,10 @@ let package = Package(
         .library(name: "IO Primitives", targets: ["IO Primitives"]),
         .library(name: "IO Blocking", targets: ["IO Blocking"]),
         .library(name: "IO Blocking Threads", targets: ["IO Blocking Threads"]),
+        .library(name: "IO NonBlocking Primitives", targets: ["IO NonBlocking Primitives"]),
+        .library(name: "IO NonBlocking Driver", targets: ["IO NonBlocking Driver"]),
+        .library(name: "IO NonBlocking Kqueue", targets: ["IO NonBlocking Kqueue"]),
+        .library(name: "IO NonBlocking", targets: ["IO NonBlocking"]),
     ],
     dependencies: [
         .package(url: "https://github.com/swift-standards/swift-time-standard.git", from: "0.2.0"),
@@ -39,6 +43,26 @@ let package = Package(
         .target(
             name: "IO",
             dependencies: ["IO Blocking", "IO Blocking Threads"]
+        ),
+        .target(
+            name: "IO NonBlocking Primitives",
+            dependencies: ["IO Primitives"]
+        ),
+        .target(
+            name: "IO NonBlocking Driver",
+            dependencies: ["IO NonBlocking Primitives"]
+        ),
+        .target(
+            name: "IO NonBlocking Kqueue",
+            dependencies: ["IO NonBlocking Driver"]
+        ),
+        .target(
+            name: "IO NonBlocking",
+            dependencies: [
+                "IO NonBlocking Driver",
+                "IO NonBlocking Kqueue",
+                "IO Blocking",
+            ]
         ),
         .testTarget(
             name: "IO Primitives Tests",
@@ -65,6 +89,20 @@ let package = Package(
             name: "IO Tests",
             dependencies: [
                 "IO",
+                .product(name: "StandardsTestSupport", package: "swift-standards"),
+            ]
+        ),
+        .testTarget(
+            name: "IO NonBlocking Primitives Tests",
+            dependencies: [
+                "IO NonBlocking Primitives",
+                .product(name: "StandardsTestSupport", package: "swift-standards"),
+            ]
+        ),
+        .testTarget(
+            name: "IO NonBlocking Tests",
+            dependencies: [
+                "IO NonBlocking",
                 .product(name: "StandardsTestSupport", package: "swift-standards"),
             ]
         ),
