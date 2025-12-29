@@ -72,6 +72,9 @@ extension IO.Executor {
         /// Maximum waiters per handle (from backpressure policy).
         private let handleWaitersLimit: Int
 
+        /// Teardown policy for resource cleanup during shutdown.
+        private let teardown: IO.Executor.Teardown<Resource>
+
         /// Counter for generating unique handle IDs.
         private var nextRawID: UInt64 = 0
 
@@ -100,16 +103,19 @@ extension IO.Executor {
         /// - Parameters:
         ///   - lane: The lane for executing blocking operations.
         ///   - policy: Backpressure policy (default: `.default`).
+        ///   - teardown: Teardown policy for resource cleanup (default: `.none`).
         ///   - shardIndex: Shard index for use in `Shards` (default: 0).
         public init(
             lane: IO.Blocking.Lane,
             policy: IO.Backpressure.Policy = .default,
+            teardown: IO.Executor.Teardown<Resource> = IO.Executor.Teardown<Resource>.none,
             shardIndex: UInt16 = 0
         ) {
             self._executor = IO.Executor.shared.next()
             self.lane = lane
             self._lifecycle = Atomic(.running)
             self.handleWaitersLimit = policy.handleWaitersLimit
+            self.teardown = teardown
             self.scope = IO.Executor.scopeCounter.next()
             self.shardIndex = shardIndex
         }
@@ -122,11 +128,13 @@ extension IO.Executor {
         /// - Parameters:
         ///   - lane: The lane for executing blocking operations.
         ///   - policy: Backpressure policy (default: `.default`).
+        ///   - teardown: Teardown policy for resource cleanup (default: `.none`).
         ///   - executor: The executor thread to run on.
         ///   - shardIndex: Shard index for use in `Shards` (default: 0).
         public init(
             lane: IO.Blocking.Lane,
             policy: IO.Backpressure.Policy = .default,
+            teardown: IO.Executor.Teardown<Resource> = IO.Executor.Teardown<Resource>.none,
             executor: IO.Executor.Thread,
             shardIndex: UInt16 = 0
         ) {
@@ -134,6 +142,7 @@ extension IO.Executor {
             self.lane = lane
             self._lifecycle = Atomic(.running)
             self.handleWaitersLimit = policy.handleWaitersLimit
+            self.teardown = teardown
             self.scope = IO.Executor.scopeCounter.next()
             self.shardIndex = shardIndex
         }
@@ -144,15 +153,21 @@ extension IO.Executor {
         ///
         /// This is a convenience initializer equivalent to:
         /// ```swift
-        /// Executor(lane: .threads(options), policy: options.policy)
+        /// Executor(lane: .threads(options), policy: options.policy, teardown: teardown)
         /// ```
         ///
-        /// - Parameter options: Options for the Threads lane.
-        public init(_ options: IO.Blocking.Threads.Options = .init()) {
+        /// - Parameters:
+        ///   - options: Options for the Threads lane.
+        ///   - teardown: Teardown policy for resource cleanup (default: `.none`).
+        public init(
+            _ options: IO.Blocking.Threads.Options = .init(),
+            teardown: IO.Executor.Teardown<Resource> = IO.Executor.Teardown<Resource>.none
+        ) {
             self._executor = IO.Executor.shared.next()
             self.lane = .threads(options)
             self._lifecycle = Atomic(.running)
             self.handleWaitersLimit = options.policy.handleWaitersLimit
+            self.teardown = teardown
             self.scope = IO.Executor.scopeCounter.next()
             self.shardIndex = 0
         }
@@ -161,7 +176,7 @@ extension IO.Executor {
 
 // MARK: - Submission Gate
 
-extension IO.Executor.Pool {
+extension IO.Executor.Pool where Resource: ~Copyable {
     /// Check if the pool is accepting work (actor-isolated path).
     ///
     /// Used by `register()` and `transaction()` which need actor isolation anyway.
@@ -172,7 +187,7 @@ extension IO.Executor.Pool {
 
 // MARK: - Custom Executor
 
-extension IO.Executor.Pool {
+extension IO.Executor.Pool where Resource: ~Copyable {
     /// The executor this pool runs on.
     ///
     /// Use with `withTaskExecutorPreference` to keep related work co-located
@@ -206,7 +221,7 @@ extension IO.Executor.Pool {
 
 // MARK: - Execution
 
-extension IO.Executor.Pool {
+extension IO.Executor.Pool where Resource: ~Copyable {
     /// Execute a blocking operation on the lane with typed throws.
     ///
     /// This method preserves the operation's specific error type while also
@@ -227,6 +242,32 @@ extension IO.Executor.Pool {
     public nonisolated func run<T: Sendable, E: Swift.Error & Sendable>(
         _ operation: @Sendable @escaping () throws(E) -> T
     ) async throws(IO.Lifecycle.Error<IO.Error<E>>) -> T {
+        try await run(deadline: nil, operation)
+    }
+
+    /// Execute a blocking operation on the lane with optional deadline.
+    ///
+    /// This method preserves the operation's specific error type while also
+    /// capturing I/O infrastructure errors in `IO.Lifecycle.Error<IO.Error<E>>`.
+    ///
+    /// ## Performance
+    /// This method is `nonisolated` and bypasses the actor hop by checking
+    /// lifecycle state atomically. This eliminates 2+ actor hops per operation,
+    /// significantly improving throughput for stateless blocking work.
+    ///
+    /// ## Cancellation Semantics
+    /// - Cancellation before acceptance → `.cancelled`
+    /// - Cancellation after acceptance → operation completes, then `.cancelled`
+    ///
+    /// - Parameters:
+    ///   - deadline: Optional deadline for acceptance into the lane.
+    ///   - operation: The blocking operation to execute.
+    /// - Returns: The result of the operation.
+    /// - Throws: `IO.Lifecycle.Error<IO.Error<E>>` with lifecycle or operation errors.
+    public nonisolated func run<T: Sendable, E: Swift.Error & Sendable>(
+        deadline: IO.Blocking.Deadline?,
+        _ operation: @Sendable @escaping () throws(E) -> T
+    ) async throws(IO.Lifecycle.Error<IO.Error<E>>) -> T {
         // Check lifecycle atomically - no actor hop required
         guard _lifecycle.load(ordering: .acquiring) == .running else {
             throw .shutdownInProgress
@@ -241,7 +282,7 @@ extension IO.Executor.Pool {
         // Lane is Sendable and accessed via nonisolated let - safe for direct access
         let result: Result<T, E>
         do {
-            result = try await lane.run(deadline: nil, operation)
+            result = try await lane.run(deadline: deadline, operation)
         } catch {
             // Map lane failures to lifecycle or operational errors
             switch error {
@@ -270,18 +311,20 @@ extension IO.Executor.Pool {
 
 // MARK: - Shutdown
 
-extension IO.Executor.Pool {
+extension IO.Executor.Pool where Resource: ~Copyable {
     /// Shut down the executor.
     ///
-    /// 1. Marks executor as shut down (rejects new `run()` calls)
-    /// 2. Resumes all waiters so they can exit gracefully
-    /// 3. Shuts down the lane
+    /// ## Shutdown Sequence
+    /// 1. Atomically transition to `shutdownInProgress` (rejects new submissions)
+    /// 2. Resume all waiters so they can observe shutdown
+    /// 3. Run teardown on lane for each registered resource (exactly once, unordered)
+    /// 4. Clear the registry
+    /// 5. Shutdown the lane
+    /// 6. Mark lifecycle as `shutdownComplete`
     ///
-    /// Note: Handle cleanup should be done by the caller before shutdown,
-    /// or by providing a cleanup closure.
+    /// Teardown is best-effort: lane failures during teardown are swallowed.
     public func shutdown() async {
-        // Atomically transition to shutdownInProgress
-        // Use compare-exchange to ensure idempotency
+        // 1. Atomically transition to shutdownInProgress
         let (exchanged, _) = _lifecycle.compareExchange(
             expected: .running,
             desired: .shutdownInProgress,
@@ -289,25 +332,49 @@ extension IO.Executor.Pool {
         )
         guard exchanged else { return }  // Already shutting down or shut down
 
-        // Resume all waiters so they can observe shutdown
+        // 2. Resume all waiters so they can observe shutdown
         for (_, entry) in handles {
             entry.waiters.resumeAll()
             entry.state = .destroyed
         }
 
+        // 3. Run teardown for each resource on the lane
+        // Use IO.Handoff.Cell to move ~Copyable resources through escaping closure.
+        // Cell is a one-shot ownership transfer: resource moved in, token crosses boundary, taken out.
+        if let action = teardown.action {
+            for (_, entry) in handles {
+                if let resource = entry.take() {
+                    let cell = IO.Handoff.Cell(resource)
+                    let token = cell.token()
+                    do {
+                        let _: Void = try await lane.run(deadline: nil) {
+                            let r = token.take()
+                            action(r)
+                        }
+                    } catch {
+                        // Lane refused during shutdown - token was not consumed.
+                        // Cell's deinit will clean up the value.
+                        // Note: This means teardown action won't run on lane, but
+                        // the resource will still be cleaned up via deinit.
+                    }
+                }
+            }
+        }
+
+        // 4. Clear the registry
         handles.removeAll()
 
-        // Shutdown the lane
+        // 5. Shutdown the lane
         await lane.shutdown()
 
-        // Mark shutdown complete
+        // 6. Mark shutdown complete
         _lifecycle.store(.shutdownComplete, ordering: .releasing)
     }
 }
 
 // MARK: - Handle ID Generation
 
-extension IO.Executor.Pool {
+extension IO.Executor.Pool where Resource: ~Copyable {
     /// Generate a unique handle ID.
     private func generateHandleID() -> IO.Handle.ID {
         let raw = nextRawID
@@ -318,7 +385,7 @@ extension IO.Executor.Pool {
 
 // MARK: - Handle Registration
 
-extension IO.Executor.Pool {
+extension IO.Executor.Pool where Resource: ~Copyable {
     /// Register a resource and return its ID.
     ///
     /// - Parameter resource: The resource to register (ownership transferred).
@@ -337,11 +404,186 @@ extension IO.Executor.Pool {
         )
         return id
     }
+
+    // MARK: - Two-Phase Registration (Internal)
+
+    /// Reserve a handle ID for later commit.
+    ///
+    /// This is phase 1 of two-phase registration. Call before lane work.
+    /// Creates a placeholder entry in `pendingRegistration` state.
+    ///
+    /// - Returns: Reserved ID, or nil if shutdown in progress.
+    @usableFromInline
+    func _reserveHandle() -> IO.Handle.ID? {
+        guard isAcceptingWork else { return nil }
+        let id = generateHandleID()
+        // Create placeholder entry - makes reservation observable
+        handles[id] = IO.Executor.Handle.Entry(
+            pendingRegistration: handleWaitersLimit
+        )
+        return id
+    }
+
+    /// Commit a resource to a reserved handle ID.
+    ///
+    /// This is phase 2 of two-phase registration. Call after lane work succeeds.
+    /// If shutdown started between reserve and commit, returns the resource back
+    /// so caller can run teardown.
+    ///
+    /// - Parameters:
+    ///   - id: The reserved ID from `_reserveHandle()`.
+    ///   - resource: The resource to commit (ownership transferred on success).
+    /// - Returns: `nil` if committed successfully, or the resource back if shutdown started.
+    @usableFromInline
+    func _commitHandle(
+        _ id: IO.Handle.ID,
+        _ resource: consuming Resource
+    ) -> Resource? {
+        // Validate the reservation exists and is pending
+        guard let entry = handles[id] else {
+            preconditionFailure("_commitHandle: no entry for reserved ID - internal invariant violated")
+        }
+        precondition(entry.isPendingRegistration, "_commitHandle: entry not pending - internal invariant violated")
+
+        guard isAcceptingWork else {
+            // Shutdown started - remove pending entry, return resource for teardown
+            handles.removeValue(forKey: id)
+            return resource
+        }
+
+        // Commit: transition pendingRegistration → present
+        entry.commitRegistration(resource)
+        return nil
+    }
+
+    /// Abort a pending registration.
+    ///
+    /// Called when lane work fails or is cancelled before commit.
+    /// Removes the placeholder entry.
+    ///
+    /// - Parameter id: The reserved ID from `_reserveHandle()`.
+    @usableFromInline
+    func _abortReservation(_ id: IO.Handle.ID) {
+        guard let entry = handles[id] else { return }
+        precondition(entry.isPendingRegistration, "_abortReservation: entry not pending")
+        handles.removeValue(forKey: id)
+    }
+
+    /// Register a resource created on the lane.
+    ///
+    /// This convenience combines lane execution + `register` with proper cancellation
+    /// and shutdown safety: if registration fails after creation, teardown
+    /// is run automatically.
+    ///
+    /// ## Usage
+    /// ```swift
+    /// let id = try await pool.register {
+    ///     try File.Handle.open(path, mode: .read)
+    /// }
+    /// ```
+    ///
+    /// ## Implementation
+    /// Uses two-phase registration (reserve → create → commit) to ensure:
+    /// 1. If creation fails, no resource to teardown
+    /// 2. If commit fails (shutdown), we still own the resource → teardown runs
+    ///
+    /// Uses `IO.Handoff.Storage` to pass ~Copyable resource through escaping lane closure.
+    ///
+    /// - Parameters:
+    ///   - deadline: Optional deadline for the creation operation.
+    ///   - make: Closure that creates the resource (runs on the lane).
+    /// - Returns: A unique handle ID for future operations.
+    /// - Throws: `IO.Lifecycle.Error<IO.Error<E>>` on creation or registration failure.
+    public func register<E: Swift.Error & Sendable>(
+        deadline: IO.Blocking.Deadline? = nil,
+        _ make: @Sendable @escaping () throws(E) -> Resource
+    ) async throws(IO.Lifecycle.Error<IO.Error<E>>) -> IO.Handle.ID {
+        // Phase 1: Reserve handle ID (actor-isolated, creates pending entry)
+        guard let reservedID = _reserveHandle() else {
+            throw .shutdownInProgress
+        }
+
+        // Fast-path: if already cancelled, abort reservation and skip lane submission
+        if Task.isCancelled {
+            _abortReservation(reservedID)
+            throw .cancelled
+        }
+
+        // Create resource on lane via IO.Handoff.Storage (Resource is ~Copyable).
+        // Storage stays here; token crosses the escaping boundary.
+        let storage = IO.Handoff.Storage<Resource>()
+        let storeToken = storage.token
+
+        // Run make() on lane, store result via token
+        let laneResult: Result<Void, E>
+        do {
+            laneResult = try await lane.run(deadline: deadline) {
+                () throws(E) -> Void in
+                let resource = try make()
+                storeToken.store(resource)
+            }
+        } catch let laneError {
+            // Lane infrastructure failure - abort reservation, storage is empty
+            _abortReservation(reservedID)
+            _ = storage.takeIfStored()
+            // laneError is IO.Blocking.Failure (typed throws)
+            switch laneError {
+            case .shutdown:
+                throw .shutdownInProgress
+            case .cancellationRequested:
+                throw .cancelled
+            case .queueFull:
+                throw .failure(.lane(.queueFull))
+            case .deadlineExceeded:
+                throw .failure(.lane(.deadlineExceeded))
+            case .overloaded:
+                throw .failure(.lane(.overloaded))
+            case .internalInvariantViolation:
+                throw .failure(.lane(.internalInvariantViolation))
+            }
+        }
+
+        // Check make() result
+        switch laneResult {
+        case .success:
+            break
+        case .failure(let error):
+            // make() failed - abort reservation, storage is empty
+            _abortReservation(reservedID)
+            _ = storage.takeIfStored()
+            throw .failure(.leaf(error))
+        }
+
+        // Take resource from storage - we now own it
+        let resource = storage.take()
+
+        // Phase 2: Commit resource to reserved ID
+        // If shutdown started, _commitHandle returns the resource back for teardown
+        if let resource = _commitHandle(reservedID, resource) {
+            // Commit failed (shutdown started) - run teardown with returned resource
+            if let action = teardown.action {
+                let cell = IO.Handoff.Cell(resource)
+                let token = cell.token()
+                do {
+                    // Try to run teardown on lane
+                    try await lane.run(deadline: nil) {
+                        let r = token.take()
+                        action(r)
+                    }
+                } catch {
+                    // Lane refused (shutdown) - Cell's deinit handles cleanup
+                }
+            }
+            throw .shutdownInProgress
+        }
+
+        return reservedID
+    }
 }
 
 // MARK: - Handle Validation
 
-extension IO.Executor.Pool {
+extension IO.Executor.Pool where Resource: ~Copyable {
     /// Check if a handle ID is currently valid.
     ///
     /// - Parameter id: The handle ID to check.
@@ -369,7 +611,7 @@ extension IO.Executor.Pool {
 
 // MARK: - Waiter Parking
 
-extension IO.Executor.Pool {
+extension IO.Executor.Pool where Resource: ~Copyable {
     /// Arms `waiter`, enqueues it, then suspends until resumed by `_checkInHandle`.
     ///
     /// This method is actor-isolated and is the only place that may mutate
@@ -417,7 +659,7 @@ extension IO.Executor.Pool {
 
 // MARK: - Transaction API
 
-extension IO.Executor.Pool {
+extension IO.Executor.Pool where Resource: ~Copyable {
     /// Execute a transaction with exclusive handle access and typed errors.
     ///
     /// ## Semantics
@@ -613,7 +855,7 @@ extension IO.Executor.Pool {
 
 // MARK: - Handle Check-In
 
-extension IO.Executor.Pool {
+extension IO.Executor.Pool where Resource: ~Copyable {
     /// Check-in a handle after transaction.
     ///
     /// Uses reservation-based handoff when waiters exist:
@@ -692,7 +934,7 @@ extension IO.Executor.Pool {
 
 // MARK: - Convenience API
 
-extension IO.Executor.Pool {
+extension IO.Executor.Pool where Resource: ~Copyable {
     /// Execute a closure with exclusive access to a handle.
     ///
     /// This is a convenience wrapper over `transaction(_:_:)`.
@@ -725,7 +967,7 @@ extension IO.Executor.Pool {
 
 // MARK: - Handle Destruction
 
-extension IO.Executor.Pool {
+extension IO.Executor.Pool where Resource: ~Copyable {
     /// Mark a handle for destruction.
     ///
     /// If the handle is currently checked out, it will be destroyed
@@ -760,9 +1002,40 @@ extension IO.Executor.Pool {
             entry.state = .destroyed
             entry.waiters.resumeAll()
             handles.removeValue(forKey: id)
+        case .pendingRegistration:
+            // Still being created - just remove the placeholder
+            handles.removeValue(forKey: id)
         case .destroyed:
             // Already handled above
             break
         }
+    }
+}
+
+// MARK: - Metrics
+
+extension IO.Executor.Pool where Resource: ~Copyable {
+    /// Observable metrics for the pool.
+    ///
+    /// Provides diagnostic information without exposing internal state.
+    public struct Metrics: Sendable {
+        /// Number of currently registered resources.
+        public var registeredCount: Int
+
+        /// Current lifecycle state of the pool.
+        public var lifecycleState: IO.Lifecycle
+
+        public init(registeredCount: Int, lifecycleState: IO.Lifecycle) {
+            self.registeredCount = registeredCount
+            self.lifecycleState = lifecycleState
+        }
+    }
+
+    /// Current metrics for the pool.
+    public var metrics: Metrics {
+        Metrics(
+            registeredCount: handles.count,
+            lifecycleState: _lifecycle.load(ordering: .acquiring)
+        )
     }
 }

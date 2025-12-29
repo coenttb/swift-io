@@ -120,7 +120,7 @@ extension IO.Thread {
         let token = cell.token()
 
         return spawn {
-            let v = IO.Handoff.Cell<T>.take(token)
+            let v = token.take()
             body(v)
         }
     }

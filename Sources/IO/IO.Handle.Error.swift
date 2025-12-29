@@ -13,7 +13,7 @@ extension IO.Handle {
         /// The handle ID belongs to a different executor.
         case scopeMismatch
         /// The handle has already been closed.
-        case handleClosed
+        case closed
         /// The waiter queue for this handle is full (bounded memory protection).
         ///
         /// This is a HANDLE-LEVEL error indicating too many tasks are waiting

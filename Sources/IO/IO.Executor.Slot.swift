@@ -35,10 +35,10 @@ extension IO.Executor {
     public enum Slot {}
 
     // ## Relationship to IO.Handoff
-    // Slot uses `IO.Handoff.Token` as its address capability type (via typealias).
-    // Both solve "cross Sendable boundary" problems using the same opaque token pattern.
+    // Both Slot and IO.Handoff solve "cross Sendable boundary" problems:
     //
     // - **IO.Handoff.Cell**: Simple one-shot ownership transfer (init → token → take)
+    // - **IO.Handoff.Storage**: Create inside closure, retrieve after (init → token → store → take)
     // - **IO.Executor.Slot.Container**: Two-phase lane execution pattern with
     //   separate allocation, initialization, and consumption phases
     //
@@ -50,7 +50,24 @@ extension IO.Executor {
 extension IO.Executor.Slot {
     /// Opaque address capability for slot memory.
     ///
-    /// This is a typealias to `IO.Handoff.Token`, providing a unified
-    /// representation for address-sized capabilities across IO subsystems.
-    public typealias Address = IO.Handoff.Token
+    /// Encodes a raw pointer as a Sendable capability that can cross
+    /// escaping closure boundaries.
+    public struct Address: Sendable {
+        @usableFromInline
+        let bits: UInt
+
+        @usableFromInline
+        init(bits: UInt) {
+            self.bits = bits
+        }
+
+        /// Package-internal pointer reconstruction.
+        ///
+        /// The caller must guarantee the memory is still allocated.
+        @usableFromInline
+        var _pointer: UnsafeMutableRawPointer {
+            precondition(bits != 0, "Address used after deallocation or with null pointer")
+            return UnsafeMutableRawPointer(bitPattern: Int(bits))!
+        }
+    }
 }

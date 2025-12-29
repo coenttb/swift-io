@@ -6,56 +6,91 @@
 //
 
 extension IO.Handoff {
-    /// Heap cell that stores a single `~Copyable` value for cross-boundary transfer.
+    /// Heap cell for passing a ~Copyable value through an escaping boundary.
+    ///
+    /// Use Cell when you have an existing value and need to pass it through
+    /// an escaping `@Sendable` closure.
     ///
     /// ## Ownership Model
-    /// - `init(_:)` allocates storage and moves the value in
-    /// - `token()` produces a Sendable capability and consumes the cell
-    /// - `take(_:)` consumes the token, moves the value out, and deallocates storage
+    /// - `init(_:)` moves the value into ARC-managed storage
+    /// - `token()` produces a Sendable token and consumes the cell
+    /// - `token.take()` consumes the value (exactly once, enforced atomically)
     ///
-    /// ## Thread Safety
-    /// The cell itself is not thread-safe, but the `Token` it produces is `Sendable`
-    /// and can safely cross thread boundaries. The receiving thread calls `take()`
-    /// to recover the value.
+    /// ## Usage
+    /// ```swift
+    /// let cell = IO.Handoff.Cell(myValue)
+    /// let token = cell.token()
+    /// await lane.run {
+    ///     let value = token.take()
+    ///     // use value
+    /// }
+    /// ```
     public struct Cell<T: ~Copyable>: ~Copyable {
         @usableFromInline
-        let storage: UnsafeMutablePointer<T>
+        let _box: _Box<T>
 
         /// Creates a cell containing the given value.
         ///
-        /// The value is moved into heap storage. The cell must be consumed
-        /// by calling `token()` to transfer ownership.
+        /// - Parameter value: The value to store (ownership transferred).
         @inlinable
         public init(_ value: consuming T) {
-            storage = .allocate(capacity: 1)
-            storage.initialize(to: value)
+            _box = _Box(value)
         }
     }
 }
+
+// MARK: - Token
+
+extension IO.Handoff.Cell where T: ~Copyable {
+    /// Token representing ownership of a value in a Cell.
+    ///
+    /// ## Safety
+    /// - `Sendable`: Can cross thread boundaries safely
+    /// - `Copyable`: Can be captured in escaping closures (required for lane/thread use)
+    /// - ARC-managed: Strong reference to box, no retain-count hazards
+    /// - Atomic one-shot: `take()` enforced atomically, second call traps
+    ///
+    /// ## Thread Safety
+    /// Multiple copies of a token may exist (it's Copyable), but only one
+    /// `take()` call will succeed. Additional calls trap deterministically.
+    ///
+    /// ## Invariants
+    /// - `take()` must be called exactly once across all copies
+    /// - Calling `take()` twice (on any copy) traps with a clear error message
+    public struct Token: Sendable {
+        /// Strong reference to the box. ARC manages lifetime.
+        @usableFromInline
+        let _box: IO.Handoff._Box<T>
+
+        @usableFromInline
+        init(_ box: IO.Handoff._Box<T>) {
+            self._box = box
+        }
+
+        /// Atomically takes the stored value.
+        ///
+        /// - Returns: The stored value.
+        /// - Precondition: Must be called exactly once across all token copies.
+        ///   Second call traps with a clear error message.
+        @inlinable
+        public func take() -> T {
+            _box.take()
+        }
+    }
+}
+
+// MARK: - Cell Operations
 
 extension IO.Handoff.Cell where T: ~Copyable {
     /// Produces a Sendable token and consumes the cell.
     ///
     /// After calling this method, the cell cannot be used again.
     /// The token represents exclusive ownership of the stored value
-    /// and must be passed to `take(_:)` exactly once.
-    @inlinable
-    public consuming func token() -> IO.Handoff.Token {
-        IO.Handoff.Token(bits: UInt(bitPattern: storage))
-    }
-
-    /// Consumes the token, moves the value out, and deallocates storage.
+    /// and must be consumed by calling `take()` exactly once.
     ///
-    /// - Parameter token: The ownership token produced by `token()`.
-    /// - Returns: The stored value.
-    ///
-    /// - Precondition: Must be called exactly once per token.
-    ///   Calling twice with the same token is undefined behavior.
+    /// - Returns: A Sendable token.
     @inlinable
-    public static func take(_ token: consuming IO.Handoff.Token) -> T {
-        let ptr = UnsafeMutablePointer<T>(bitPattern: Int(token.bits))!
-        let value = ptr.move()
-        ptr.deallocate()
-        return value
+    public consuming func token() -> Token {
+        Token(_box)
     }
 }

@@ -27,10 +27,10 @@ extension IO.Handle.Error.Test.Unit {
         #expect(error == .scopeMismatch)
     }
 
-    @Test("handleClosed case exists")
-    func handleClosedCase() {
-        let error = IO.Handle.Error.handleClosed
-        #expect(error == .handleClosed)
+    @Test("closed case exists")
+    func closedCase() {
+        let error = IO.Handle.Error.closed
+        #expect(error == .closed)
     }
 
     @Test("waitersFull case exists")
@@ -69,7 +69,7 @@ extension IO.Handle.Error.Test.EdgeCase {
         let cases: [IO.Handle.Error] = [
             .invalidID,
             .scopeMismatch,
-            .handleClosed,
+            .closed,
             .waitersFull,
         ]
         for (i, case1) in cases.enumerated() {

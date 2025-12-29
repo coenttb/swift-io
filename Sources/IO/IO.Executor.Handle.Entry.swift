@@ -50,15 +50,47 @@ extension IO.Executor.Handle {
             self.waiters = IO.Handle.Waiters(capacity: waitersCapacity)
             self.state = .present
         }
+
+        /// Creates a pending entry for two-phase registration.
+        ///
+        /// The entry starts with no resource and in `pendingRegistration` state.
+        /// Call `commitRegistration(_:)` after lane work completes to store the resource.
+        ///
+        /// - Parameter waitersCapacity: Maximum waiters for this handle.
+        public init(pendingRegistration waitersCapacity: Int = IO.Handle.Waiters.defaultCapacity) {
+            self.handle = nil
+            self.reservedHandle = nil
+            self.waiters = IO.Handle.Waiters(capacity: waitersCapacity)
+            self.state = .pendingRegistration
+        }
+    }
+}
+
+// MARK: - Two-Phase Registration
+
+extension IO.Executor.Handle.Entry where Resource: ~Copyable {
+    /// Whether this entry is pending registration.
+    var isPendingRegistration: Bool {
+        state == .pendingRegistration
+    }
+
+    /// Commits a resource to a pending registration entry.
+    ///
+    /// - Parameter resource: The resource to store (ownership transferred).
+    /// - Precondition: Entry must be in `pendingRegistration` state.
+    func commitRegistration(_ resource: consuming Resource) {
+        precondition(state == .pendingRegistration, "Cannot commit: entry not pending registration")
+        self.handle = consume resource
+        self.state = .present
     }
 }
 
 // MARK: - Debug Mutation Tracking
 
 #if DEBUG
-    extension IO.Executor.Handle.Entry {
+    extension IO.Executor.Handle.Entry where Resource: ~Copyable {
         /// Marks entry mutation scope; traps if concurrent mutation is detected.
-        public func _debugBeginMutation() {
+        func _debugBeginMutation() {
             _mutationDepth.withLock { depth in
                 depth += 1
                 precondition(depth == 1, "Concurrent Entry mutation detected")
@@ -66,7 +98,7 @@ extension IO.Executor.Handle {
         }
 
         /// Ends entry mutation scope.
-        public func _debugEndMutation() {
+        func _debugEndMutation() {
             _mutationDepth.withLock { depth in
                 depth -= 1
                 precondition(depth == 0, "Entry mutation scope imbalance")
@@ -77,28 +109,28 @@ extension IO.Executor.Handle {
 
 // MARK: - Properties
 
-extension IO.Executor.Handle.Entry {
+extension IO.Executor.Handle.Entry where Resource: ~Copyable {
     /// Whether the handle is logically open (present, checked out, or reserved).
-    public var isOpen: Bool {
+    var isOpen: Bool {
         switch state {
         case .present, .checkedOut, .reserved:
             return true
-        case .destroyed:
+        case .pendingRegistration, .destroyed:
             return false
         }
     }
 
     /// Whether destroy has been requested.
-    public var isDestroyed: Bool {
+    var isDestroyed: Bool {
         state == .destroyed
     }
 }
 
 // MARK: - Resource Access
 
-extension IO.Executor.Handle.Entry {
+extension IO.Executor.Handle.Entry where Resource: ~Copyable {
     /// Takes the handle out if present, leaving nil.
-    public func take() -> Resource? {
+    func take() -> Resource? {
         guard state == .present else { return nil }
         guard handle != nil else { return nil }
         var result: Resource? = nil
@@ -110,7 +142,7 @@ extension IO.Executor.Handle.Entry {
     ///
     /// - Parameter token: The waiter token that must match the reservation.
     /// - Returns: The reserved resource if token matches, nil otherwise.
-    public func takeReserved(token: UInt64) -> Resource? {
+    func takeReserved(token: UInt64) -> Resource? {
         guard case .reserved(let reservedToken) = state, reservedToken == token else {
             return nil
         }
