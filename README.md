@@ -154,8 +154,12 @@ public actor FileSystem {
 
     public init() { self.pool = IO.Executor.Pool() }
 
-    public func read(at path: String) async throws -> Data {
-        try await pool.run { try Data(contentsOfFile: path) }
+    public func read(
+        at path: String
+    ) async throws(IO.Lifecycle.Error<IO.Error<ReadError>>) -> Data {
+        try await pool.run {
+            try Data(contentsOfFile: path)
+        }
     }
 
     public func shutdown() async { await pool.shutdown() }
