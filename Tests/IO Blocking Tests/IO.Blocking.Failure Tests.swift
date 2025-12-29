@@ -67,8 +67,9 @@ extension IO.Blocking.Failure.Test.Unit {
 
     @Test("Error conformance")
     func errorConformance() {
-        let failure: any Error = IO.Blocking.Failure.shutdown
-        #expect(failure is IO.Blocking.Failure)
+        // Compiles only if IO.Blocking.Failure conforms to Error
+        func assertConformsToError<T: Error>(_: T) {}
+        assertConformsToError(IO.Blocking.Failure.shutdown)
     }
 }
 

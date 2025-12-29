@@ -6,50 +6,58 @@
 //
 
 extension IO.Blocking.Threads.Job {
-    /// A job that executes a non-throwing operation and calls onComplete with the result pointer.
-    /// Allocation happens inside job execution, not before enqueue.
+    /// A job that executes an operation and completes via its bundled context.
+    ///
+    /// ## Design
+    /// The context is bundled with the job, eliminating dictionary lookups.
+    /// The worker calls `context.tryComplete()` directly after execution.
+    ///
+    /// ## Safety Invariant (for @unchecked Sendable)
+    /// - Jobs are created and consumed under the Worker.State lock
+    /// - The operation closure is marked @Sendable and captures only Sendable state
+    /// - The context is Sendable (uses atomic state for thread-safe resumption)
+    ///
+    /// ## Exactly-Once Completion
+    /// - If `context.tryComplete()` returns false, the context was already cancelled
+    /// - In that case, the box is destroyed to prevent leaks
     struct Instance: @unchecked Sendable {
-        /// The ticket identifying this job for completion correlation.
+        /// The ticket identifying this job (for debugging/logging).
         let ticket: IO.Blocking.Threads.Ticket
 
-        private let work: @Sendable () -> Void
+        /// The context for exactly-once completion resumption.
+        let context: IO.Blocking.Threads.Completion.Context
 
-        /// Creates a job that executes a non-throwing operation and calls onComplete.
+        /// The operation that produces the boxed result.
+        private let operation: @Sendable () -> UnsafeMutableRawPointer
 
-    //
-    // ## Safety Invariant (for @unchecked Sendable)
-    // Jobs are created and consumed under the Worker.State lock.
-    // The work closure is marked @Sendable and captures only Sendable state.
-    //
-    // ## Boxing Ownership
-    // The operation returns a boxed Result (UnsafeMutableRawPointer).
-        /// The operation returns a boxed Result (already containing any error).
+        /// Creates a job with a bundled completion context.
         ///
-        /// The `sending` annotation on `onComplete` parameter indicates ownership
-        /// of the pointer is transferred to the callback, satisfying concurrency safety.
+        /// - Parameters:
+        ///   - ticket: Unique identifier for this job
+        ///   - context: The completion context (owns the continuation)
+        ///   - operation: The blocking operation that produces a boxed result
         init(
             ticket: IO.Blocking.Threads.Ticket,
-            operation: @Sendable @escaping () -> UnsafeMutableRawPointer,
-            onComplete: @Sendable @escaping (sending IO.Blocking.Threads.Ticket, sending UnsafeMutableRawPointer) -> Void
+            context: IO.Blocking.Threads.Completion.Context,
+            operation: @Sendable @escaping () -> UnsafeMutableRawPointer
         ) {
             self.ticket = ticket
-            self.work = { [ticket] in
-                let ptr = operation()
-                onComplete(ticket, ptr)
-            }
+            self.context = context
+            self.operation = operation
         }
 
-        /// An empty placeholder job.
-        static let empty = Instance(ticket: .init(rawValue: 0)) {}
-
-        private init(ticket: IO.Blocking.Threads.Ticket, _ work: @Sendable @escaping () -> Void) {
-            self.ticket = ticket
-            self.work = work
-        }
-
-        /// Execute the job.
+        /// Execute the job and complete via the context.
+        ///
+        /// ## Completion Flow
+        /// 1. Execute the operation to produce a boxed result
+        /// 2. Try to complete the context with the box
+        /// 3. If cancelled, destroy the box to prevent leaks
         func run() {
-            work()
+            let box = operation()
+            if !context.tryComplete(with: IO.Blocking.Box.Pointer(box)) {
+                // Context was already cancelled - destroy the box
+                IO.Blocking.Box.destroy(box)
+            }
         }
     }
 }

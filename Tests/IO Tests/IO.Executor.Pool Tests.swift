@@ -398,7 +398,7 @@ extension IOExecutorPoolTests.Test.Integration {
             ObjectIdentifier(pool1.executor),
             ObjectIdentifier(pool2.executor),
             ObjectIdentifier(pool3.executor),
-            ObjectIdentifier(pool4.executor)
+            ObjectIdentifier(pool4.executor),
         ])
 
         // Should use more than 1 executor (unless system has only 1 core)

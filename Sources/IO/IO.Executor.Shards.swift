@@ -52,13 +52,10 @@ extension IO.Executor {
     /// - `counter` uses atomic operations for thread-safe increment
     public final class Shards<Resource: ~Copyable & Sendable>: @unchecked Sendable {
         /// The underlying pools, one per shard.
-        private let pools: [Pool<Resource>]
+        private let pools: [IO.Executor.Pool<Resource>]
 
         /// Atomic counter for round-robin shard selection.
         private let counter: Atomic<UInt64>
-
-        /// The number of shards.
-        public var count: Int { pools.count }
 
         /// Creates a sharded pool collection.
         ///
@@ -73,7 +70,7 @@ extension IO.Executor {
         ) {
             precondition(count > 0 && count <= Int(UInt16.max), "Shard count must be 1...65535")
             self.pools = (0..<count).map { shardIndex in
-                Pool<Resource>(
+                IO.Executor.Pool<Resource>(
                     lane: laneFactory(),
                     policy: policy,
                     shardIndex: UInt16(shardIndex)
@@ -97,7 +94,7 @@ extension IO.Executor {
         ) {
             precondition(count > 0 && count <= Int(UInt16.max), "Shard count must be 1...65535")
             self.pools = (0..<count).map { shardIndex in
-                Pool<Resource>(
+                IO.Executor.Pool<Resource>(
                     lane: laneFactory(),
                     policy: policy,
                     executor: executorFactory(),
@@ -106,96 +103,119 @@ extension IO.Executor {
             }
             self.counter = Atomic(0)
         }
+    }
+}
 
-        // MARK: - Handle Management
+// MARK: - Properties
 
-        /// Register a resource and return its ID.
-        ///
-        /// Uses round-robin to select the shard. The shard index is stored
-        /// in the returned ID for O(1) routing.
-        ///
-        /// - Parameter resource: The resource to register (ownership transferred).
-        /// - Returns: A unique handle ID with embedded shard affinity.
-        /// - Throws: `IO.Lifecycle.Error` if all shards are shut down.
-        public func register(
-            _ resource: consuming Resource
-        ) async throws(IO.Lifecycle.Error<IO.Handle.Error>) -> IO.Handle.ID {
-            let index = counter.wrappingAdd(1, ordering: .relaxed).oldValue
-            let shardIndex = Int(index % UInt64(pools.count))
-            return try await pools[shardIndex].register(resource)
+extension IO.Executor.Shards {
+    /// The number of shards.
+    public var count: Int { pools.count }
+}
+
+// MARK: - Registration
+
+extension IO.Executor.Shards {
+    /// Register a resource and return its ID.
+    ///
+    /// Uses round-robin to select the shard. The shard index is stored
+    /// in the returned ID for O(1) routing.
+    ///
+    /// - Parameter resource: The resource to register (ownership transferred).
+    /// - Returns: A unique handle ID with embedded shard affinity.
+    /// - Throws: `IO.Lifecycle.Error` if all shards are shut down.
+    public func register(
+        _ resource: consuming Resource
+    ) async throws(IO.Lifecycle.Error<IO.Handle.Error>) -> IO.Handle.ID {
+        let index = counter.wrappingAdd(1, ordering: .relaxed).oldValue
+        let shardIndex = Int(index % UInt64(pools.count))
+        return try await pools[shardIndex].register(resource)
+    }
+}
+
+// MARK: - Transaction API
+
+extension IO.Executor.Shards {
+    /// Execute a transaction with exclusive handle access.
+    ///
+    /// Routes to the correct shard via `id.shard`.
+    ///
+    /// - Parameters:
+    ///   - id: The handle ID (must have been created by this Shards instance).
+    ///   - body: The operation to execute with exclusive access.
+    /// - Returns: The result of the body closure.
+    /// - Throws: `IO.Lifecycle.Error` with transaction errors.
+    public func transaction<T: Sendable, E: Swift.Error & Sendable>(
+        _ id: IO.Handle.ID,
+        _ body: @Sendable @escaping (inout Resource) throws(E) -> T
+    ) async throws(IO.Lifecycle.Error<IO.Executor.Transaction.Error<E>>) -> T {
+        guard id.shard < pools.count else {
+            throw .failure(.handle(.scopeMismatch))
         }
+        return try await pools[Int(id.shard)].transaction(id, body)
+    }
 
-        /// Execute a transaction with exclusive handle access.
-        ///
-        /// Routes to the correct shard via `id.shard`.
-        ///
-        /// - Parameters:
-        ///   - id: The handle ID (must have been created by this Shards instance).
-        ///   - body: The operation to execute with exclusive access.
-        /// - Returns: The result of the body closure.
-        /// - Throws: `IO.Lifecycle.Error` with transaction errors.
-        public func transaction<T: Sendable, E: Swift.Error & Sendable>(
-            _ id: IO.Handle.ID,
-            _ body: @Sendable @escaping (inout Resource) throws(E) -> T
-        ) async throws(IO.Lifecycle.Error<Transaction.Error<E>>) -> T {
-            guard id.shard < pools.count else {
-                throw .failure(.handle(.scopeMismatch))
-            }
-            return try await pools[Int(id.shard)].transaction(id, body)
+    /// Execute a closure with exclusive access to a handle.
+    ///
+    /// This is a convenience wrapper over `transaction(_:_:)`.
+    public func withHandle<T: Sendable, E: Swift.Error & Sendable>(
+        _ id: IO.Handle.ID,
+        _ body: @Sendable @escaping (inout Resource) throws(E) -> T
+    ) async throws(IO.Lifecycle.Error<IO.Error<E>>) -> T {
+        guard id.shard < pools.count else {
+            throw .failure(.handle(.scopeMismatch))
         }
+        return try await pools[Int(id.shard)].withHandle(id, body)
+    }
+}
 
-        /// Execute a closure with exclusive access to a handle.
-        ///
-        /// This is a convenience wrapper over `transaction(_:_:)`.
-        public func withHandle<T: Sendable, E: Swift.Error & Sendable>(
-            _ id: IO.Handle.ID,
-            _ body: @Sendable @escaping (inout Resource) throws(E) -> T
-        ) async throws(IO.Lifecycle.Error<IO.Error<E>>) -> T {
-            guard id.shard < pools.count else {
-                throw .failure(.handle(.scopeMismatch))
-            }
-            return try await pools[Int(id.shard)].withHandle(id, body)
+// MARK: - Handle Validation
+
+extension IO.Executor.Shards {
+    /// Check if a handle ID refers to an open handle.
+    ///
+    /// - Parameter id: The handle ID to check.
+    /// - Returns: `true` if the handle is logically open.
+    public func isOpen(_ id: IO.Handle.ID) async -> Bool {
+        guard id.shard < pools.count else { return false }
+        return await pools[Int(id.shard)].isOpen(id)
+    }
+
+    /// Check if a handle ID is currently valid.
+    ///
+    /// - Parameter id: The handle ID to check.
+    /// - Returns: `true` if the handle exists and is not destroyed.
+    public func isValid(_ id: IO.Handle.ID) async -> Bool {
+        guard id.shard < pools.count else { return false }
+        return await pools[Int(id.shard)].isValid(id)
+    }
+}
+
+// MARK: - Handle Destruction
+
+extension IO.Executor.Shards {
+    /// Mark a handle for destruction.
+    ///
+    /// - Parameter id: The handle ID.
+    /// - Throws: `IO.Handle.Error` if the ID is invalid.
+    public func destroy(_ id: IO.Handle.ID) async throws(IO.Handle.Error) {
+        guard id.shard < pools.count else {
+            throw .scopeMismatch
         }
+        try await pools[Int(id.shard)].destroy(id)
+    }
+}
 
-        /// Check if a handle ID refers to an open handle.
-        ///
-        /// - Parameter id: The handle ID to check.
-        /// - Returns: `true` if the handle is logically open.
-        public func isOpen(_ id: IO.Handle.ID) async -> Bool {
-            guard id.shard < pools.count else { return false }
-            return await pools[Int(id.shard)].isOpen(id)
-        }
+// MARK: - Shutdown
 
-        /// Check if a handle ID is currently valid.
-        ///
-        /// - Parameter id: The handle ID to check.
-        /// - Returns: `true` if the handle exists and is not destroyed.
-        public func isValid(_ id: IO.Handle.ID) async -> Bool {
-            guard id.shard < pools.count else { return false }
-            return await pools[Int(id.shard)].isValid(id)
-        }
-
-        /// Mark a handle for destruction.
-        ///
-        /// - Parameter id: The handle ID.
-        /// - Throws: `IO.Handle.Error` if the ID is invalid.
-        public func destroy(_ id: IO.Handle.ID) async throws(IO.Handle.Error) {
-            guard id.shard < pools.count else {
-                throw .scopeMismatch
-            }
-            try await pools[Int(id.shard)].destroy(id)
-        }
-
-        // MARK: - Shutdown
-
-        /// Shut down all shards.
-        ///
-        /// Shards are shut down concurrently for faster cleanup.
-        public func shutdown() async {
-            await withTaskGroup(of: Void.self) { group in
-                for pool in pools {
-                    group.addTask { await pool.shutdown() }
-                }
+extension IO.Executor.Shards {
+    /// Shut down all shards.
+    ///
+    /// Shards are shut down concurrently for faster cleanup.
+    public func shutdown() async {
+        await withTaskGroup(of: Void.self) { group in
+            for pool in pools {
+                group.addTask { await pool.shutdown() }
             }
         }
     }

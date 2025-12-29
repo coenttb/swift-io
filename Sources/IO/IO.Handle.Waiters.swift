@@ -42,124 +42,140 @@ extension IO.Handle {
             self.capacity = max(capacity, 1)
             self.storage = [Waiter?](repeating: nil, count: self.capacity)
         }
+    }
+}
 
-        public var count: Int { _count }
-        public var isEmpty: Bool { _count == 0 }
-        public var isFull: Bool { _count >= capacity }
+// MARK: - Properties
 
-        /// Generate a unique token for a new waiter.
-        public mutating func generateToken() -> UInt64 {
-            let token = nextToken
-            nextToken &+= 1
-            return token
-        }
+extension IO.Handle.Waiters {
+    public var count: Int { _count }
+    public var isEmpty: Bool { _count == 0 }
+    public var isFull: Bool { _count >= capacity }
+}
 
-        /// Enqueue a waiter. Returns false if queue is full.
-        ///
-        /// - Parameter waiter: The waiter to enqueue.
-        /// - Returns: `true` if successfully enqueued.
-        public mutating func enqueue(_ waiter: Waiter) -> Bool {
-            guard _count < capacity else { return false }
-            storage[tail] = waiter
-            tail = (tail + 1) % capacity
-            _count += 1
-            return true
-        }
+// MARK: - Token Generation
 
-        /// Dequeue the next waiter (structural only; no resumption side effects).
-        ///
-        /// Returns `nil` if the queue is empty.
-        /// Skips nil slots (which can occur if the buffer has been corrupted).
-        ///
-        /// MUST be called on the actor executor.
-        public mutating func dequeue() -> Waiter? {
-            while _count > 0 {
-                let waiter = storage[head]
-                storage[head] = nil
-                head = (head + 1) % capacity
-                _count -= 1
-                if let waiter {
-                    return waiter
-                }
-                // Nil slot - skip and continue
+extension IO.Handle.Waiters {
+    /// Generate a unique token for a new waiter.
+    public mutating func generateToken() -> UInt64 {
+        let token = nextToken
+        nextToken &+= 1
+        return token
+    }
+}
+
+// MARK: - Enqueue / Dequeue
+
+extension IO.Handle.Waiters {
+    /// Enqueue a waiter. Returns false if queue is full.
+    ///
+    /// - Parameter waiter: The waiter to enqueue.
+    /// - Returns: `true` if successfully enqueued.
+    public mutating func enqueue(_ waiter: IO.Handle.Waiter) -> Bool {
+        guard _count < capacity else { return false }
+        storage[tail] = waiter
+        tail = (tail + 1) % capacity
+        _count += 1
+        return true
+    }
+
+    /// Dequeue the next waiter (structural only; no resumption side effects).
+    ///
+    /// Returns `nil` if the queue is empty.
+    /// Skips nil slots (which can occur if the buffer has been corrupted).
+    ///
+    /// MUST be called on the actor executor.
+    public mutating func dequeue() -> IO.Handle.Waiter? {
+        while _count > 0 {
+            let waiter = storage[head]
+            storage[head] = nil
+            head = (head + 1) % capacity
+            _count -= 1
+            if let waiter {
+                return waiter
             }
-            return nil
+            // Nil slot - skip and continue
         }
+        return nil
+    }
 
-        /// Resume exactly one waiter (cancelled or not).
-        ///
-        /// Drains from head until a waiter's continuation is successfully taken.
-        /// Cancelled waiters are drained - their tasks will observe cancellation after wake.
-        ///
-        /// MUST be called on the actor executor.
-        public mutating func resumeNext() {
-            while _count > 0 {
-                let waiter = storage[head]
-                storage[head] = nil
-                head = (head + 1) % capacity
-                _count -= 1
+    /// Dequeue the next armed, non-cancelled waiter without resuming it.
+    ///
+    /// This is a structural operation with no resumption side effects.
+    /// Cancelled/unarmed waiters are re-enqueued; cancellation draining
+    /// is centralized in `_checkInHandle`.
+    ///
+    /// MUST be called on the actor executor.
+    public mutating func dequeueNextArmed() -> IO.Handle.Waiter? {
+        var scanned = 0
+        let initialCount = _count
 
-                if let waiter = waiter, let result = waiter.takeForResume() {
-                    // Resume on actor executor - waiter.wasCancelled tells if cancelled
-                    result.continuation.resume()
-                    return
-                }
-                // Waiter was nil or already drained - slot reclaimed, continue
-            }
-        }
+        while _count > 0, scanned < initialCount {
+            let waiter = storage[head]
+            storage[head] = nil
+            head = (head + 1) % capacity
+            _count -= 1
+            scanned += 1
 
-        /// Dequeue the next armed, non-cancelled waiter without resuming it.
-        ///
-        /// This is a structural operation with no resumption side effects.
-        /// Cancelled/unarmed waiters are re-enqueued; cancellation draining
-        /// is centralized in `_checkInHandle`.
-        ///
-        /// MUST be called on the actor executor.
-        public mutating func dequeueNextArmed() -> Waiter? {
-            var scanned = 0
-            let initialCount = _count
+            guard let waiter else { continue }
 
-            while _count > 0, scanned < initialCount {
-                let waiter = storage[head]
-                storage[head] = nil
-                head = (head + 1) % capacity
-                _count -= 1
-                scanned += 1
-
-                guard let waiter else { continue }
-
-                // Already completed; drop it.
-                if waiter.isDrained {
-                    continue
-                }
-
-                // Armed and not cancelled: eligible for reservation.
-                if waiter.isArmed, !waiter.wasCancelled {
-                    return waiter
-                }
-
-                // Not eligible (cancelled or unarmed): preserve in queue.
-                _ = enqueue(waiter)
+            // Already completed; drop it.
+            if waiter.isDrained {
+                continue
             }
 
-            return nil
+            // Armed and not cancelled: eligible for reservation.
+            if waiter.isArmed, !waiter.wasCancelled {
+                return waiter
+            }
+
+            // Not eligible (cancelled or unarmed): preserve in queue.
+            _ = enqueue(waiter)
         }
 
-        /// Resume all waiters (cancelled or not).
-        ///
-        /// Used during shutdown to wake all waiting tasks.
-        /// Cancelled waiters are drained - their tasks will observe cancellation after wake.
-        ///
-        /// MUST be called on the actor executor.
-        public mutating func resumeAll() {
-            while _count > 0 {
-                if let waiter = storage[head], let result = waiter.takeForResume() {
-                    result.continuation.resume()
-                }
-                storage[head] = nil
-                head = (head + 1) % capacity
-                _count -= 1
+        return nil
+    }
+}
+
+// MARK: - Resume Operations
+
+extension IO.Handle.Waiters {
+    /// Resume exactly one waiter (cancelled or not).
+    ///
+    /// Drains from head until a waiter's continuation is successfully taken.
+    /// Cancelled waiters are drained - their tasks will observe cancellation after wake.
+    ///
+    /// MUST be called on the actor executor.
+    public mutating func resumeNext() {
+        while _count > 0 {
+            let waiter = storage[head]
+            storage[head] = nil
+            head = (head + 1) % capacity
+            _count -= 1
+
+            if let waiter = waiter, let result = waiter.takeForResume() {
+                // Resume on actor executor - waiter.wasCancelled tells if cancelled
+                result.continuation.resume()
+                return
             }
+            // Waiter was nil or already drained - slot reclaimed, continue
+        }
+    }
+
+    /// Resume all waiters (cancelled or not).
+    ///
+    /// Used during shutdown to wake all waiting tasks.
+    /// Cancelled waiters are drained - their tasks will observe cancellation after wake.
+    ///
+    /// MUST be called on the actor executor.
+    public mutating func resumeAll() {
+        while _count > 0 {
+            if let waiter = storage[head], let result = waiter.takeForResume() {
+                result.continuation.resume()
+            }
+            storage[head] = nil
+            head = (head + 1) % capacity
+            _count -= 1
         }
     }
 }

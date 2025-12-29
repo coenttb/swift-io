@@ -1,5 +1,5 @@
 //
-//  IO.Executor.JobQueue Tests.swift
+//  IO.Executor.Job.Queue Tests.swift
 //  swift-io
 //
 
@@ -8,55 +8,54 @@ import Testing
 
 @testable import IO_Primitives
 
-extension IO.Executor.JobQueue {
+extension IO.Executor.Job.Queue {
     #TestSuites
 }
 
 // MARK: - Unit Tests
 
-extension IO.Executor.JobQueue.Test.Unit {
+extension IO.Executor.Job.Queue.Test.Unit {
     @Test("empty queue reports isEmpty")
     func emptyQueue() {
-        let queue = IO.Executor.JobQueue()
+        let queue = IO.Executor.Job.Queue()
         #expect(queue.isEmpty)
-        #expect(queue.count == 0)
     }
 
     @Test("default capacity is 64")
     func defaultCapacity() {
-        let queue = IO.Executor.JobQueue()
+        let queue = IO.Executor.Job.Queue()
         #expect(queue.capacity == 64)
     }
 
     @Test("custom initial capacity")
     func customCapacity() {
-        let queue = IO.Executor.JobQueue(initialCapacity: 128)
+        let queue = IO.Executor.Job.Queue(initialCapacity: 128)
         #expect(queue.capacity == 128)
     }
 
     @Test("minimum capacity is 1")
     func minimumCapacity() {
-        let queue = IO.Executor.JobQueue(initialCapacity: 0)
+        let queue = IO.Executor.Job.Queue(initialCapacity: 0)
         #expect(queue.capacity >= 1)
     }
 
     @Test("dequeue from empty returns nil")
     func dequeueEmptyReturnsNil() {
-        var queue = IO.Executor.JobQueue()
+        var queue = IO.Executor.Job.Queue()
         #expect(queue.dequeue() == nil)
     }
 }
 
 // MARK: - Integration Tests
 
-extension IO.Executor.JobQueue.Test {
+extension IO.Executor.Job.Queue.Test {
     @Suite struct Integration {}
 }
 
-extension IO.Executor.JobQueue.Test.Integration {
+extension IO.Executor.Job.Queue.Test.Integration {
     @Test("queue grows when full")
     func growsWhenFull() {
-        var queue = IO.Executor.JobQueue(initialCapacity: 2)
+        var queue = IO.Executor.Job.Queue(initialCapacity: 2)
 
         // Create dummy executor for job creation
         let executor = IO.Executor.Thread()

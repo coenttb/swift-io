@@ -32,12 +32,31 @@ extension IO.Executor.Handle {
         public var state: State
 
         #if DEBUG
-        /// Debug-only single-writer tripwire for entry mutation.
-        ///
-        /// This detects concurrent mutation of struct-on-class fields (e.g. `waiters`)
-        /// which would otherwise manifest as ring-buffer corruption.
-        private let _mutationDepth = Mutex<Int>(0)
+            /// Debug-only single-writer tripwire for entry mutation.
+            ///
+            /// This detects concurrent mutation of struct-on-class fields (e.g. `waiters`)
+            /// which would otherwise manifest as ring-buffer corruption.
+            private let _mutationDepth = Mutex<Int>(0)
+        #endif
 
+        /// Creates an entry with the given resource and waiter capacity.
+        ///
+        /// - Parameters:
+        ///   - handle: The resource to store (ownership transferred).
+        ///   - waitersCapacity: Maximum waiters for this handle (default: 64).
+        public init(handle: consuming Resource, waitersCapacity: Int = IO.Handle.Waiters.defaultCapacity) {
+            self.handle = consume handle
+            self.reservedHandle = nil
+            self.waiters = IO.Handle.Waiters(capacity: waitersCapacity)
+            self.state = .present
+        }
+    }
+}
+
+// MARK: - Debug Mutation Tracking
+
+#if DEBUG
+    extension IO.Executor.Handle.Entry {
         /// Marks entry mutation scope; traps if concurrent mutation is detected.
         public func _debugBeginMutation() {
             _mutationDepth.withLock { depth in
@@ -53,56 +72,51 @@ extension IO.Executor.Handle {
                 precondition(depth == 0, "Entry mutation scope imbalance")
             }
         }
-        #endif
+    }
+#endif
 
-        /// Creates an entry with the given resource and waiter capacity.
-        ///
-        /// - Parameters:
-        ///   - handle: The resource to store (ownership transferred).
-        ///   - waitersCapacity: Maximum waiters for this handle (default: 64).
-        public init(handle: consuming Resource, waitersCapacity: Int = IO.Handle.Waiters.defaultCapacity) {
-            self.handle = consume handle
-            self.reservedHandle = nil
-            self.waiters = IO.Handle.Waiters(capacity: waitersCapacity)
-            self.state = .present
-        }
+// MARK: - Properties
 
-        /// Whether the handle is logically open (present, checked out, or reserved).
-        public var isOpen: Bool {
-            switch state {
-            case .present, .checkedOut, .reserved:
-                return true
-            case .destroyed:
-                return false
-            }
+extension IO.Executor.Handle.Entry {
+    /// Whether the handle is logically open (present, checked out, or reserved).
+    public var isOpen: Bool {
+        switch state {
+        case .present, .checkedOut, .reserved:
+            return true
+        case .destroyed:
+            return false
         }
+    }
 
-        /// Whether destroy has been requested.
-        public var isDestroyed: Bool {
-            state == .destroyed
-        }
+    /// Whether destroy has been requested.
+    public var isDestroyed: Bool {
+        state == .destroyed
+    }
+}
 
-        /// Takes the handle out if present, leaving nil.
-        public func take() -> Resource? {
-            guard state == .present else { return nil }
-            guard handle != nil else { return nil }
-            var result: Resource? = nil
-            swap(&result, &handle)
-            return result
-        }
+// MARK: - Resource Access
 
-        /// Takes the reserved handle for a specific waiter token.
-        ///
-        /// - Parameter token: The waiter token that must match the reservation.
-        /// - Returns: The reserved resource if token matches, nil otherwise.
-        public func takeReserved(token: UInt64) -> Resource? {
-            guard case .reserved(let reservedToken) = state, reservedToken == token else {
-                return nil
-            }
-            guard reservedHandle != nil else { return nil }
-            var result: Resource? = nil
-            swap(&result, &reservedHandle)
-            return result
+extension IO.Executor.Handle.Entry {
+    /// Takes the handle out if present, leaving nil.
+    public func take() -> Resource? {
+        guard state == .present else { return nil }
+        guard handle != nil else { return nil }
+        var result: Resource? = nil
+        swap(&result, &handle)
+        return result
+    }
+
+    /// Takes the reserved handle for a specific waiter token.
+    ///
+    /// - Parameter token: The waiter token that must match the reservation.
+    /// - Returns: The reserved resource if token matches, nil otherwise.
+    public func takeReserved(token: UInt64) -> Resource? {
+        guard case .reserved(let reservedToken) = state, reservedToken == token else {
+            return nil
         }
+        guard reservedHandle != nil else { return nil }
+        var result: Resource? = nil
+        swap(&result, &reservedHandle)
+        return result
     }
 }

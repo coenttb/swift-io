@@ -112,7 +112,7 @@ extension IO.Handle.Waiter.Test.EdgeCase {
             let waiter = IO.Handle.Waiter(token: 1)
             waiter.arm(continuation: continuation)
             #expect(waiter.cancel() == true)  // First cancel succeeds
-            #expect(waiter.cancel() == false) // Second cancel fails (already cancelled)
+            #expect(waiter.cancel() == false)  // Second cancel fails (already cancelled)
             #expect(waiter.wasCancelled == true)
             // Drain
             if let result = waiter.takeForResume() {
@@ -154,7 +154,7 @@ extension IO.Handle.Waiter.Test.EdgeCase {
     func takeForResumeUnarmed() async {
         let waiter = IO.Handle.Waiter(token: 1)
         #expect(waiter.takeForResume() == nil)
-        #expect(!waiter.isDrained) // Should not mark as drained
+        #expect(!waiter.isDrained)  // Should not mark as drained
     }
 
     @Test("cancel after drain fails")
@@ -163,7 +163,7 @@ extension IO.Handle.Waiter.Test.EdgeCase {
             let waiter = IO.Handle.Waiter(token: 1)
             waiter.arm(continuation: continuation)
             _ = waiter.takeForResume()?.continuation.resume()
-            #expect(waiter.cancel() == false) // Already drained
+            #expect(waiter.cancel() == false)  // Already drained
         }
     }
 }

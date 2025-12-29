@@ -102,7 +102,7 @@ extension IO.Executor.Transaction.Error<TestTransactionError>.Test.EdgeCase {
             .queueFull,
             .deadlineExceeded,
             .overloaded,
-            .internalInvariantViolation
+            .internalInvariantViolation,
         ]
         #expect(allLaneCases.count == 4)
     }

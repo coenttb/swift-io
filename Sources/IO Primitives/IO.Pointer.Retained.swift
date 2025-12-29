@@ -1,11 +1,11 @@
 //
-//  IO.RetainedPointer.swift
+//  IO.Pointer.Retained.swift
 //  swift-io
 //
 //  Created by Coen ten Thije Boonkkamp on 28/12/2025.
 //
 
-extension IO {
+extension IO.Pointer {
     /// A move-only Sendable wrapper for transferring retained object ownership
     /// across thread boundaries.
     ///
@@ -15,7 +15,7 @@ extension IO {
     ///
     /// ## Usage
     /// ```swift
-    /// let retained = IO.RetainedPointer(self)
+    /// let retained = IO.Pointer.Retained(self)
     /// IO.Thread.spawn { [retained] in
     ///     let executor = retained.take()
     ///     executor.runLoop()
@@ -37,7 +37,7 @@ extension IO {
     /// ## Invariant
     /// `take()` must be called exactly once. The `~Copyable` constraint makes
     /// double-take unrepresentable.
-    struct RetainedPointer<T: AnyObject>: ~Copyable, @unchecked Sendable {
+    public struct Retained<T: AnyObject>: ~Copyable, @unchecked Sendable {
         /// Opaque bit representation of the retained pointer.
         /// This is NOT a pointer to be manipulated - it is an ownership token
         /// that must be round-tripped back via `take()`.
@@ -46,17 +46,19 @@ extension IO {
         /// Creates a retained pointer wrapper, incrementing the object's retain count.
         ///
         /// - Parameter instance: The object to retain.
-        init(_ instance: T) {
+        public init(_ instance: T) {
             self.raw = Unmanaged.passRetained(instance).toOpaque()
         }
+    }
+}
 
-        /// Takes ownership of the retained object, decrementing the retain count.
-        ///
-        /// This method consumes `self`, ensuring it can only be called once.
-        ///
-        /// - Returns: The retained object. The caller now owns this reference.
-        consuming func take() -> T {
-            Unmanaged<T>.fromOpaque(raw).takeRetainedValue()
-        }
+extension IO.Pointer.Retained {
+    /// Takes ownership of the retained object, decrementing the retain count.
+    ///
+    /// This method consumes `self`, ensuring it can only be called once.
+    ///
+    /// - Returns: The retained object. The caller now owns this reference.
+    public consuming func take() -> T {
+        Unmanaged<T>.fromOpaque(raw).takeRetainedValue()
     }
 }

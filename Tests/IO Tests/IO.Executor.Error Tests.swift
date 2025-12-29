@@ -51,8 +51,9 @@ extension IO.Executor.Error.Test.Unit {
 
     @Test("Error conformance")
     func errorConformance() {
-        let error: any Error = IO.Executor.Error.scopeMismatch
-        #expect(error is IO.Executor.Error)
+        // Compiles only if IO.Executor.Error conforms to Error
+        func assertConformsToError<T: Error>(_: T) {}
+        assertConformsToError(IO.Executor.Error.scopeMismatch)
     }
 }
 
@@ -85,7 +86,7 @@ extension IO.Executor.Error.Test.EdgeCase {
         let allCases: [IO.Executor.Error] = [
             .scopeMismatch,
             .handleNotFound,
-            .invalidState
+            .invalidState,
         ]
         // All 3 cases are operational - no lifecycle
         #expect(allCases.count == 3)

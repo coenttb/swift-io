@@ -5,6 +5,8 @@
 //  Created by Coen ten Thije Boonkkamp on 24/12/2025.
 //
 
+import Synchronization
+
 extension IO.Executor {
     /// The executor pool for async I/O operations.
     ///
@@ -38,8 +40,9 @@ extension IO.Executor {
     ///   does not retain). The shared executor pool outlives any Pool instance.
     /// - **Lane separation**: The Lane handles blocking syscalls only. Actor work (state
     ///   transitions, waiter management, continuation resumes) never goes through the Lane.
-    /// - **Full isolation**: All async methods are actor-isolated. No `nonisolated async`
-    ///   surfaces that could hop to the global executor.
+    /// - **Nonisolated fast path**: `run()` bypasses actor isolation via atomic lifecycle check,
+    ///   eliminating actor hops for stateless blocking operations.
+    /// - **Handle isolation**: `transaction()` remains actor-isolated for handle registry access.
     public actor Pool<Resource: ~Copyable & Sendable> {
         /// The executor this pool runs on.
         ///
@@ -58,73 +61,34 @@ extension IO.Executor {
         /// For standalone pools, this is always 0.
         public nonisolated let shardIndex: UInt16
 
+        /// Atomic lifecycle state for nonisolated access.
+        ///
+        /// This enables `run()` to bypass actor isolation by checking lifecycle
+        /// atomically. Memory ordering:
+        /// - `run()` reads with `.acquiring` to see effects of shutdown
+        /// - `shutdown()` transitions with `.releasing` to publish state change
+        private nonisolated let _lifecycle: Atomic<IO.Lifecycle>
+
         /// Maximum waiters per handle (from backpressure policy).
         private let handleWaitersLimit: Int
 
         /// Counter for generating unique handle IDs.
         private var nextRawID: UInt64 = 0
 
-        /// Whether shutdown has been initiated.
-        private var isShutdown: Bool = false
-
-        // MARK: - Submission Gate
-
-        /// Single submission boundary gate.
-        ///
-        /// INVARIANT: All public methods that accept work (`run`, `register`, `transaction`)
-        /// MUST check this at their start and reject immediately if false.
-        ///
-        /// This ensures:
-        /// - Consistent rejection behavior across all entry points
-        /// - Fail-fast before any expensive validation or state changes
-        /// - Single point for future extensions (rate limiting, capacity checks)
-        private var isAcceptingWork: Bool { !isShutdown }
-
         /// Actor-owned handle registry.
         /// Each entry holds a Resource (or nil if checked out) plus waiters.
         private var handles: [IO.Handle.ID: IO.Executor.Handle.Entry<Resource>] = [:]
-
-        // MARK: - Custom Executor
 
         /// Returns the executor this actor runs on.
         ///
         /// This pins the actor to a specific executor thread from the shared pool,
         /// ensuring predictable scheduling behavior.
+        ///
+        /// Note: Must be in actor body (not extension) for Actor protocol conformance
+        /// with ~Copyable generic parameter.
         public nonisolated var unownedExecutor: UnownedSerialExecutor {
             _executor.asUnownedSerialExecutor()
         }
-
-        /// The executor this pool runs on.
-        ///
-        /// Use with `withTaskExecutorPreference` to keep related work co-located
-        /// on the same executor shard, reducing scheduling overhead.
-        public nonisolated var executor: IO.Executor.Thread {
-            _executor
-        }
-
-        /// Execute work with preference for this pool's executor.
-        ///
-        /// This is a convenience wrapper around `withTaskExecutorPreference`.
-        /// Use it to ensure Tasks created within the closure prefer this pool's
-        /// executor, keeping related work co-located and reducing scheduling overhead.
-        ///
-        /// ## Usage
-        /// ```swift
-        /// await pool.withExecutorPreference {
-        ///     // Tasks created here will prefer pool's executor
-        ///     await doWork()
-        /// }
-        /// ```
-        ///
-        /// - Parameter body: The async work to execute.
-        /// - Returns: The result of the body closure.
-        public nonisolated func withExecutorPreference<T: Sendable>(
-            _ body: @Sendable () async throws -> T
-        ) async rethrows -> T {
-            try await withTaskExecutorPreference(_executor, operation: body)
-        }
-
-        // MARK: - Initializers
 
         /// Creates an executor with the given lane and backpressure policy.
         ///
@@ -144,6 +108,7 @@ extension IO.Executor {
         ) {
             self._executor = IO.Executor.shared.next()
             self.lane = lane
+            self._lifecycle = Atomic(.running)
             self.handleWaitersLimit = policy.handleWaitersLimit
             self.scope = IO.Executor.scopeCounter.next()
             self.shardIndex = shardIndex
@@ -167,6 +132,7 @@ extension IO.Executor {
         ) {
             self._executor = executor
             self.lane = lane
+            self._lifecycle = Atomic(.running)
             self.handleWaitersLimit = policy.handleWaitersLimit
             self.scope = IO.Executor.scopeCounter.next()
             self.shardIndex = shardIndex
@@ -185,525 +151,618 @@ extension IO.Executor {
         public init(_ options: IO.Blocking.Threads.Options = .init()) {
             self._executor = IO.Executor.shared.next()
             self.lane = .threads(options)
+            self._lifecycle = Atomic(.running)
             self.handleWaitersLimit = options.policy.handleWaitersLimit
             self.scope = IO.Executor.scopeCounter.next()
             self.shardIndex = 0
         }
+    }
+}
 
-        // MARK: - Execution
+// MARK: - Submission Gate
 
-        /// Execute a blocking operation on the lane with typed throws.
-        ///
-        /// This method preserves the operation's specific error type while also
-        /// capturing I/O infrastructure errors in `IO.Lifecycle.Error<IO.Error<E>>`.
-        ///
-        /// ## Cancellation Semantics
-        /// - Cancellation before acceptance → `.cancelled`
-        /// - Cancellation after acceptance → operation completes, then `.cancelled`
-        ///
-        /// - Parameter operation: The blocking operation to execute.
-        /// - Returns: The result of the operation.
-        /// - Throws: `IO.Lifecycle.Error<IO.Error<E>>` with lifecycle or operation errors.
-        public func run<T: Sendable, E: Swift.Error & Sendable>(
-            _ operation: @Sendable @escaping () throws(E) -> T
-        ) async throws(IO.Lifecycle.Error<IO.Error<E>>) -> T {
-            guard isAcceptingWork else {
+extension IO.Executor.Pool {
+    /// Check if the pool is accepting work (actor-isolated path).
+    ///
+    /// Used by `register()` and `transaction()` which need actor isolation anyway.
+    fileprivate var isAcceptingWork: Bool {
+        _lifecycle.load(ordering: .acquiring) == .running
+    }
+}
+
+// MARK: - Custom Executor
+
+extension IO.Executor.Pool {
+    /// The executor this pool runs on.
+    ///
+    /// Use with `withTaskExecutorPreference` to keep related work co-located
+    /// on the same executor shard, reducing scheduling overhead.
+    public nonisolated var executor: IO.Executor.Thread {
+        _executor
+    }
+
+    /// Execute work with preference for this pool's executor.
+    ///
+    /// This is a convenience wrapper around `withTaskExecutorPreference`.
+    /// Use it to ensure Tasks created within the closure prefer this pool's
+    /// executor, keeping related work co-located and reducing scheduling overhead.
+    ///
+    /// ## Usage
+    /// ```swift
+    /// await pool.withExecutorPreference {
+    ///     // Tasks created here will prefer pool's executor
+    ///     await doWork()
+    /// }
+    /// ```
+    ///
+    /// - Parameter body: The async work to execute.
+    /// - Returns: The result of the body closure.
+    public nonisolated func withExecutorPreference<T: Sendable>(
+        _ body: @Sendable () async throws -> T
+    ) async rethrows -> T {
+        try await withTaskExecutorPreference(_executor, operation: body)
+    }
+}
+
+// MARK: - Execution
+
+extension IO.Executor.Pool {
+    /// Execute a blocking operation on the lane with typed throws.
+    ///
+    /// This method preserves the operation's specific error type while also
+    /// capturing I/O infrastructure errors in `IO.Lifecycle.Error<IO.Error<E>>`.
+    ///
+    /// ## Performance
+    /// This method is `nonisolated` and bypasses the actor hop by checking
+    /// lifecycle state atomically. This eliminates 2+ actor hops per operation,
+    /// significantly improving throughput for stateless blocking work.
+    ///
+    /// ## Cancellation Semantics
+    /// - Cancellation before acceptance → `.cancelled`
+    /// - Cancellation after acceptance → operation completes, then `.cancelled`
+    ///
+    /// - Parameter operation: The blocking operation to execute.
+    /// - Returns: The result of the operation.
+    /// - Throws: `IO.Lifecycle.Error<IO.Error<E>>` with lifecycle or operation errors.
+    public nonisolated func run<T: Sendable, E: Swift.Error & Sendable>(
+        _ operation: @Sendable @escaping () throws(E) -> T
+    ) async throws(IO.Lifecycle.Error<IO.Error<E>>) -> T {
+        // Check lifecycle atomically - no actor hop required
+        guard _lifecycle.load(ordering: .acquiring) == .running else {
+            throw .shutdownInProgress
+        }
+
+        // Fast-path: if already cancelled, skip lane submission entirely
+        if Task.isCancelled {
+            throw .cancelled
+        }
+
+        // Lane.run throws(Failure) and returns Result<T, E>
+        // Lane is Sendable and accessed via nonisolated let - safe for direct access
+        let result: Result<T, E>
+        do {
+            result = try await lane.run(deadline: nil, operation)
+        } catch {
+            // Map lane failures to lifecycle or operational errors
+            switch error {
+            case .shutdown:
                 throw .shutdownInProgress
+            case .cancellationRequested:
+                throw .cancelled
+            case .queueFull:
+                throw .failure(.lane(.queueFull))
+            case .deadlineExceeded:
+                throw .failure(.lane(.deadlineExceeded))
+            case .overloaded:
+                throw .failure(.lane(.overloaded))
+            case .internalInvariantViolation:
+                throw .failure(.lane(.internalInvariantViolation))
+            }
+        }
+        switch result {
+        case .success(let value):
+            return value
+        case .failure(let error):
+            throw .failure(.leaf(error))
+        }
+    }
+}
+
+// MARK: - Shutdown
+
+extension IO.Executor.Pool {
+    /// Shut down the executor.
+    ///
+    /// 1. Marks executor as shut down (rejects new `run()` calls)
+    /// 2. Resumes all waiters so they can exit gracefully
+    /// 3. Shuts down the lane
+    ///
+    /// Note: Handle cleanup should be done by the caller before shutdown,
+    /// or by providing a cleanup closure.
+    public func shutdown() async {
+        // Atomically transition to shutdownInProgress
+        // Use compare-exchange to ensure idempotency
+        let (exchanged, _) = _lifecycle.compareExchange(
+            expected: .running,
+            desired: .shutdownInProgress,
+            ordering: .releasing
+        )
+        guard exchanged else { return }  // Already shutting down or shut down
+
+        // Resume all waiters so they can observe shutdown
+        for (_, entry) in handles {
+            entry.waiters.resumeAll()
+            entry.state = .destroyed
+        }
+
+        handles.removeAll()
+
+        // Shutdown the lane
+        await lane.shutdown()
+
+        // Mark shutdown complete
+        _lifecycle.store(.shutdownComplete, ordering: .releasing)
+    }
+}
+
+// MARK: - Handle ID Generation
+
+extension IO.Executor.Pool {
+    /// Generate a unique handle ID.
+    private func generateHandleID() -> IO.Handle.ID {
+        let raw = nextRawID
+        nextRawID += 1
+        return IO.Handle.ID(raw: raw, scope: scope, shard: shardIndex)
+    }
+}
+
+// MARK: - Handle Registration
+
+extension IO.Executor.Pool {
+    /// Register a resource and return its ID.
+    ///
+    /// - Parameter resource: The resource to register (ownership transferred).
+    /// - Returns: A unique handle ID for future operations.
+    /// - Throws: `IO.Lifecycle.Error.shutdownInProgress` if executor is shut down.
+    public func register(
+        _ resource: consuming Resource
+    ) throws(IO.Lifecycle.Error<IO.Handle.Error>) -> IO.Handle.ID {
+        guard isAcceptingWork else {
+            throw .shutdownInProgress
+        }
+        let id = generateHandleID()
+        handles[id] = IO.Executor.Handle.Entry(
+            handle: resource,
+            waitersCapacity: handleWaitersLimit
+        )
+        return id
+    }
+}
+
+// MARK: - Handle Validation
+
+extension IO.Executor.Pool {
+    /// Check if a handle ID is currently valid.
+    ///
+    /// - Parameter id: The handle ID to check.
+    /// - Returns: `true` if the handle exists and is not destroyed.
+    public func isValid(_ id: IO.Handle.ID) -> Bool {
+        guard let entry = handles[id] else { return false }
+        return entry.state != .destroyed
+    }
+
+    /// Check if a handle ID refers to an open handle.
+    ///
+    /// This is the source of truth for handle liveness. Returns true if:
+    /// - The ID belongs to this executor (scope match)
+    /// - An entry exists in the registry
+    /// - The entry is present or checked out (not destroyed)
+    ///
+    /// - Parameter id: The handle ID to check.
+    /// - Returns: `true` if the handle is logically open.
+    public func isOpen(_ id: IO.Handle.ID) -> Bool {
+        guard id.scope == scope else { return false }
+        guard let entry = handles[id] else { return false }
+        return entry.isOpen
+    }
+}
+
+// MARK: - Waiter Parking
+
+extension IO.Executor.Pool {
+    /// Arms `waiter`, enqueues it, then suspends until resumed by `_checkInHandle`.
+    ///
+    /// This method is actor-isolated and is the only place that may mutate
+    /// `entry.waiters` as part of the wait path. It exists to ensure the
+    /// enqueue happens on the actor executor even when the caller is inside
+    /// an escaping `@Sendable` cancellation handler operation.
+    ///
+    /// - Returns: `true` if enqueued, `nil` if entry not found, `false` if queue was full.
+    private func _park(
+        _ waiter: IO.Handle.Waiter,
+        for id: IO.Handle.ID
+    ) async -> Bool? {
+        // Look up entry inside actor-isolated method to avoid Sendable issues
+        guard let entry = handles[id] else {
+            return nil
+        }
+
+        var enqueued = true
+
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            // Debug guard wraps only the synchronous mutation, not the suspension
+            #if DEBUG
+                entry._debugBeginMutation()
+                defer { entry._debugEndMutation() }
+            #endif
+
+            let didArm = waiter.arm(continuation: continuation)
+            precondition(didArm, "Waiter \(waiter.token) failed to arm exactly once")
+
+            if !entry.waiters.enqueue(waiter) {
+                enqueued = false
+
+                // Ensure the task does not hang if we fail to enqueue after installing a continuation.
+                if let result = waiter.takeForResume() {
+                    result.continuation.resume()
+                } else {
+                    continuation.resume()
+                }
+            }
+        }
+
+        return enqueued
+    }
+}
+
+// MARK: - Transaction API
+
+extension IO.Executor.Pool {
+    /// Execute a transaction with exclusive handle access and typed errors.
+    ///
+    /// ## Semantics
+    /// Transaction does not imply database-style atomicity or rollback:
+    /// - Exclusive access to the resource (mutual exclusion)
+    /// - Guaranteed check-in after body completes (including errors/cancellation)
+    /// - No rollback or atomic commit semantics are implied
+    ///
+    /// ## Cancellation Semantics
+    ///
+    /// - `onCancel` handler only flips a cancelled bit synchronously (no Task, no resume)
+    /// - Cancelled waiters wake, observe `wasCancelled`, and throw `.cancelled`
+    /// - Cancellation after checkout: lane operation completes (if guaranteed),
+    ///   handle is checked in, then `.cancelled` is thrown
+    ///
+    /// ## Algorithm
+    /// 1. Validate scope and existence
+    /// 2. If handle available: move out (entry.handle = nil)
+    /// 3. Else: enqueue waiter and suspend (cancellation-safe)
+    /// 4. Execute via slot: allocate slot, run on lane, move handle back
+    /// 5. Check-in: restore handle or close if destroyed
+    /// 6. Resume next non-cancelled waiter
+    ///
+    /// INVARIANT: All continuation resumption happens on the actor executor.
+    /// The actor drains cancelled waiters during resumeNext() (on handle check-in).
+    /// No continuations are resumed from `onCancel` or while holding locks.
+    public func transaction<T: Sendable, E: Swift.Error & Sendable>(
+        _ id: IO.Handle.ID,
+        _ body: @Sendable @escaping (inout Resource) throws(E) -> T
+    ) async throws(IO.Lifecycle.Error<IO.Executor.Transaction.Error<E>>) -> T {
+        // Submission gate: reject immediately if shutdown
+        guard isAcceptingWork else {
+            throw .shutdownInProgress
+        }
+
+        // Step 1: Validate scope
+        guard id.scope == scope else {
+            throw .failure(.handle(.scopeMismatch))
+        }
+
+        // Step 2: Checkout handle (with waiting if needed)
+        guard let entry = handles[id] else {
+            throw .failure(.handle(.invalidID))
+        }
+
+        if entry.state == .destroyed {
+            throw .failure(.handle(.invalidID))
+        }
+
+        // If handle is available, take it
+        var checkedOutHandle: Resource
+        if entry.state == .present, let h = entry.take() {
+            entry.state = .checkedOut
+            checkedOutHandle = h
+        } else {
+            // Step 3: Handle is checked out - wait for it
+            // Check if waiter queue has capacity
+            if entry.waiters.isFull {
+                throw .failure(.handle(.waitersFull))
             }
 
-            // Fast-path: if already cancelled, skip lane submission entirely
+            // Fast-path: if already cancelled, skip waiter machinery entirely
+            // This avoids the cost of continuation setup + cancellation handler
+            // for tasks that are already cancelled before waiting
             if Task.isCancelled {
                 throw .cancelled
             }
 
-            // Lane.run throws(Failure) and returns Result<T, E>
-            let result: Result<T, E>
-            do {
-                result = try await lane.run(deadline: nil, operation)
-            } catch {
-                // Map lane failures to lifecycle or operational errors
-                switch error {
-                case .shutdown:
-                    throw .shutdownInProgress
-                case .cancellationRequested:
+            let token = entry.waiters.generateToken()
+            let waiter = IO.Handle.Waiter(token: token)
+
+            let enqueued = await withTaskCancellationHandler {
+                await self._park(waiter, for: id)
+            } onCancel: {
+                waiter.cancel()
+            }
+
+            // Check if shutdown happened while waiting
+            if !isAcceptingWork {
+                throw .shutdownInProgress
+            }
+
+            guard let enqueued else {
+                // Entry was removed while waiting (not due to shutdown)
+                throw .failure(.handle(.invalidID))
+            }
+
+            if !enqueued {
+                throw .failure(.handle(.waitersFull))
+            }
+
+            // Capture cancellation state now, but still reclaim any reserved handle before throwing.
+            // Cancellation is best-effort; we must not leak a reserved handle if cancellation wins the race.
+            let wasCancelled = waiter.wasCancelled || Task.isCancelled
+
+            // Re-validate after waiting - check shutdown first for correct error
+            if !isAcceptingWork {
+                throw .shutdownInProgress
+            }
+            guard let entry = handles[id], entry.state != .destroyed else {
+                throw .failure(.handle(.invalidID))
+            }
+
+            // Claim handle - either reserved for us or present
+            if case .reserved(let reservedToken) = entry.state, reservedToken == token {
+                // Reservation path - claim by token (no contention possible)
+                guard let h = entry.takeReserved(token: token) else {
+                    throw .failure(.handle(.invalidID))
+                }
+                if wasCancelled {
+                    // Reclaim handle before throwing - don't strand it in reserved state
+                    _checkInHandle(consume h, for: id, entry: entry)
                     throw .cancelled
-                case .queueFull:
-                    throw .failure(.lane(.queueFull))
-                case .deadlineExceeded:
-                    throw .failure(.lane(.deadlineExceeded))
-                case .overloaded:
-                    throw .failure(.lane(.overloaded))
-                case .internalInvariantViolation:
-                    throw .failure(.lane(.internalInvariantViolation))
                 }
-            }
-            switch result {
-            case .success(let value):
-                return value
-            case .failure(let error):
-                throw .failure(.leaf(error))
-            }
-        }
-
-        // MARK: - Shutdown
-
-        /// Shut down the executor.
-        ///
-        /// 1. Marks executor as shut down (rejects new `run()` calls)
-        /// 2. Resumes all waiters so they can exit gracefully
-        /// 3. Shuts down the lane
-        ///
-        /// Note: Handle cleanup should be done by the caller before shutdown,
-        /// or by providing a cleanup closure.
-        public func shutdown() async {
-            guard !isShutdown else { return }  // Idempotent
-            isShutdown = true
-
-            // Resume all waiters so they can observe shutdown
-            for (_, entry) in handles {
-                entry.waiters.resumeAll()
-                entry.state = .destroyed
-            }
-
-            handles.removeAll()
-
-            // Shutdown the lane
-            await lane.shutdown()
-        }
-
-        // MARK: - Handle Management
-
-        /// Generate a unique handle ID.
-        private func generateHandleID() -> IO.Handle.ID {
-            let raw = nextRawID
-            nextRawID += 1
-            return IO.Handle.ID(raw: raw, scope: scope, shard: shardIndex)
-        }
-
-        /// Register a resource and return its ID.
-        ///
-        /// - Parameter resource: The resource to register (ownership transferred).
-        /// - Returns: A unique handle ID for future operations.
-        /// - Throws: `IO.Lifecycle.Error.shutdownInProgress` if executor is shut down.
-        public func register(
-            _ resource: consuming Resource
-        ) throws(IO.Lifecycle.Error<IO.Handle.Error>) -> IO.Handle.ID {
-            guard isAcceptingWork else {
-                throw .shutdownInProgress
-            }
-            let id = generateHandleID()
-            handles[id] = IO.Executor.Handle.Entry(
-                handle: resource,
-                waitersCapacity: handleWaitersLimit
-            )
-            return id
-        }
-
-        /// Check if a handle ID is currently valid.
-        ///
-        /// - Parameter id: The handle ID to check.
-        /// - Returns: `true` if the handle exists and is not destroyed.
-        public func isValid(_ id: IO.Handle.ID) -> Bool {
-            guard let entry = handles[id] else { return false }
-            return entry.state != .destroyed
-        }
-
-        /// Check if a handle ID refers to an open handle.
-        ///
-        /// This is the source of truth for handle liveness. Returns true if:
-        /// - The ID belongs to this executor (scope match)
-        /// - An entry exists in the registry
-        /// - The entry is present or checked out (not destroyed)
-        ///
-        /// - Parameter id: The handle ID to check.
-        /// - Returns: `true` if the handle is logically open.
-        public func isOpen(_ id: IO.Handle.ID) -> Bool {
-            guard id.scope == scope else { return false }
-            guard let entry = handles[id] else { return false }
-            return entry.isOpen
-        }
-
-        // MARK: - Transaction API
-
-        /// Execute a transaction with exclusive handle access and typed errors.
-        ///
-        /// ## Semantics
-        /// Transaction does not imply database-style atomicity or rollback:
-        /// - Exclusive access to the resource (mutual exclusion)
-        /// - Guaranteed check-in after body completes (including errors/cancellation)
-        /// - No rollback or atomic commit semantics are implied
-        ///
-        /// ## Cancellation Semantics
-        ///
-        /// - `onCancel` handler only flips a cancelled bit synchronously (no Task, no resume)
-        /// - Cancelled waiters wake, observe `wasCancelled`, and throw `.cancelled`
-        /// - Cancellation after checkout: lane operation completes (if guaranteed),
-        ///   handle is checked in, then `.cancelled` is thrown
-        ///
-        // ## Algorithm
-        // 1. Validate scope and existence
-        // 2. If handle available: move out (entry.handle = nil)
-        // 3. Else: enqueue waiter and suspend (cancellation-safe)
-        // 4. Execute via slot: allocate slot, run on lane, move handle back
-        // 5. Check-in: restore handle or close if destroyed
-        // 6. Resume next non-cancelled waiter
-        //
-        // INVARIANT: All continuation resumption happens on the actor executor.
-        // The actor drains cancelled waiters during resumeNext() (on handle check-in).
-        // No continuations are resumed from `onCancel` or while holding locks.
-
-        /// Arms `waiter`, enqueues it, then suspends until resumed by `_checkInHandle`.
-        ///
-        /// This method is actor-isolated and is the only place that may mutate
-        /// `entry.waiters` as part of the wait path. It exists to ensure the
-        /// enqueue happens on the actor executor even when the caller is inside
-        /// an escaping `@Sendable` cancellation handler operation.
-        ///
-        /// - Returns: `true` if enqueued, `nil` if entry not found, `false` if queue was full.
-        private func _park(
-            _ waiter: IO.Handle.Waiter,
-            for id: IO.Handle.ID
-        ) async -> Bool? {
-            // Look up entry inside actor-isolated method to avoid Sendable issues
-            guard let entry = handles[id] else {
-                return nil
-            }
-
-            var enqueued = true
-
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                // Debug guard wraps only the synchronous mutation, not the suspension
-                #if DEBUG
-                entry._debugBeginMutation()
-                defer { entry._debugEndMutation() }
-                #endif
-
-                let didArm = waiter.arm(continuation: continuation)
-                precondition(didArm, "Waiter \(waiter.token) failed to arm exactly once")
-
-                if !entry.waiters.enqueue(waiter) {
-                    enqueued = false
-
-                    // Ensure the task does not hang if we fail to enqueue after installing a continuation.
-                    if let result = waiter.takeForResume() {
-                        result.continuation.resume()
-                    } else {
-                        continuation.resume()
-                    }
+                entry.state = .checkedOut
+                checkedOutHandle = h
+            } else if entry.state == .present, let h = entry.take() {
+                // Fallback for edge cases (shouldn't normally happen with reservation)
+                if wasCancelled {
+                    // Reclaim handle before throwing
+                    _checkInHandle(consume h, for: id, entry: entry)
+                    throw .cancelled
                 }
-            }
-
-            return enqueued
-        }
-
-        public func transaction<T: Sendable, E: Swift.Error & Sendable>(
-            _ id: IO.Handle.ID,
-            _ body: @Sendable @escaping (inout Resource) throws(E) -> T
-        ) async throws(IO.Lifecycle.Error<Transaction.Error<E>>) -> T {
-            // Submission gate: reject immediately if shutdown
-            guard isAcceptingWork else {
-                throw .shutdownInProgress
-            }
-
-            // Step 1: Validate scope
-            guard id.scope == scope else {
-                throw .failure(.handle(.scopeMismatch))
-            }
-
-            // Step 2: Checkout handle (with waiting if needed)
-            guard let entry = handles[id] else {
-                throw .failure(.handle(.invalidID))
-            }
-
-            if entry.state == .destroyed {
-                throw .failure(.handle(.invalidID))
-            }
-
-            // If handle is available, take it
-            var checkedOutHandle: Resource
-            if entry.state == .present, let h = entry.take() {
                 entry.state = .checkedOut
                 checkedOutHandle = h
             } else {
-                // Step 3: Handle is checked out - wait for it
-                // Check if waiter queue has capacity
-                if entry.waiters.isFull {
-                    throw .failure(.handle(.waitersFull))
-                }
-
-                // Fast-path: if already cancelled, skip waiter machinery entirely
-                // This avoids the cost of continuation setup + cancellation handler
-                // for tasks that are already cancelled before waiting
-                if Task.isCancelled {
+                // Handle not available for this waiter
+                // If cancelled, report cancellation (not invalidID)
+                if wasCancelled {
                     throw .cancelled
                 }
-
-                let token = entry.waiters.generateToken()
-                let waiter = IO.Handle.Waiter(token: token)
-
-                let enqueued = await withTaskCancellationHandler {
-                    await self._park(waiter, for: id)
-                } onCancel: {
-                    waiter.cancel()
-                }
-
-                // Check if shutdown happened while waiting
-                if isShutdown {
-                    throw .shutdownInProgress
-                }
-
-                guard let enqueued else {
-                    // Entry was removed while waiting (not due to shutdown)
-                    throw .failure(.handle(.invalidID))
-                }
-
-                if !enqueued {
-                    throw .failure(.handle(.waitersFull))
-                }
-
-                // Capture cancellation state now, but still reclaim any reserved handle before throwing.
-                // Cancellation is best-effort; we must not leak a reserved handle if cancellation wins the race.
-                let wasCancelled = waiter.wasCancelled || Task.isCancelled
-
-                // Re-validate after waiting - check shutdown first for correct error
-                if isShutdown {
-                    throw .shutdownInProgress
-                }
-                guard let entry = handles[id], entry.state != .destroyed else {
-                    throw .failure(.handle(.invalidID))
-                }
-
-                // Claim handle - either reserved for us or present
-                if case .reserved(let reservedToken) = entry.state, reservedToken == token {
-                    // Reservation path - claim by token (no contention possible)
-                    guard let h = entry.takeReserved(token: token) else {
-                        throw .failure(.handle(.invalidID))
-                    }
-                    if wasCancelled {
-                        // Reclaim handle before throwing - don't strand it in reserved state
-                        _checkInHandle(consume h, for: id, entry: entry)
-                        throw .cancelled
-                    }
-                    entry.state = .checkedOut
-                    checkedOutHandle = h
-                } else if entry.state == .present, let h = entry.take() {
-                    // Fallback for edge cases (shouldn't normally happen with reservation)
-                    if wasCancelled {
-                        // Reclaim handle before throwing
-                        _checkInHandle(consume h, for: id, entry: entry)
-                        throw .cancelled
-                    }
-                    entry.state = .checkedOut
-                    checkedOutHandle = h
-                } else {
-                    // Handle not available for this waiter
-                    // If cancelled, report cancellation (not invalidID)
-                    if wasCancelled {
-                        throw .cancelled
-                    }
-                    throw .failure(.handle(.invalidID))
-                }
-            }
-
-            // Step 4: Execute body on lane using slot pattern
-            var slot = IO.Executor.Slot.Container<Resource>.allocate()
-            slot.initialize(with: checkedOutHandle)
-            let address = slot.address
-
-            let operationResult: Result<T, E>
-            do {
-                operationResult = try await lane.run(deadline: nil) { () throws(E) -> T in
-                    try IO.Executor.Slot.Container<Resource>.withResource(at: address) {
-                        (resource: inout Resource) throws(E) -> T in
-                        try body(&resource)
-                    }
-                }
-            } catch {
-                // Map lane failures to lifecycle or operational errors
-                _checkInHandle(slot.take(), for: id, entry: entry)
-                slot.deallocateRawOnly()
-                switch error {
-                case .shutdown:
-                    throw .shutdownInProgress
-                case .cancellationRequested:
-                    throw .cancelled
-                case .queueFull:
-                    throw .failure(.lane(.queueFull))
-                case .deadlineExceeded:
-                    throw .failure(.lane(.deadlineExceeded))
-                case .overloaded:
-                    throw .failure(.lane(.overloaded))
-                case .internalInvariantViolation:
-                    throw .failure(.lane(.internalInvariantViolation))
-                }
-            }
-
-            // Check if task was cancelled during execution
-            let wasCancelled = Task.isCancelled
-
-            // Move handle back out of slot and deallocate
-            let checkedInHandle = slot.take()
-            slot.deallocateRawOnly()
-
-            // Step 5: Check-in handle
-            _checkInHandle(checkedInHandle, for: id, entry: entry)
-
-            // Handle cancellation
-            if wasCancelled {
-                throw .cancelled
-            }
-
-            // Return result or throw body error
-            switch operationResult {
-            case .success(let value):
-                return value
-            case .failure(let bodyError):
-                throw .failure(.body(bodyError))
+                throw .failure(.handle(.invalidID))
             }
         }
 
-        /// Check-in a handle after transaction.
-        ///
-        /// Uses reservation-based handoff when waiters exist:
-        /// 1. Dequeue next armed waiter
-        /// 2. Store handle in `reservedHandle` with waiter's token
-        /// 3. Resume waiter - they claim by token (no re-validation needed)
-        private func _checkInHandle(
-            _ handle: consuming Resource,
-            for id: IO.Handle.ID,
-            entry: IO.Executor.Handle.Entry<Resource>
-        ) {
-            #if DEBUG
+        // Step 4: Execute body on lane using slot pattern
+        var slot = IO.Executor.Slot.Container<Resource>.allocate()
+        slot.initialize(with: checkedOutHandle)
+        let address = slot.address
+
+        let operationResult: Result<T, E>
+        do {
+            operationResult = try await lane.run(deadline: nil) { () throws(E) -> T in
+                try IO.Executor.Slot.Container<Resource>.withResource(at: address) {
+                    (resource: inout Resource) throws(E) -> T in
+                    try body(&resource)
+                }
+            }
+        } catch {
+            // Map lane failures to lifecycle or operational errors
+            _checkInHandle(slot.take(), for: id, entry: entry)
+            slot.deallocateRawOnly()
+            switch error {
+            case .shutdown:
+                throw .shutdownInProgress
+            case .cancellationRequested:
+                throw .cancelled
+            case .queueFull:
+                throw .failure(.lane(.queueFull))
+            case .deadlineExceeded:
+                throw .failure(.lane(.deadlineExceeded))
+            case .overloaded:
+                throw .failure(.lane(.overloaded))
+            case .internalInvariantViolation:
+                throw .failure(.lane(.internalInvariantViolation))
+            }
+        }
+
+        // Check if task was cancelled during execution
+        let wasCancelled = Task.isCancelled
+
+        // Move handle back out of slot and deallocate
+        let checkedInHandle = slot.take()
+        slot.deallocateRawOnly()
+
+        // Step 5: Check-in handle
+        _checkInHandle(checkedInHandle, for: id, entry: entry)
+
+        // Handle cancellation
+        if wasCancelled {
+            throw .cancelled
+        }
+
+        // Return result or throw body error
+        switch operationResult {
+        case .success(let value):
+            return value
+        case .failure(let bodyError):
+            throw .failure(.body(bodyError))
+        }
+    }
+}
+
+// MARK: - Handle Check-In
+
+extension IO.Executor.Pool {
+    /// Check-in a handle after transaction.
+    ///
+    /// Uses reservation-based handoff when waiters exist:
+    /// 1. Dequeue next armed waiter
+    /// 2. Store handle in `reservedHandle` with waiter's token
+    /// 3. Resume waiter - they claim by token (no re-validation needed)
+    private func _checkInHandle(
+        _ handle: consuming Resource,
+        for id: IO.Handle.ID,
+        entry: IO.Executor.Handle.Entry<Resource>
+    ) {
+        #if DEBUG
             entry._debugBeginMutation()
             defer { entry._debugEndMutation() }
-            #endif
+        #endif
 
-            if entry.state == .destroyed {
-                // Entry marked for destruction - remove from registry
-                handles.removeValue(forKey: id)
-                _ = consume handle
-                return
-            }
-
-            // Single-funnel draining:
-            // Drain the queue completely - resume cancelled waiters, reserve for first eligible.
-            // Only set .present when queue is truly empty.
-
-            var h = consume handle
-
-            while let waiter = entry.waiters.dequeue() {
-                // Invariant: enqueued implies armed.
-                // If this fires, actor isolation is broken.
-                precondition(waiter.isArmed, "Waiter \(waiter.token) enqueued but not armed")
-
-                // Already drained (shouldn't happen, but be defensive).
-                if waiter.isDrained {
-                    continue
-                }
-
-                // Cancelled: resume immediately so task can observe cancellation.
-                if waiter.wasCancelled {
-                    if let result = waiter.takeForResume() {
-                        result.continuation.resume()
-                    }
-                    // Whether or not takeForResume succeeded, waiter is done.
-                    continue
-                }
-
-                // Non-cancelled, armed waiter: reserve and handoff.
-                entry.reservedHandle = consume h
-                entry.state = .reserved(waiterToken: waiter.token)
-
-                guard let result = waiter.takeForResume() else {
-                    // Waiter got cancelled between our check and takeForResume.
-                    // Reclaim handle and continue draining.
-                    guard let reclaimed = entry.takeReserved(token: waiter.token) else {
-                        // Reservation was already claimed somehow - invariant violation.
-                        // Set present and bail (handle is lost but we avoid crash).
-                        entry.state = .present
-                        precondition(entry.waiters.isEmpty, "Setting present with waiters remaining")
-                        return
-                    }
-                    h = consume reclaimed
-                    continue
-                }
-
-                result.continuation.resume()
-                return
-            }
-
-            // Queue is empty, make handle present.
-            entry.handle = consume h
-            entry.state = .present
+        if entry.state == .destroyed {
+            // Entry marked for destruction - remove from registry
+            handles.removeValue(forKey: id)
+            _ = consume handle
+            return
         }
 
-        /// Execute a closure with exclusive access to a handle.
-        ///
-        /// This is a convenience wrapper over `transaction(_:_:)`.
-        public func withHandle<T: Sendable, E: Swift.Error & Sendable>(
-            _ id: IO.Handle.ID,
-            _ body: @Sendable @escaping (inout Resource) throws(E) -> T
-        ) async throws(IO.Lifecycle.Error<IO.Error<E>>) -> T {
-            do {
-                return try await transaction(id, body)
-            } catch {
-                // Map transaction errors to IO.Error
-                switch error {
-                case .shutdownInProgress:
-                    throw .shutdownInProgress
-                case .cancelled:
-                    throw .cancelled
-                case .failure(let transactionError):
-                    switch transactionError {
-                    case .lane(let laneError):
-                        throw .failure(.lane(laneError))
-                    case .handle(let handleError):
-                        throw .failure(.handle(handleError))
-                    case .body(let bodyError):
-                        throw .failure(.leaf(bodyError))
-                    }
+        // Single-funnel draining:
+        // Drain the queue completely - resume cancelled waiters, reserve for first eligible.
+        // Only set .present when queue is truly empty.
+
+        var h = consume handle
+
+        while let waiter = entry.waiters.dequeue() {
+            // Invariant: enqueued implies armed.
+            // If this fires, actor isolation is broken.
+            precondition(waiter.isArmed, "Waiter \(waiter.token) enqueued but not armed")
+
+            // Already drained (shouldn't happen, but be defensive).
+            if waiter.isDrained {
+                continue
+            }
+
+            // Cancelled: resume immediately so task can observe cancellation.
+            if waiter.wasCancelled {
+                if let result = waiter.takeForResume() {
+                    result.continuation.resume()
+                }
+                // Whether or not takeForResume succeeded, waiter is done.
+                continue
+            }
+
+            // Non-cancelled, armed waiter: reserve and handoff.
+            entry.reservedHandle = consume h
+            entry.state = .reserved(waiterToken: waiter.token)
+
+            guard let result = waiter.takeForResume() else {
+                // Waiter got cancelled between our check and takeForResume.
+                // Reclaim handle and continue draining.
+                guard let reclaimed = entry.takeReserved(token: waiter.token) else {
+                    // Reservation was already claimed somehow - invariant violation.
+                    // Set present and bail (handle is lost but we avoid crash).
+                    entry.state = .present
+                    precondition(entry.waiters.isEmpty, "Setting present with waiters remaining")
+                    return
+                }
+                h = consume reclaimed
+                continue
+            }
+
+            result.continuation.resume()
+            return
+        }
+
+        // Queue is empty, make handle present.
+        entry.handle = consume h
+        entry.state = .present
+    }
+}
+
+// MARK: - Convenience API
+
+extension IO.Executor.Pool {
+    /// Execute a closure with exclusive access to a handle.
+    ///
+    /// This is a convenience wrapper over `transaction(_:_:)`.
+    public func withHandle<T: Sendable, E: Swift.Error & Sendable>(
+        _ id: IO.Handle.ID,
+        _ body: @Sendable @escaping (inout Resource) throws(E) -> T
+    ) async throws(IO.Lifecycle.Error<IO.Error<E>>) -> T {
+        do {
+            return try await transaction(id, body)
+        } catch {
+            // Map transaction errors to IO.Error
+            switch error {
+            case .shutdownInProgress:
+                throw .shutdownInProgress
+            case .cancelled:
+                throw .cancelled
+            case .failure(let transactionError):
+                switch transactionError {
+                case .lane(let laneError):
+                    throw .failure(.lane(laneError))
+                case .handle(let handleError):
+                    throw .failure(.handle(handleError))
+                case .body(let bodyError):
+                    throw .failure(.leaf(bodyError))
                 }
             }
         }
+    }
+}
 
-        /// Mark a handle for destruction.
-        ///
-        /// If the handle is currently checked out, it will be destroyed
-        /// when the transaction completes.
-        ///
-        /// - Parameter id: The handle ID.
-        /// - Note: Idempotent for handles that were already destroyed.
-        public func destroy(_ id: IO.Handle.ID) throws(IO.Handle.Error) {
-            guard id.scope == scope else {
-                throw .scopeMismatch
-            }
+// MARK: - Handle Destruction
 
-            guard let entry = handles[id] else {
-                // Already destroyed - idempotent
-                return
-            }
+extension IO.Executor.Pool {
+    /// Mark a handle for destruction.
+    ///
+    /// If the handle is currently checked out, it will be destroyed
+    /// when the transaction completes.
+    ///
+    /// - Parameter id: The handle ID.
+    /// - Note: Idempotent for handles that were already destroyed.
+    public func destroy(_ id: IO.Handle.ID) throws(IO.Handle.Error) {
+        guard id.scope == scope else {
+            throw .scopeMismatch
+        }
 
-            if entry.state == .destroyed {
-                // Already marked for destruction
-                return
-            }
+        guard let entry = handles[id] else {
+            // Already destroyed - idempotent
+            return
+        }
 
-            // If handle is checked out or reserved, mark for destruction on check-in
-            switch entry.state {
-            case .checkedOut, .reserved:
-                entry.state = .destroyed
-                // Drain waiters so they wake and see destroyed state
-                entry.waiters.resumeAll()
-                return
-            case .present:
-                // Handle is present - mark destroyed and remove
-                entry.state = .destroyed
-                entry.waiters.resumeAll()
-                handles.removeValue(forKey: id)
-            case .destroyed:
-                // Already handled above
-                break
-            }
+        if entry.state == .destroyed {
+            // Already marked for destruction
+            return
+        }
+
+        // If handle is checked out or reserved, mark for destruction on check-in
+        switch entry.state {
+        case .checkedOut, .reserved:
+            entry.state = .destroyed
+            // Drain waiters so they wake and see destroyed state
+            entry.waiters.resumeAll()
+            return
+        case .present:
+            // Handle is present - mark destroyed and remove
+            entry.state = .destroyed
+            entry.waiters.resumeAll()
+            handles.removeValue(forKey: id)
+        case .destroyed:
+            // Already handled above
+            break
         }
     }
 }

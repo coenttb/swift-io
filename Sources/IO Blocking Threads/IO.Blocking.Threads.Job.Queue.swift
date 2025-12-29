@@ -10,8 +10,12 @@ extension IO.Blocking.Threads.Job {
     ///
     /// ## Thread Safety
     /// All access must be protected by Worker.State.lock.
+    ///
+    /// ## Memory Management
+    /// Uses optional storage to avoid needing placeholder jobs.
+    /// Empty slots are nil, which allows ARC to release job resources.
     struct Queue {
-        private var storage: [Instance]
+        private var storage: [Instance?]
         private var head: Int = 0
         private var tail: Int = 0
         private var _count: Int = 0
@@ -19,7 +23,7 @@ extension IO.Blocking.Threads.Job {
 
         init(capacity: Int) {
             self.capacity = max(capacity, 1)
-            self.storage = [Instance](repeating: Instance.empty, count: self.capacity)
+            self.storage = [Instance?](repeating: nil, count: self.capacity)
         }
 
         var count: Int { _count }
@@ -28,6 +32,9 @@ extension IO.Blocking.Threads.Job {
 
         mutating func enqueue(_ job: Instance) {
             precondition(!isFull, "Queue is full")
+            // Invariant: count < capacity implies storage[tail] is nil
+            // This catches double-enqueue or accounting corruption
+            precondition(storage[tail] == nil, "Queue invariant violated: tail slot is not nil")
             storage[tail] = job
             tail = (tail + 1) % capacity
             _count += 1
@@ -35,8 +42,12 @@ extension IO.Blocking.Threads.Job {
 
         mutating func dequeue() -> Instance? {
             guard _count > 0 else { return nil }
-            let job = storage[head]
-            storage[head] = .empty
+            // Invariant: count > 0 implies storage[head] is non-nil
+            // This catches queue corruption early rather than silently dropping jobs
+            guard let job = storage[head] else {
+                preconditionFailure("Queue invariant violated: count=\(_count) but head slot is nil")
+            }
+            storage[head] = nil
             head = (head + 1) % capacity
             _count -= 1
             return job

@@ -19,103 +19,123 @@ extension IO.Executor.Slot {
         private var isInitialized: Bool = false
         private var isConsumed: Bool = false
 
-        /// The address of the allocated memory as an opaque capability token.
-        ///
-        /// This is Sendable and can be captured in @Sendable closures.
-        /// Pass to static methods like `withResource(at:)` or `initializeMemory(at:with:)`.
-        public var address: Address {
-            guard let raw = raw else {
-                preconditionFailure("Slot already deallocated")
-            }
-            return Address(bits: UInt(bitPattern: raw))
-        }
-
-        /// Allocates a slot with storage for one Resource.
-        public static func allocate() -> Container {
-            let raw = UnsafeMutableRawPointer.allocate(
-                byteCount: MemoryLayout<Resource>.stride,
-                alignment: MemoryLayout<Resource>.alignment
-            )
-            return Container(raw: raw)
-        }
-
         private init(raw: UnsafeMutableRawPointer) {
             self.raw = raw
         }
+    }
+}
 
-        /// Initializes the slot with a resource, consuming ownership.
-        /// Use this when the resource is available on the actor side.
-        public mutating func initialize(with resource: consuming Resource) {
-            guard let raw = raw else {
-                preconditionFailure("Slot already deallocated")
-            }
-            precondition(!isInitialized, "Slot already initialized")
-            precondition(!isConsumed, "Slot already consumed")
-            isInitialized = true
-            raw.initializeMemory(as: Resource.self, to: resource)
+// MARK: - Properties
+
+extension IO.Executor.Slot.Container where Resource: ~Copyable {
+    /// The address of the allocated memory as an opaque capability token.
+    ///
+    /// This is Sendable and can be captured in @Sendable closures.
+    /// Pass to static methods like `withResource(at:)` or `initializeMemory(at:with:)`.
+    public var address: IO.Executor.Slot.Address {
+        guard let raw = raw else {
+            preconditionFailure("Slot already deallocated")
         }
+        return IO.Executor.Slot.Address(bits: UInt(bitPattern: raw))
+    }
+}
 
-        /// Marks the slot as initialized after memory was written via static method.
-        /// Call this after `lane.run` returns successfully.
-        public mutating func markInitialized() {
-            precondition(!isInitialized, "Slot already initialized")
-            precondition(!isConsumed, "Slot already consumed")
-            isInitialized = true
+// MARK: - Allocation
+
+extension IO.Executor.Slot.Container where Resource: ~Copyable {
+    /// Allocates a slot with storage for one Resource.
+    public static func allocate() -> IO.Executor.Slot.Container<Resource> {
+        let raw = UnsafeMutableRawPointer.allocate(
+            byteCount: MemoryLayout<Resource>.stride,
+            alignment: MemoryLayout<Resource>.alignment
+        )
+        return IO.Executor.Slot.Container<Resource>(raw: raw)
+    }
+}
+
+// MARK: - Initialization
+
+extension IO.Executor.Slot.Container where Resource: ~Copyable {
+    /// Initializes the slot with a resource, consuming ownership.
+    /// Use this when the resource is available on the actor side.
+    public mutating func initialize(with resource: consuming Resource) {
+        guard let raw = raw else {
+            preconditionFailure("Slot already deallocated")
         }
+        precondition(!isInitialized, "Slot already initialized")
+        precondition(!isConsumed, "Slot already consumed")
+        isInitialized = true
+        raw.initializeMemory(as: Resource.self, to: resource)
+    }
 
-        /// Execute a closure with inout access to the resource.
-        ///
-        /// **Must only be called from within the lane closure.**
-        ///
-        /// - Parameters:
-        ///   - address: The opaque address token from `slot.address`.
-        ///   - body: Closure receiving inout access to the resource.
-        public static func withResource<T, E: Swift.Error>(
-            at address: Address,
-            _ body: (inout Resource) throws(E) -> T
-        ) throws(E) -> T {
-            let typed = address._pointer.assumingMemoryBound(to: Resource.self)
-            return try body(&typed.pointee)
+    /// Marks the slot as initialized after memory was written via static method.
+    /// Call this after `lane.run` returns successfully.
+    public mutating func markInitialized() {
+        precondition(!isInitialized, "Slot already initialized")
+        precondition(!isConsumed, "Slot already consumed")
+        isInitialized = true
+    }
+}
+
+// MARK: - Static Access
+
+extension IO.Executor.Slot.Container where Resource: ~Copyable {
+    /// Execute a closure with inout access to the resource.
+    ///
+    /// **Must only be called from within the lane closure.**
+    ///
+    /// - Parameters:
+    ///   - address: The opaque address token from `slot.address`.
+    ///   - body: Closure receiving inout access to the resource.
+    public static func withResource<T, E: Swift.Error>(
+        at address: IO.Executor.Slot.Address,
+        _ body: (inout Resource) throws(E) -> T
+    ) throws(E) -> T {
+        let typed = address._pointer.assumingMemoryBound(to: Resource.self)
+        return try body(&typed.pointee)
+    }
+
+    /// Initialize memory at the address location.
+    ///
+    /// **Must only be called from within the lane closure.**
+    ///
+    /// - Parameters:
+    ///   - address: The opaque address token from `slot.address`.
+    ///   - resource: The resource to store, ownership transferred.
+    public static func initializeMemory(
+        at address: IO.Executor.Slot.Address,
+        with resource: consuming Resource
+    ) {
+        address._pointer.initializeMemory(as: Resource.self, to: resource)
+    }
+}
+
+// MARK: - Consumption
+
+extension IO.Executor.Slot.Container where Resource: ~Copyable {
+    /// Takes the resource out of the slot, consuming it.
+    ///
+    /// **Must only be called after the lane await returns and markInitialized().**
+    public mutating func take() -> Resource {
+        guard let raw = raw else {
+            preconditionFailure("Slot already deallocated")
         }
+        precondition(isInitialized, "Slot not initialized")
+        precondition(!isConsumed, "Slot already consumed")
+        isConsumed = true
 
-        /// Initialize memory at the address location.
-        ///
-        /// **Must only be called from within the lane closure.**
-        ///
-        /// - Parameters:
-        ///   - address: The opaque address token from `slot.address`.
-        ///   - resource: The resource to store, ownership transferred.
-        public static func initializeMemory(
-            at address: Address,
-            with resource: consuming Resource
-        ) {
-            address._pointer.initializeMemory(as: Resource.self, to: resource)
-        }
+        let typed = raw.assumingMemoryBound(to: Resource.self)
+        return typed.move()
+    }
 
-        /// Takes the resource out of the slot, consuming it.
-        ///
-        /// **Must only be called after the lane await returns and markInitialized().**
-        public mutating func take() -> Resource {
-            guard let raw = raw else {
-                preconditionFailure("Slot already deallocated")
-            }
-            precondition(isInitialized, "Slot not initialized")
-            precondition(!isConsumed, "Slot already consumed")
-            isConsumed = true
-
-            let typed = raw.assumingMemoryBound(to: Resource.self)
-            return typed.move()
-        }
-
-        /// Deallocates the slot's raw storage only. Idempotent.
-        ///
-        /// This does NOT deinitialize any resource. Use via `defer` to ensure
-        /// raw memory is always freed. Safe to call whether or not the slot
-        /// was ever initialized or consumed.
-        public mutating func deallocateRawOnly() {
-            guard let p = raw else { return }
-            raw = nil
-            p.deallocate()
-        }
+    /// Deallocates the slot's raw storage only. Idempotent.
+    ///
+    /// This does NOT deinitialize any resource. Use via `defer` to ensure
+    /// raw memory is always freed. Safe to call whether or not the slot
+    /// was ever initialized or consumed.
+    public mutating func deallocateRawOnly() {
+        guard let p = raw else { return }
+        raw = nil
+        p.deallocate()
     }
 }

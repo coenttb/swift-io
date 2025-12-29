@@ -55,8 +55,9 @@ extension IO.Handle.Error.Test.Unit {
 
     @Test("Error conformance")
     func errorConformance() {
-        let error: any Error = IO.Handle.Error.invalidID
-        #expect(error is IO.Handle.Error)
+        // Compiles only if IO.Handle.Error conforms to Error
+        func assertConformsToError<T: Error>(_: T) {}
+        assertConformsToError(IO.Handle.Error.invalidID)
     }
 }
 

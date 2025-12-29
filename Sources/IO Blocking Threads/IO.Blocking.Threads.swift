@@ -5,6 +5,8 @@
 //  Created by Coen ten Thije Boonkkamp on 24/12/2025.
 //
 
+import Synchronization
+
 // MARK: - Future: Platform Executor Adaptation
 // This lane may be backed by a platform executor in the future.
 // Do not assume Threads is the only Lane implementation.
@@ -56,41 +58,35 @@ extension IO.Blocking.Threads {
     }
 }
 
-// MARK: - runBoxed (Two-Stage Acceptance/Completion)
+// MARK: - runBoxed (Unified Single-Stage)
 
 extension IO.Blocking.Threads {
-    /// Execute a boxed operation using two-stage acceptance/completion.
+    /// Execute a boxed operation using unified single-stage completion.
     ///
     /// ## Design
-    /// 1. **Acceptance stage**: Enqueue job and get a ticket
-    /// 2. **Completion stage**: Wait for job completion using the ticket
+    /// Single continuation for the entire operation. The context is bundled with
+    /// the job, eliminating dictionary lookups on the completion path.
+    ///
+    /// ## Flow
+    /// 1. Create context with continuation
+    /// 2. Create job with bundled context
+    /// 3. Enqueue job (or wait in acceptance queue)
+    /// 4. Worker executes and calls `context.tryComplete()` directly
     ///
     /// ## Cancellation Semantics
-    /// - Cancellation before acceptance: throw `.cancellationRequested`, no job runs
-    /// - Cancellation while waiting for acceptance: throw `.cancellationRequested`, no job runs
-    /// - Cancellation after acceptance: job runs to completion, result is drained, throw `.cancellationRequested`
+    /// - All cancellation paths use `context.tryCancel()`
+    /// - Atomic state ensures exactly-once resumption
+    /// - If job completes after cancellation, box is destroyed
     ///
-    // ## Invariants
-    // - No helper `Task {}` spawned inside lane machinery
-    // - Exactly-once resume for all continuations
-    // - Cancel-wait-but-drain-completion: cancelled callers don't leak boxes
+    /// ## Exactly-Once Guarantees
+    /// Every path completes the context exactly once:
+    /// - Success: worker calls `context.tryComplete(box)`
+    /// - Cancel: handler calls `context.tryCancel()`
+    /// - Failure: error path calls `context.tryFail(error)`
     public func runBoxed(
         deadline: IO.Blocking.Deadline?,
         _ operation: @Sendable @escaping () -> UnsafeMutableRawPointer
     ) async throws(IO.Blocking.Failure) -> UnsafeMutableRawPointer {
-        // Stage 1: Acceptance
-        let ticket = try await awaitAcceptance(deadline: deadline, operation: operation)
-
-        // Stage 2: Completion
-        let boxPointer = try await awaitCompletion(ticket: ticket)
-        return boxPointer.raw
-    }
-
-    /// Stage 1: Wait for acceptance (may suspend if queue is full).
-    private func awaitAcceptance(
-        deadline: IO.Blocking.Deadline?,
-        operation: @Sendable @escaping () -> UnsafeMutableRawPointer
-    ) async throws(IO.Blocking.Failure) -> Ticket {
         // Check cancellation upfront
         if Task.isCancelled {
             throw .cancellationRequested
@@ -102,149 +98,109 @@ extension IO.Blocking.Threads {
         let state = runtime.state
         let options = runtime.options
 
-        // Generate ticket under lock
-        let ticket: Ticket = state.lock.withLock { state.makeTicket() }
+        // Generate ticket (lock-free atomic)
+        let ticket: Ticket = state.makeTicket()
 
-        do {
-            return try await withTaskCancellationHandler {
-                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Ticket, any Error>) in
-                    state.lock.lock()
+        // Shared context reference for cancellation handler
+        // Uses Mutex to safely share between continuation body and onCancel
+        let contextHolder = Mutex<Completion.Context?>(nil)
 
-                    // Check shutdown
-                    if state.isShutdown {
-                        state.lock.unlock()
-                        continuation.resume(throwing: IO.Blocking.Failure.shutdown)
-                        return
-                    }
+        // Use non-throwing continuation with Result to eliminate `any Error`
+        let result: Completion.Result = await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Completion.Result, Never>) in
+                // Create context with continuation
+                let context = Completion.Context(continuation: continuation)
 
-                    // Create the job with completion callback
-                    let job = Job.Instance(
-                        ticket: ticket,
-                        operation: operation
-                    ) { [weak state] completedTicket, box in
-                        state?.complete(ticket: completedTicket, box: box)
-                    }
+                // Store in holder for cancellation handler access
+                contextHolder.withLock { $0 = context }
 
-                    // Try to enqueue directly
-                    if state.tryEnqueue(job) {
+                // Check cancellation inside continuation (handles race with onCancel)
+                if Task.isCancelled {
+                    _ = context.tryFail(.cancellationRequested)
+                    return
+                }
+
+                // Create job with bundled context
+                let job = Job.Instance(
+                    ticket: ticket,
+                    context: context,
+                    operation: operation
+                )
+
+                state.lock.lock()
+
+                // Check shutdown
+                if state.isShutdown {
+                    state.lock.unlock()
+                    _ = context.tryFail(.shutdown)
+                    return
+                }
+
+                // Try to enqueue directly with transition-based signaling
+                let wasEmpty = state.queue.isEmpty
+                if state.tryEnqueue(job) {
+                    // Signal only on empty→non-empty transition AND if someone is sleeping
+                    if wasEmpty && state.sleepers > 0 {
                         state.lock.signalWorker()
+                    }
+                    state.lock.unlock()
+                    // Job enqueued - worker will complete via context
+                    return
+                }
+
+                // Queue is full - handle based on backpressure policy
+                switch options.strategy {
+                case .failFast:
+                    state.lock.unlock()
+                    _ = context.tryFail(.queueFull)
+
+                case .wait:
+                    // Register acceptance waiter (job already has context)
+                    let waiter = Acceptance.Waiter(
+                        job: job,
+                        deadline: deadline,
+                        resumed: false
+                    )
+                    // Bounded queue - fail fast if full
+                    guard state.acceptanceWaiters.enqueue(waiter) else {
                         state.lock.unlock()
-                        continuation.resume(returning: ticket)
+                        _ = context.tryFail(.overloaded)
                         return
                     }
-
-                    // Queue is full - handle based on backpressure policy
-                    switch options.strategy {
-                    case .failFast:
-                        state.lock.unlock()
-                        continuation.resume(throwing: IO.Blocking.Failure.queueFull)
-
-                    case .wait:
-                        // Register acceptance waiter
-                        let waiter = Acceptance.Waiter(
-                            ticket: ticket,
-                            deadline: deadline,
-                            operation: operation,
-                            continuation: continuation,
-                            resumed: false
-                        )
-                        // Bounded queue - fail fast if full
-                        guard state.acceptanceWaiters.enqueue(waiter) else {
-                            state.lock.unlock()
-                            continuation.resume(throwing: IO.Blocking.Failure.overloaded)
-                            return
-                        }
-                        // Signal deadline manager if waiter has a deadline
-                        if deadline != nil {
-                            state.lock.signalDeadline()
-                        }
-                        state.lock.unlock()
+                    // Signal deadline manager if waiter has a deadline
+                    if deadline != nil {
+                        state.lock.signalDeadline()
                     }
+                    state.lock.unlock()
+                // Waiter registered - will be promoted when capacity available
                 }
-            } onCancel: {
-                // Remove from acceptance waiters if still there
-                state.lock.lock()
-                _ = state.removeAcceptanceWaiter(ticket: ticket)
-                state.lock.unlock()
             }
-        } catch let error as IO.Blocking.Failure {
-            throw error
-        } catch {
-            // Should never happen - we only throw Failure
-            throw .cancellationRequested
+        } onCancel: {
+            // Try to cancel via context
+            // May fail if already completed/failed - that's fine
+            contextHolder.withLock { context in
+                if let context = context {
+                    _ = context.tryCancel()
+                }
+            }
+
+            // Also try to mark acceptance waiter as resumed
+            // This prevents it from being promoted after cancellation
+            state.lock.lock()
+            if let waiter = state.removeAcceptanceWaiter(ticket: ticket) {
+                // Waiter found and marked - context.tryCancel() above handles resumption
+                // The waiter's job won't be enqueued during promotion
+                _ = waiter  // Suppress unused warning
+            }
+            state.lock.unlock()
         }
-    }
 
-    /// Stage 2: Wait for job completion (cancellable, immediate unblock on cancel).
-    ///
-    /// Uses `any Error` at the continuation boundary due to Swift stdlib limitations,
-    /// but catches and maps to `IO.Blocking.Failure` to preserve typed throws.
-    private func awaitCompletion(ticket: Ticket) async throws(IO.Blocking.Failure) -> IO.Blocking.Box.Pointer {
-        // ## Single-Resumer Authority
-        // Exactly one path resumes the continuation:
-        // - Cancellation path: removes waiter (if registered) and resumes with `.cancelled`
-        // - Completion path: removes waiter and resumes with box
-        //
-        // Both paths remove the waiter under lock before resuming, so only one can succeed.
-        // The `abandonedTickets` set ensures resource cleanup when no waiter will consume the box.
-        //
-        // The `Box.Pointer` wrapper provides `@unchecked Sendable` capability at the FFI boundary.
-        let state = runtime.state
-
-        do {
-            return try await withTaskCancellationHandler {
-                try await withCheckedThrowingContinuation { (cont: CheckedContinuation<IO.Blocking.Box.Pointer, any Error>) in
-                    state.lock.lock()
-                    defer { state.lock.unlock() }
-
-                    // Check if completion already available
-                    if let box = state.completions.removeValue(forKey: ticket) {
-                        cont.resume(returning: IO.Blocking.Box.Pointer(box))
-                        return
-                    }
-
-                    // Check if already cancelled before registering waiter
-                    if Task.isCancelled {
-                        state.abandonedTickets.insert(ticket)
-                        cont.resume(throwing: IO.Blocking.Failure.cancellationRequested)
-                        return
-                    }
-
-                    // Register waiter - cancellation or completion will resume it
-                    state.completionWaiters[ticket] = Completion.Waiter(continuation: cont)
-                }
-            } onCancel: {
-                state.lock.lock()
-                defer { state.lock.unlock() }
-
-                // If completion already arrived, destroy it
-                if let box = state.completions.removeValue(forKey: ticket) {
-                    state.abandonedTickets.insert(ticket)
-                    state.destroyBox(ticket: ticket, box: box)
-                    return
-                }
-
-                // If waiter registered, we own resumption - remove and resume with error
-                if var waiter = state.completionWaiters.removeValue(forKey: ticket) {
-                    state.abandonedTickets.insert(ticket)
-                    waiter.resumeThrowing(.cancellationRequested)
-                    return
-                }
-
-                // Waiter not yet registered - mark abandoned for later
-                state.abandonedTickets.insert(ticket)
-            }
-        } catch {
-            // Map any Error back to IO.Blocking.Failure
-            if let failure = error as? IO.Blocking.Failure {
-                throw failure
-            }
-
-            #if DEBUG
-            preconditionFailure("Unexpected error type: \(type(of: error)). Only IO.Blocking.Failure is permitted.")
-            #else
-            throw .internalInvariantViolation
-            #endif
+        // Convert typed Result to typed throws
+        switch result {
+        case .success(let boxPointer):
+            return boxPointer.raw
+        case .failure(let error):
+            throw error
         }
     }
 
@@ -252,7 +208,7 @@ extension IO.Blocking.Threads {
     ///
     /// ## Shutdown Sequence
     /// 1. Set shutdown flag
-    /// 2. Resume all acceptance waiters with `.shutdown`
+    /// 2. Fail all acceptance waiters via their contexts
     /// 3. Signal workers
     /// 4. Wait for queue to drain and in-flight jobs to complete
     /// 5. Join worker threads
@@ -261,8 +217,8 @@ extension IO.Blocking.Threads {
 
         let state = runtime.state
 
-        // Collect acceptance waiters to resume
-        var waitersToResume: [Acceptance.Waiter] = []
+        // Collect acceptance waiters to fail
+        var waitersToFail: [Acceptance.Waiter] = []
 
         state.lock.lock()
         guard !state.isShutdown else {
@@ -272,17 +228,18 @@ extension IO.Blocking.Threads {
         state.isShutdown = true
 
         // Drain acceptance waiters
-        waitersToResume = state.acceptanceWaiters.drainAll()
+        waitersToFail = state.acceptanceWaiters.drainAll()
 
         state.lock.unlock()
 
         // Wake all workers and deadline manager
         state.lock.broadcastAll()
 
-        // Resume acceptance waiters with shutdown (outside lock)
-        for var waiter in waitersToResume {
+        // Fail acceptance waiters via their contexts (outside lock)
+        for waiter in waitersToFail {
             if !waiter.resumed {
-                waiter.resumeThrowing(.shutdown)
+                // Use context's atomic tryFail - exactly-once guaranteed
+                _ = waiter.job.context.tryFail(.shutdown)
             }
         }
 

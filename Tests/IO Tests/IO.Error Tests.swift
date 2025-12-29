@@ -129,7 +129,7 @@ extension IO.Error<TestLeafError>.Test.EdgeCase {
             .leaf(TestLeafError(message: "")),
             .handle(.invalidID),
             .executor(.scopeMismatch),
-            .lane(.queueFull)
+            .lane(.queueFull),
         ]
         // All 4 cases are operational - no lifecycle
         #expect(allCases.count == 4)

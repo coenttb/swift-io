@@ -48,7 +48,7 @@ extension IO.Blocking.Threads {
             workers: Int? = nil,
             policy: IO.Backpressure.Policy = .default
         ) {
-            self.workers = max(1, workers ?? IO.Blocking.Threads.processorCount)
+            self.workers = max(1, workers ?? IO.Platform.processorCount)
             self.policy = policy
         }
 
@@ -65,7 +65,7 @@ extension IO.Blocking.Threads {
             acceptanceWaitersLimit: Int? = nil,
             backpressure: Backpressure = .suspend
         ) {
-            self.workers = max(1, workers ?? IO.Blocking.Threads.processorCount)
+            self.workers = max(1, workers ?? IO.Platform.processorCount)
             self.policy = IO.Backpressure.Policy(
                 strategy: backpressure.strategy,
                 laneQueueLimit: queueLimit,

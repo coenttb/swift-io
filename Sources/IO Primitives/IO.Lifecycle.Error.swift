@@ -5,11 +5,6 @@
 //  Created by Coen ten Thije Boonkkamp on 28/12/2025.
 //
 
-extension IO {
-    /// Namespace for lifecycle-related types.
-    public enum Lifecycle {}
-}
-
 extension IO.Lifecycle {
     /// Lifecycle wrapper for async I/O operations.
     ///
@@ -40,8 +35,6 @@ extension IO.Lifecycle {
         case failure(E)
     }
 }
-
-// MARK: - CustomStringConvertible
 
 extension IO.Lifecycle.Error: CustomStringConvertible {
     public var description: String {

@@ -8,12 +8,13 @@
 extension IO.Blocking.Threads.Thread {
     /// Worker loop running on a dedicated OS thread.
     ///
-    /// ## Design
+    /// ## Design (Unified Single-Stage)
     /// Each worker:
     /// 1. Waits for jobs on the shared queue (via condition variable)
     /// 2. Executes jobs to completion
-    /// 3. Signals capacity waiters when queue space becomes available
-    /// 4. Exits when shutdown flag is set and queue is drained
+    /// 3. Calls `job.context.tryComplete()` directly (no dictionary lookup)
+    /// 4. Promotes acceptance waiters when capacity available
+    /// 5. Exits when shutdown flag is set and queue is drained
     struct Worker {
         let id: Int
         let state: State
@@ -21,7 +22,16 @@ extension IO.Blocking.Threads.Thread {
 }
 
 extension IO.Blocking.Threads.Thread.Worker {
+    /// Maximum jobs to drain per wake cycle.
+    /// Amortizes lock operations and reduces sleep/wake frequency.
+    private static let drainLimit: Int = 16
+
     /// The main worker loop.
+    ///
+    /// ## Design
+    /// - Tracks `sleepers` count to enable signal suppression
+    /// - Drains up to `drainLimit` jobs per wake to amortize lock overhead
+    /// - Promotes acceptance waiters after each job completes
     ///
     /// Runs until shutdown is signaled and all jobs are drained.
     func run() {
@@ -29,9 +39,11 @@ extension IO.Blocking.Threads.Thread.Worker {
             // Acquire lock and wait for job
             state.lock.lock()
 
-            // Wait for job or shutdown
+            // Wait for job or shutdown, tracking sleepers
             while state.queue.isEmpty && !state.isShutdown {
+                state.sleepers += 1
                 state.lock.waitWorker()
+                state.sleepers -= 1
             }
 
             // Check for exit condition: shutdown + empty queue
@@ -40,39 +52,41 @@ extension IO.Blocking.Threads.Thread.Worker {
                 return
             }
 
-            // Dequeue job
-            guard let job = state.queue.dequeue() else {
+            // Drain loop: process up to drainLimit jobs before going back to wait
+            var drained = 0
+            while drained < Self.drainLimit {
+                // Dequeue job
+                guard let job = state.queue.dequeue() else {
+                    break
+                }
+
+                state.inFlightCount += 1
+
+                // Promote acceptance waiters now that we have capacity
+                // With unified design, this enqueues jobs directly -
+                // contexts are completed by workers, not here
+                state.promoteAcceptanceWaiters()
+
                 state.lock.unlock()
-                continue
-            }
 
-            state.inFlightCount += 1
+                // Execute job outside lock
+                // Job.run() calls context.tryComplete() directly
+                job.run()
 
-            // Promote acceptance waiters now that we have capacity
-            let toResume = state.promoteAcceptanceWaiters()
+                drained += 1
 
-            state.lock.unlock()
+                // Re-acquire lock for next iteration or completion
+                state.lock.lock()
+                state.inFlightCount -= 1
 
-            // Resume acceptance waiters outside lock
-            for (var waiter, result) in toResume {
-                switch result {
-                case .success(let ticket):
-                    waiter.resumeReturning(ticket)
-                case .failure(let error):
-                    waiter.resumeThrowing(error)
+                // Check shutdown condition
+                if state.isShutdown && state.queue.isEmpty && state.inFlightCount == 0 {
+                    state.lock.broadcastWorker()
+                    state.lock.unlock()
+                    return
                 }
             }
 
-            // Execute job outside lock
-            job.run()
-
-            // Mark completion
-            state.lock.lock()
-            state.inFlightCount -= 1
-            // If shutdown and queue empty and no in-flight, signal shutdown waiter
-            if state.isShutdown && state.queue.isEmpty && state.inFlightCount == 0 {
-                state.lock.broadcastWorker()
-            }
             state.lock.unlock()
         }
     }
