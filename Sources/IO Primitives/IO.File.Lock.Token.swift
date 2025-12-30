@@ -130,6 +130,11 @@ extension IO.File.Lock {
         ///
         /// This is the canonical way to release the lock. After calling,
         /// the token is consumed and cannot be used.
+        ///
+        /// - Note: This is a best-effort, non-throwing operation. Unlock errors
+        ///   (rare, but possible on Windows with range/state mismatches) are ignored.
+        ///   The token is marked as released regardless of whether the unlock syscall
+        ///   succeeded, preventing double-unlock attempts in `deinit`.
         public consuming func release() {
             guard !isReleased else { return }
             isReleased = true

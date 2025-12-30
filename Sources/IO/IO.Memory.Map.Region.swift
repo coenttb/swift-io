@@ -207,8 +207,12 @@ extension IO.Memory.Map.Region {
         /// Map the whole file.
         ///
         /// The file size is queried at map time via `fstat` (POSIX) or
-        /// `GetFileSizeEx` (Windows). This provides a snapshot of the size
+        /// `GetFileSizeEx` (Windows). This provides a **snapshot** of the size
         /// at the moment of mapping.
+        ///
+        /// - Important: This is not a live view. If the file grows after mapping,
+        ///   the region does **not** automatically extend. Use `remap()` to create
+        ///   a new mapping with the updated size.
         case wholeFile
 
         /// The starting offset.
@@ -514,6 +518,11 @@ extension IO.Memory.Map.Region {
     /// - Windows: allocation granularity (64KB typically)
     ///
     /// This ensures the lock covers exactly the memory region that could be faulted.
+    ///
+    /// - Note: Rounding may lock bytes beyond the logical user-requested range.
+    ///   This is intentional: the lock must cover every byte that the OS mapping
+    ///   could fault on, which includes the padding bytes up to the next granularity
+    ///   boundary.
     private static func computeLockRange(scope: Safety.LockScope, alignedOffset: Int, mappingLength: Int) -> IO.File.Lock.Range {
         switch scope {
         case .wholeFile:
