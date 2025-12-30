@@ -132,6 +132,7 @@ extension IO.File.Lock {
         /// the token is consumed and cannot be used.
         public consuming func release() {
             guard !isReleased else { return }
+            isReleased = true
 
             #if os(Windows)
             try? IO.File.Lock.unlock(handle: handle, range: range)

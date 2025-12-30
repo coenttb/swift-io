@@ -30,6 +30,18 @@ extension IO.Memory.Map {
     /// - `.coordinated`: Holds a file lock for the mapping lifetime (prevents SIGBUS from truncation)
     /// - `.unchecked`: No lock held; caller accepts crash risk from concurrent truncation
     ///
+    /// ## Thread Safety
+    ///
+    /// `Region` is `@unchecked Sendable` because:
+    /// - The underlying memory mapping is a raw pointer to shared memory
+    /// - The compiler cannot verify thread-safe access patterns
+    /// - Callers must ensure appropriate synchronization when accessing
+    ///   the mapped memory from multiple threads/tasks
+    ///
+    /// For `.coordinated` safety mode, the held file lock provides protection
+    /// against external truncation, but does **not** synchronize concurrent
+    /// in-process access to the mapped bytes.
+    ///
     /// ## Example
     /// ```swift
     /// let region = try IO.Memory.Map.Region(
@@ -192,10 +204,12 @@ extension IO.Memory.Map.Region {
         ///   - length: Number of bytes to map.
         case bytes(offset: Int, length: Int)
 
-        /// Map the whole file (size snapshot at map time).
+        /// Map the whole file.
         ///
-        /// - Parameter fileSize: The file size to use (must be provided by caller).
-        case wholeFile(fileSize: Int)
+        /// The file size is queried at map time via `fstat` (POSIX) or
+        /// `GetFileSizeEx` (Windows). This provides a snapshot of the size
+        /// at the moment of mapping.
+        case wholeFile
 
         /// The starting offset.
         public var offset: Int {
@@ -205,11 +219,14 @@ extension IO.Memory.Map.Region {
             }
         }
 
-        /// The length to map.
-        public var length: Int {
+        /// The length for a specific byte range.
+        ///
+        /// - Note: For `.wholeFile`, returns 0. The actual length is resolved
+        ///         at map time by querying the file.
+        public var length: Int? {
             switch self {
             case .bytes(_, let length): return length
-            case .wholeFile(let fileSize): return fileSize
+            case .wholeFile: return nil
             }
         }
     }
@@ -322,11 +339,26 @@ extension IO.Memory.Map.Region {
     ) throws(IO.Memory.Map.Error) {
         let effectiveSafety = safety ?? (access.allowsWrite ? .defaultForWrite : .defaultForRead)
 
+        // Resolve range length (query file size for .wholeFile)
+        let userLen: Int
+        switch range {
+        case .bytes(_, let length):
+            userLen = length
+        case .wholeFile:
+            var statBuf = stat()
+            guard fstat(fileDescriptor, &statBuf) == 0 else {
+                throw .platform(code: errno, message: "fstat failed: \(String(cString: strerror(errno)))")
+            }
+            userLen = Int(statBuf.st_size)
+            guard userLen > 0 else {
+                throw .fileTooSmall
+            }
+        }
+
         // Calculate alignment
         let requestedOffset = range.offset
         let alignedOffset = IO.Memory.alignOffsetDown(requestedOffset)
         let delta = requestedOffset - alignedOffset
-        let userLen = range.length
         let mappingLen = IO.Memory.alignLengthUp(userLen + delta)
 
         // Adjust sharing for copyOnWrite access
@@ -400,11 +432,26 @@ extension IO.Memory.Map.Region {
     ) throws(IO.Memory.Map.Error) {
         let effectiveSafety = safety ?? (access.allowsWrite ? .defaultForWrite : .defaultForRead)
 
+        // Resolve range length (query file size for .wholeFile)
+        let userLen: Int
+        switch range {
+        case .bytes(_, let length):
+            userLen = length
+        case .wholeFile:
+            var fileSize: LARGE_INTEGER = LARGE_INTEGER()
+            guard GetFileSizeEx(fileHandle, &fileSize) != 0 else {
+                throw .platform(code: Int32(GetLastError()), message: "GetFileSizeEx failed")
+            }
+            userLen = Int(fileSize.QuadPart)
+            guard userLen > 0 else {
+                throw .fileTooSmall
+            }
+        }
+
         // Calculate alignment (Windows uses 64KB granularity)
         let requestedOffset = range.offset
         let alignedOffset = IO.Memory.alignOffsetDown(requestedOffset)
         let delta = requestedOffset - alignedOffset
-        let userLen = range.length
         let mappingLen = IO.Memory.alignLengthUp(userLen + delta)
 
         // Adjust sharing for copyOnWrite access
@@ -461,12 +508,22 @@ extension IO.Memory.Map.Region {
     #endif
 
     /// Computes the lock range based on scope.
+    ///
+    /// For `.mappedRange`, the lock range is rounded to the platform's mapping granularity:
+    /// - POSIX: page size
+    /// - Windows: allocation granularity (64KB typically)
+    ///
+    /// This ensures the lock covers exactly the memory region that could be faulted.
     private static func computeLockRange(scope: Safety.LockScope, alignedOffset: Int, mappingLength: Int) -> IO.File.Lock.Range {
         switch scope {
         case .wholeFile:
             return .wholeFile
         case .mappedRange:
-            return IO.File.Lock.Range(start: UInt64(alignedOffset), end: UInt64(alignedOffset + mappingLength))
+            // Round the end up to granularity to match the mapping's actual coverage
+            let granularity = IO.Memory.granularity
+            let end = alignedOffset + mappingLength
+            let roundedEnd = (end + granularity - 1) / granularity * granularity
+            return IO.File.Lock.Range(start: UInt64(alignedOffset), end: UInt64(roundedEnd))
         }
     }
 }

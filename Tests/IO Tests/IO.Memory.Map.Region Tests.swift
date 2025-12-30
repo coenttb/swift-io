@@ -57,11 +57,11 @@ extension IO.Memory.Map.Region.Test.Unit {
         #expect(range.length == 4096)
     }
 
-    @Test("Range.wholeFile has zero offset")
+    @Test("Range.wholeFile has zero offset and nil length")
     func rangeWholeFileOffset() {
-        let range: IO.Memory.Map.Region.Range = .wholeFile(fileSize: 8192)
+        let range: IO.Memory.Map.Region.Range = .wholeFile
         #expect(range.offset == 0)
-        #expect(range.length == 8192)
+        #expect(range.length == nil, ".wholeFile length is nil until resolved at map time")
     }
 
     // MARK: - Safety enum tests
