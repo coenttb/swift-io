@@ -134,8 +134,10 @@ extension IO.File.Clone.Error {
     }
 }
 
-#if !os(Windows)
+#if canImport(Darwin)
 import Darwin
-#else
+#elseif canImport(Glibc)
+import Glibc
+#elseif os(Windows)
 import WinSDK
 #endif
