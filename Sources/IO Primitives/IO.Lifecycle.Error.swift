@@ -31,6 +31,12 @@ extension IO.Lifecycle {
         /// The operation was cancelled before completion.
         case cancelled
 
+        /// The operation timed out before completion.
+        ///
+        /// This occurs when a deadline expires before the operation completes.
+        /// Unlike cancellation, timeout is deterministic based on wall-clock time.
+        case timeout
+
         /// A leaf error (operational failure).
         case failure(E)
     }
@@ -43,6 +49,8 @@ extension IO.Lifecycle.Error: CustomStringConvertible {
             return "Shutdown in progress"
         case .cancelled:
             return "Cancelled"
+        case .timeout:
+            return "Timeout"
         case .failure(let e):
             return "Failure: \(e)"
         }

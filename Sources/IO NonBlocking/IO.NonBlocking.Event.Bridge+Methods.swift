@@ -32,6 +32,30 @@ extension IO.NonBlocking.Event.Bridge {
         continuationToResume?.resume(returning: events)
     }
 
+    /// Wake selector without events (for deadline expiry).
+    ///
+    /// This is used when the poll thread times out without any events.
+    /// It wakes the selector so it can drain expired deadlines.
+    ///
+    /// Only resumes if selector is currently suspended in `next()`.
+    /// If the selector is busy processing, this is a no-op because
+    /// it will drain deadlines at the end of its current turn anyway.
+    ///
+    /// This method is safe to call from any thread, including the poll thread.
+    /// After shutdown, ticks are silently ignored.
+    public func tick() {
+        // Extract continuation inside lock, resume OUTSIDE lock
+        let continuationToResume: CheckedContinuation<[IO.NonBlocking.Event]?, Never>? = state.withLock { state in
+            guard !state.isShutdown else { return nil }
+            if let cont = state.continuation {
+                state.continuation = nil
+                return cont
+            }
+            return nil  // Selector busy, no need to queue anything
+        }
+        continuationToResume?.resume(returning: [])
+    }
+
     /// Wait for next event batch (async, suspends if none available).
     ///
     /// Called by selector actor on its executor.

@@ -113,6 +113,8 @@ extension IO.NonBlocking.Selector.Test.Shutdown {
                     Issue.record("Iteration \(iteration): pending reply drained with leaf error .failure(\(leaf)), expected .shutdownInProgress")
                 case .cancelled:
                     Issue.record("Iteration \(iteration): got .cancelled, expected .shutdownInProgress")
+                case .timeout:
+                    Issue.record("Iteration \(iteration): got .timeout, expected .shutdownInProgress")
                 }
             }
         }
@@ -197,6 +199,8 @@ extension IO.NonBlocking.Selector.Test.Invariants {
                 break
             case .cancelled:
                 Issue.record("Expected shutdownInProgress, got cancelled")
+            case .timeout:
+                Issue.record("Expected shutdownInProgress, got timeout")
             case .failure(let leaf):
                 Issue.record("Lifecycle error should not be wrapped as .failure(\(leaf))")
             }

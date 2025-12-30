@@ -86,6 +86,20 @@ extension IO.NonBlocking {
         /// Current lifecycle state.
         private var state: LifecycleState = .running
 
+        // MARK: - Deadline State
+
+        /// Atomic next poll deadline shared with poll thread.
+        private let nextDeadline: PollLoop.NextDeadline
+
+        /// Min-heap of deadline entries for scheduling.
+        private var deadlineHeap: DeadlineScheduling.MinHeap = .init()
+
+        /// Generation counter per key for stale entry detection.
+        ///
+        /// When a waiter completes (success, cancelled, timeout, deregistered),
+        /// its generation is bumped. Heap entries with stale generations are skipped.
+        private var deadlineGeneration: [PermitKey: UInt64] = [:]
+
         /// Pending registration reply continuations keyed by ReplyID.
         ///
         /// Selector owns these continuations and resumes them when replies arrive.
@@ -120,6 +134,7 @@ extension IO.NonBlocking {
             replyBridge: IO.NonBlocking.Registration.Reply.Bridge,
             registrationQueue: IO.NonBlocking.Registration.Queue,
             shutdownFlag: PollLoop.Shutdown.Flag,
+            nextDeadline: PollLoop.NextDeadline,
             pollThreadHandle: IO.Thread.Handle
         ) {
             self.driver = driver
@@ -129,6 +144,7 @@ extension IO.NonBlocking {
             self.replyBridge = replyBridge
             self.registrationQueue = registrationQueue
             self.shutdownFlag = shutdownFlag
+            self.nextDeadline = nextDeadline
             self.pollThreadHandle = pollThreadHandle
         }
 
@@ -161,6 +177,7 @@ extension IO.NonBlocking {
             let replyBridge = IO.NonBlocking.Registration.Reply.Bridge()
             let registrationQueue = IO.NonBlocking.Registration.Queue()
             let shutdownFlag = PollLoop.Shutdown.Flag()
+            let nextDeadline = PollLoop.NextDeadline()
 
             // Create context for poll thread
             let context = PollLoop.Context(
@@ -169,7 +186,8 @@ extension IO.NonBlocking {
                 eventBridge: eventBridge,
                 replyBridge: replyBridge,
                 registrationQueue: registrationQueue,
-                shutdownFlag: shutdownFlag
+                shutdownFlag: shutdownFlag,
+                nextDeadline: nextDeadline
             )
 
             // Start poll thread with context
@@ -185,6 +203,7 @@ extension IO.NonBlocking {
                 replyBridge: replyBridge,
                 registrationQueue: registrationQueue,
                 shutdownFlag: shutdownFlag,
+                nextDeadline: nextDeadline,
                 pollThreadHandle: pollThreadHandle
             )
 
@@ -277,13 +296,15 @@ extension IO.NonBlocking {
         /// - Parameters:
         ///   - token: The registration token (consumed).
         ///   - interest: The interest to wait for (read, write, or priority).
+        ///   - deadline: Optional deadline for the arm wait.
         /// - Returns: `.armed(result)` on success, `.failed(token:failure:)` on failure.
         public func armPreservingToken(
             _ token: consuming Token<Registering>,
-            interest: Interest
+            interest: Interest,
+            deadline: Deadline? = nil
         ) async -> Arm.Registering.Outcome {
             do {
-                let result = try await arm(id: token.id, interest: interest)
+                let result = try await arm(id: token.id, interest: interest, deadline: deadline)
                 return .armed(result)
             } catch let failure {
                 return .failed(token: token, failure: failure)
@@ -298,13 +319,15 @@ extension IO.NonBlocking {
         /// - Parameters:
         ///   - token: The armed token (consumed).
         ///   - interest: The interest to wait for (read, write, or priority).
+        ///   - deadline: Optional deadline for the arm wait.
         /// - Returns: `.armed(result)` on success, `.failed(token:failure:)` on failure.
         public func armPreservingToken(
             _ token: consuming Token<Armed>,
-            interest: Interest
+            interest: Interest,
+            deadline: Deadline? = nil
         ) async -> Arm.Armed.Outcome {
             do {
-                let result = try await arm(id: token.id, interest: interest)
+                let result = try await arm(id: token.id, interest: interest, deadline: deadline)
                 return .armed(result)
             } catch let failure {
                 return .failed(token: token, failure: failure)
@@ -318,13 +341,16 @@ extension IO.NonBlocking {
         /// - Parameters:
         ///   - token: The registration token (consumed).
         ///   - interest: The interest to wait for (read, write, or priority).
+        ///   - deadline: Optional deadline for the arm wait. If the deadline expires
+        ///     before an event arrives, throws `.timeout`.
         /// - Returns: An armed token and the event when ready.
-        /// - Throws: `Failure` on shutdown or cancellation. Token is lost on failure.
+        /// - Throws: `Failure` on shutdown, cancellation, or timeout. Token is lost on failure.
         public func arm(
             _ token: consuming Token<Registering>,
-            interest: Interest
+            interest: Interest,
+            deadline: Deadline? = nil
         ) async throws(Failure) -> Arm.Result {
-            switch await armPreservingToken(consume token, interest: interest) {
+            switch await armPreservingToken(consume token, interest: interest, deadline: deadline) {
             case .armed(let result):
                 return result
             case .failed(_, let failure):
@@ -339,17 +365,228 @@ extension IO.NonBlocking {
         /// - Parameters:
         ///   - token: The armed token (consumed).
         ///   - interest: The interest to wait for (read, write, or priority).
+        ///   - deadline: Optional deadline for the arm wait. If the deadline expires
+        ///     before an event arrives, throws `.timeout`.
         /// - Returns: An armed token and the event when ready.
-        /// - Throws: `Failure` on shutdown or cancellation. Token is lost on failure.
+        /// - Throws: `Failure` on shutdown, cancellation, or timeout. Token is lost on failure.
         public func arm(
             _ token: consuming Token<Armed>,
-            interest: Interest
+            interest: Interest,
+            deadline: Deadline? = nil
         ) async throws(Failure) -> Arm.Result {
-            switch await armPreservingToken(consume token, interest: interest) {
+            switch await armPreservingToken(consume token, interest: interest, deadline: deadline) {
             case .armed(let result):
                 return result
             case .failed(_, let failure):
                 throw failure
+            }
+        }
+
+        // MARK: - Two-Phase Arm (Batch Support)
+
+        /// Begin an arm operation, consuming the token.
+        ///
+        /// This is phase 1 of the two-phase arm pattern. It:
+        /// 1. Consumes the token (capability transferred)
+        /// 2. Checks for existing permit (immediate readiness)
+        /// 3. If no permit: creates unarmed waiter, arms kernel, returns handle
+        ///
+        /// **No deadline is scheduled here.** Deadlines are associated with the
+        /// actual suspension in `awaitArm`, not with the IO operation setup.
+        ///
+        /// - Parameters:
+        ///   - token: The registering token (consumed).
+        ///   - interest: The interest to wait for.
+        /// - Returns: `.ready(Event)` if permit existed, `.pending(Handle)` otherwise.
+        /// - Throws: If shutdown is in progress.
+        public func beginArmDiscardingToken(
+            _ token: consuming Token<Registering>,
+            interest: Interest
+        ) throws(Failure) -> Arm.Begin {
+            guard state == .running else {
+                throw .shutdownInProgress
+            }
+
+            let id = token.id
+            _ = consume token  // Token consumed
+
+            let key = PermitKey(id: id, interest: interest)
+
+            // Check for existing permit (event already arrived)
+            if let flags = permits.removeValue(forKey: key) {
+                // Consume permit and return immediate readiness.
+                // No kernel mutation here - if caller wants to wait again,
+                // they call beginArmDiscardingToken with a fresh token.
+                let event = Event(id: id, interest: interest, flags: flags)
+                return .ready(event)
+            }
+
+            // No permit - create unarmed waiter
+            let waiter = Waiter(id: id)
+            waiters[key] = waiter
+
+            // Arm the kernel filter
+            registrationQueue.enqueue(.arm(id: id, interest: interest))
+            wakeupChannel.wake()
+
+            // Return handle with current generation
+            let generation = deadlineGeneration[key, default: 0]
+            let handle = Arm.Handle(id: id, interest: interest, generation: generation)
+            return .pending(handle)
+        }
+
+        /// Await completion of a pending arm operation.
+        ///
+        /// This is phase 2 of the two-phase arm pattern. It:
+        /// 1. Validates the waiter exists and generation matches
+        /// 2. Installs continuation on the waiter and suspends
+        /// 3. Schedules the deadline (if provided) only after arming
+        ///
+        /// **Note:** This method does NOT check permits. Permits are consumed
+        /// exclusively in phase 1 (`beginArmDiscardingToken`). If an event
+        /// arrived between phase 1 and phase 2, `processEvent` converts it
+        /// to a permit and removes the unarmed waiter - this method then
+        /// fails with `.cancelled` due to missing waiter.
+        ///
+        /// - Parameters:
+        ///   - handle: The handle from `beginArmDiscardingToken` (pending case only).
+        ///   - deadline: Optional deadline for this wait.
+        /// - Returns: The outcome (armed with event, or failed).
+        public func awaitArm(
+            _ handle: Arm.Handle,
+            deadline: Deadline? = nil
+        ) async -> Arm.Outcome {
+            let key = handle.key
+
+            // Validate waiter exists
+            guard let waiter = waiters[key] else {
+                // Waiter was removed (event arrived and converted to permit,
+                // deregistered, shutdown, etc.)
+                return .failed(.cancelled)
+            }
+
+            // Verify generation to detect stale handles
+            let currentGen = deadlineGeneration[key, default: 0]
+            if currentGen != handle.generation {
+                // Stale handle - waiter was already completed and a new one started
+                return .failed(.cancelled)
+            }
+
+            // Install continuation and suspend
+            let wakeup = wakeupChannel
+
+            let result: Result<Event, Failure> = await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    let armed = waiter.arm(continuation: continuation)
+                    precondition(armed, "Waiter must arm exactly once")
+
+                    // Schedule deadline only after arming (deadline is for suspension)
+                    if let deadline = deadline {
+                        scheduleDeadline(deadline, for: key)
+                    }
+                }
+            } onCancel: {
+                waiter.cancel()
+                wakeup.wake()
+            }
+
+            switch result {
+            case .success(let event):
+                return .armed(event)
+            case .failure(let failure):
+                return .failed(failure)
+            }
+        }
+
+        /// Arm two registrations concurrently, returning simplified outcomes.
+        ///
+        /// This method uses the two-phase arm pattern internally:
+        /// 1. `beginArmDiscardingToken` for both (consumes tokens, checks permits)
+        /// 2. `async let` to await any pending handles concurrently
+        ///
+        /// Both operations are initiated before either suspends, enabling
+        /// multiple pending deadlines to be tested simultaneously.
+        ///
+        /// - Parameters:
+        ///   - request1: First arm request (consumed).
+        ///   - request2: Second arm request (consumed).
+        /// - Returns: Tuple of outcomes for each request.
+        public func armTwo(
+            _ request1: consuming Arm.Request,
+            _ request2: consuming Arm.Request
+        ) async -> (Arm.Outcome, Arm.Outcome) {
+            // Phase 1: Begin both arms (synchronous, consumes tokens)
+            let begin1: Arm.Begin
+            let begin2: Arm.Begin
+
+            do {
+                begin1 = try beginArmDiscardingToken(
+                    consume request1.token,
+                    interest: request1.interest
+                )
+            } catch {
+                // First begin failed - still need to handle second token
+                do {
+                    begin2 = try beginArmDiscardingToken(
+                        consume request2.token,
+                        interest: request2.interest
+                    )
+                    // Second succeeded but first failed
+                    let outcome2: Arm.Outcome
+                    switch begin2 {
+                    case .ready(let event):
+                        outcome2 = .armed(event)
+                    case .pending(let handle):
+                        outcome2 = await awaitArm(handle, deadline: request2.deadline)
+                    }
+                    return (.failed(error), outcome2)
+                } catch let error2 {
+                    return (.failed(error), .failed(error2))
+                }
+            }
+
+            do {
+                begin2 = try beginArmDiscardingToken(
+                    consume request2.token,
+                    interest: request2.interest
+                )
+            } catch {
+                // Second begin failed - first already started
+                let outcome1: Arm.Outcome
+                switch begin1 {
+                case .ready(let event):
+                    outcome1 = .armed(event)
+                case .pending(let handle):
+                    outcome1 = await awaitArm(handle, deadline: request1.deadline)
+                }
+                return (outcome1, .failed(error))
+            }
+
+            // Extract deadlines before async let
+            let deadline1 = request1.deadline
+            let deadline2 = request2.deadline
+
+            // Phase 2: Handle both results
+            // If both are ready, return immediately
+            // If both are pending, await concurrently
+            // If mixed, await the pending one
+            switch (begin1, begin2) {
+            case (.ready(let event1), .ready(let event2)):
+                return (.armed(event1), .armed(event2))
+
+            case (.ready(let event1), .pending(let handle2)):
+                let outcome2 = await awaitArm(handle2, deadline: deadline2)
+                return (.armed(event1), outcome2)
+
+            case (.pending(let handle1), .ready(let event2)):
+                let outcome1 = await awaitArm(handle1, deadline: deadline1)
+                return (outcome1, .armed(event2))
+
+            case (.pending(let handle1), .pending(let handle2)):
+                // Both pending - await concurrently
+                async let result1 = awaitArm(handle1, deadline: deadline1)
+                async let result2 = awaitArm(handle2, deadline: deadline2)
+                return await (result1, result2)
             }
         }
 
@@ -358,11 +595,13 @@ extension IO.NonBlocking {
         /// - Parameters:
         ///   - id: The registration ID.
         ///   - interest: The interest to wait for.
+        ///   - deadline: Optional deadline for the arm operation.
         /// - Returns: An armed token and the event when ready.
-        /// - Throws: If shutdown or cancelled.
+        /// - Throws: If shutdown, cancelled, or timed out.
         private func arm(
             id: ID,
-            interest: Interest
+            interest: Interest,
+            deadline: Deadline? = nil
         ) async throws(Failure) -> Arm.Result {
             guard state == .running else {
                 throw .shutdownInProgress
@@ -408,6 +647,11 @@ extension IO.NonBlocking {
                     let armed = waiter.arm(continuation: continuation)
                     precondition(armed, "Waiter must arm exactly once before insertion")
                     waiters[key] = waiter
+
+                    // Schedule deadline if provided
+                    if let deadline = deadline {
+                        scheduleDeadline(deadline, for: key)
+                    }
                 }
             } onCancel: {
                 // Sync flip only - never resume from onCancel
@@ -422,6 +666,22 @@ extension IO.NonBlocking {
             case .failure(let failure):
                 throw failure
             }
+        }
+
+        /// Schedule a deadline for a waiter.
+        ///
+        /// Adds an entry to the deadline heap and updates the poll deadline atomic.
+        private func scheduleDeadline(_ deadline: Deadline, for key: PermitKey) {
+            let gen = deadlineGeneration[key, default: 0] + 1
+            deadlineGeneration[key] = gen
+
+            let entry = DeadlineScheduling.Entry(
+                deadline: deadline.nanoseconds,
+                key: key,
+                generation: gen
+            )
+            deadlineHeap.push(entry)
+            updateNextPollDeadline()
         }
 
         /// Deregister a descriptor (from armed state).
@@ -456,15 +716,20 @@ extension IO.NonBlocking {
             // Drain all armed waiters for this ID with .deregistered error
             // Never drop a waiter - always resume with deterministic outcome
             for key in waiters.keys where key.id == id {
-                if let waiter = waiters.removeValue(forKey: key),
-                   let (continuation, _) = waiter.takeForResume() {
-                    continuation.resume(returning: .failure(.failure(.deregistered)))
+                if let waiter = waiters.removeValue(forKey: key) {
+                    // Bump generation to invalidate any stale heap entries
+                    bumpGeneration(for: key)
+                    if let (continuation, _) = waiter.takeForResume() {
+                        continuation.resume(returning: .failure(.failure(.deregistered)))
+                    }
                 }
             }
 
-            // Remove permits for this ID
+            // Remove permits and deadline generation for this ID
             for interest in [Interest.read, .write, .priority] {
-                permits.removeValue(forKey: PermitKey(id: id, interest: interest))
+                let key = PermitKey(id: id, interest: interest)
+                permits.removeValue(forKey: key)
+                deadlineGeneration.removeValue(forKey: key)
             }
 
             // Generate reply ID for matching request to reply
@@ -494,6 +759,14 @@ extension IO.NonBlocking {
         ///
         /// This method processes events from the poll thread and resumes
         /// waiting continuations.
+        ///
+        /// Processing order per batch:
+        /// 1. Process events (resuming successful waiters)
+        /// 2. Drain cancelled waiters
+        /// 3. Drain expired deadlines
+        ///
+        /// This order ensures "event wins over timeout" semantics when both
+        /// occur in the same selector turn.
         public func runEventLoop() async {
             while let batch = await eventBridge.next() {
                 for event in batch {
@@ -501,6 +774,9 @@ extension IO.NonBlocking {
                 }
                 // Drain any waiters that were cancelled during this touch
                 drainCancelledWaiters()
+                // Drain expired deadlines (get time once per turn)
+                let now = Deadline.now.nanoseconds
+                drainExpiredDeadlines(now: now)
             }
             // Bridge returned nil = shutdown
         }
@@ -544,9 +820,98 @@ extension IO.NonBlocking {
         private func drainCancelledWaiters() {
             for (key, waiter) in waiters where waiter.wasCancelled {
                 waiters.removeValue(forKey: key)
+                bumpGeneration(for: key)
                 if let (continuation, _) = waiter.takeForResume() {
                     continuation.resume(returning: .failure(.cancelled))
                 }
+            }
+            updateNextPollDeadline()
+        }
+
+        /// Drain all expired deadlines.
+        ///
+        /// Called after each event batch to resume waiters whose deadlines have passed.
+        /// Stale heap entries (where generation doesn't match) are silently skipped.
+        ///
+        /// - Parameter now: The current monotonic time in nanoseconds.
+        private func drainExpiredDeadlines(now: UInt64) {
+            while let entry = deadlineHeap.peek() {
+                // Not expired yet - stop
+                if entry.deadline > now {
+                    break
+                }
+
+                // Pop and check validity
+                _ = deadlineHeap.pop()
+
+                // Skip stale entries (generation mismatch)
+                guard let currentGen = deadlineGeneration[entry.key],
+                      currentGen == entry.generation else {
+                    continue
+                }
+
+                // Check if waiter exists
+                guard let waiter = waiters[entry.key] else {
+                    continue
+                }
+
+                // Two-phase support:
+                // If waiter exists but is not armed (continuation not installed),
+                // skip it. The deadline applies to the actual suspension, not to
+                // the IO operation. An unarmed waiter means awaitArm hasn't been
+                // called yet, so there's no "wait" to timeout.
+                if !waiter.isArmed {
+                    continue
+                }
+
+                // Armed waiter: remove, bump generation, and resume with timeout
+                _ = waiters.removeValue(forKey: entry.key)
+                bumpGeneration(for: entry.key)
+
+                if let (continuation, wasCancelled) = waiter.takeForResume() {
+                    if wasCancelled {
+                        // Cancellation already happened - honour it
+                        continuation.resume(returning: .failure(.cancelled))
+                    } else {
+                        continuation.resume(returning: .failure(.timeout))
+                    }
+                }
+            }
+            updateNextPollDeadline()
+        }
+
+        /// Bump the generation for a key, invalidating any stale heap entries.
+        private func bumpGeneration(for key: PermitKey) {
+            deadlineGeneration[key, default: 0] += 1
+        }
+
+        /// Update the shared atomic with the next poll deadline.
+        ///
+        /// Pops stale entries from the heap until a valid one is found,
+        /// then publishes it to the poll thread.
+        private func updateNextPollDeadline() {
+            // Pop stale entries
+            while let entry = deadlineHeap.peek() {
+                guard let currentGen = deadlineGeneration[entry.key],
+                      currentGen == entry.generation,
+                      waiters[entry.key] != nil else {
+                    // Stale - remove
+                    _ = deadlineHeap.pop()
+                    continue
+                }
+                break
+            }
+
+            // Publish earliest valid deadline (or max if none)
+            if let entry = deadlineHeap.peek() {
+                let previous = nextDeadline.nanoseconds
+                nextDeadline.store(entry.deadline)
+                // Wake poll thread if deadline moved earlier
+                if entry.deadline < previous {
+                    wakeupChannel.wake()
+                }
+            } else {
+                nextDeadline.store(.max)
             }
         }
 
@@ -554,8 +919,22 @@ extension IO.NonBlocking {
             // For each interest bit in the event
             for interest in [Interest.read, .write, .priority] where event.interest.contains(interest) {
                 let key = PermitKey(id: event.id, interest: interest)
+
                 if let waiter = waiters.removeValue(forKey: key) {
-                    // Drain the waiter using state machine
+                    // Always bump generation when removing a waiter for this key.
+                    // This invalidates any stale heap entries for deadlines.
+                    bumpGeneration(for: key)
+
+                    // Two-phase support:
+                    // If the waiter exists but is not armed yet (continuation not installed),
+                    // convert readiness into a permit. The later awaitArm() will observe
+                    // the permit and complete immediately.
+                    if !waiter.isArmed {
+                        permits[key] = event.flags
+                        continue
+                    }
+
+                    // Armed waiter: drain via the state machine.
                     if let (continuation, wasCancelled) = waiter.takeForResume() {
                         if wasCancelled {
                             continuation.resume(returning: .failure(.cancelled))
@@ -564,6 +943,11 @@ extension IO.NonBlocking {
                             let ready = Event(id: event.id, interest: interest, flags: event.flags)
                             continuation.resume(returning: .success(ready))
                         }
+                    } else {
+                        // Defensive fallback:
+                        // If we removed it but couldn't take a continuation (already drained),
+                        // preserve readiness for the next arm.
+                        permits[key] = event.flags
                     }
                 } else {
                     // Store as permit
@@ -591,6 +975,11 @@ extension IO.NonBlocking {
                 }
             }
             waiters.removeAll()
+
+            // Clear deadline state (no need to bump generations - heap is being dropped)
+            deadlineHeap = .init()
+            deadlineGeneration.removeAll()
+            nextDeadline.store(.max)
 
             // Drain all pending registration replies with lifecycle shutdown error
             // CRITICAL: Ensures no continuation leaks during shutdown
@@ -712,6 +1101,101 @@ extension IO.NonBlocking {
             package init(token: consuming Token<IO.NonBlocking.Armed>, event: Event) {
                 self.token = token
                 self.event = event
+            }
+        }
+
+        // MARK: - Two-Phase Arm Types
+
+        /// Handle for a pending arm operation.
+        ///
+        /// Returned by `beginArmDiscardingToken` and consumed by `awaitArm`.
+        /// This is `Copyable` (unlike tokens) so it can be captured in `async let`.
+        ///
+        /// The handle includes a generation number to detect stale completions.
+        /// If the underlying waiter is removed (event, deregister, shutdown) before
+        /// `awaitArm` is called, the generation mismatch causes immediate failure.
+        @frozen
+        public struct Handle: Sendable, Hashable {
+            /// The registration ID.
+            public let id: ID
+
+            /// The interest this handle is waiting for.
+            public let interest: Interest
+
+            /// Generation at the time of handle creation.
+            ///
+            /// Used to detect if the waiter was already consumed by an event
+            /// or invalidated by deregistration before `awaitArm` was called.
+            public let generation: UInt64
+
+            /// Internal key for permit/waiter lookup.
+            var key: IO.NonBlocking.Selector.PermitKey {
+                IO.NonBlocking.Selector.PermitKey(id: id, interest: interest)
+            }
+        }
+
+        /// Result of beginning an arm operation.
+        ///
+        /// Phase 1 (`beginArmDiscardingToken`) returns either:
+        /// - `.ready(Event)`: A permit existed, readiness is immediate
+        /// - `.pending(Handle)`: No permit, use handle with `awaitArm`
+        ///
+        /// ## Single-Consumer Semantics
+        ///
+        /// **Permits are consumed exactly once in phase 1.** The `.ready` case
+        /// means the permit was consumed; `awaitArm` does NOT check permits.
+        /// This ensures clean phase separation and prevents double-consumption.
+        ///
+        /// If an event arrives between phase 1 (`.pending`) and phase 2 (`awaitArm`),
+        /// `processEvent` converts the readiness to a permit and removes the unarmed
+        /// waiter. The subsequent `awaitArm` fails with `.cancelled` due to the
+        /// missing waiter - the permit is available for a future `beginArmDiscardingToken`.
+        @frozen
+        public enum Begin: Sendable {
+            /// Readiness was already available (permit consumed).
+            /// No need to call `awaitArm`.
+            case ready(Event)
+
+            /// No readiness yet. Use the handle with `awaitArm` to suspend.
+            case pending(Handle)
+        }
+
+        /// Simplified outcome for batch operations.
+        ///
+        /// Unlike `Arm.Registering.Outcome`, this is `Copyable` because it doesn't
+        /// return tokens. Use when you don't need tokens back (e.g., testing timeouts).
+        @frozen
+        public enum Outcome: Sendable {
+            /// Arming succeeded - includes the event that triggered it.
+            case armed(Event)
+            /// Arming failed - includes the failure reason.
+            case failed(Failure)
+        }
+
+        /// A request to arm a registration with optional deadline.
+        ///
+        /// Used with `armTwo` and similar batch methods.
+        /// This enables concurrent deadline testing and efficient multi-connection setup.
+        @frozen
+        public struct Request: ~Copyable, Sendable {
+            /// The token to arm (consumed).
+            public var token: Token<IO.NonBlocking.Registering>
+
+            /// The interest to wait for.
+            public let interest: Interest
+
+            /// Optional deadline for this arm operation.
+            public let deadline: Deadline?
+
+            /// Creates an arm request.
+            public init(
+                token: consuming Token<IO.NonBlocking.Registering>,
+                interest: Interest,
+                deadline: Deadline? = nil
+            ) {
+                self.token = token
+                self.interest = interest
+                self.deadline = deadline
             }
         }
 

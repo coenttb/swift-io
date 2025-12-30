@@ -43,13 +43,15 @@ extension IO.NonBlocking {
         ///   - replyBridge: Bridge for sending registration replies to selector.
         ///   - registrationQueue: Queue for receiving requests from selector.
         ///   - shutdownFlag: Atomic flag indicating shutdown.
+        ///   - nextDeadline: Atomic deadline for poll timeout.
         public static func run(
             driver: Driver,
             handle: consuming Driver.Handle,
             eventBridge: Event.Bridge,
             replyBridge: Registration.Reply.Bridge,
             registrationQueue: Registration.Queue,
-            shutdownFlag: Shutdown.Flag
+            shutdownFlag: Shutdown.Flag,
+            nextDeadline: NextDeadline
         ) {
             var eventBuffer = [Event](
                 repeating: .empty,
@@ -65,11 +67,12 @@ extension IO.NonBlocking {
                     replyBridge: replyBridge
                 )
 
-                // Block waiting for kernel events
+                // Block waiting for kernel events (with optional timeout)
                 do {
+                    let deadline = nextDeadline.asDeadline
                     let count = try driver.poll(
                         handle,
-                        deadline: nil,
+                        deadline: deadline,
                         into: &eventBuffer
                     )
 
@@ -77,6 +80,9 @@ extension IO.NonBlocking {
                         // Copy events to a new array and push to bridge
                         let batch = Array(eventBuffer.prefix(count))
                         eventBridge.push(batch)
+                    } else {
+                        // Timeout with no events - tick to wake selector for deadline drain
+                        eventBridge.tick()
                     }
                 } catch {
                     // Poll error - signal shutdown
@@ -203,6 +209,7 @@ extension IO.NonBlocking.PollLoop {
         public let replyBridge: IO.NonBlocking.Registration.Reply.Bridge
         public let registrationQueue: IO.NonBlocking.Registration.Queue
         public let shutdownFlag: IO.NonBlocking.PollLoop.Shutdown.Flag
+        public let nextDeadline: IO.NonBlocking.PollLoop.NextDeadline
 
         public init(
             driver: IO.NonBlocking.Driver,
@@ -210,7 +217,8 @@ extension IO.NonBlocking.PollLoop {
             eventBridge: IO.NonBlocking.Event.Bridge,
             replyBridge: IO.NonBlocking.Registration.Reply.Bridge,
             registrationQueue: IO.NonBlocking.Registration.Queue,
-            shutdownFlag: IO.NonBlocking.PollLoop.Shutdown.Flag
+            shutdownFlag: IO.NonBlocking.PollLoop.Shutdown.Flag,
+            nextDeadline: IO.NonBlocking.PollLoop.NextDeadline
         ) {
             self.driver = driver
             self.handle = handle
@@ -218,6 +226,7 @@ extension IO.NonBlocking.PollLoop {
             self.replyBridge = replyBridge
             self.registrationQueue = registrationQueue
             self.shutdownFlag = shutdownFlag
+            self.nextDeadline = nextDeadline
         }
     }
 
@@ -231,7 +240,8 @@ extension IO.NonBlocking.PollLoop {
             eventBridge: context.eventBridge,
             replyBridge: context.replyBridge,
             registrationQueue: context.registrationQueue,
-            shutdownFlag: context.shutdownFlag
+            shutdownFlag: context.shutdownFlag,
+            nextDeadline: context.nextDeadline
         )
     }
 }

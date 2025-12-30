@@ -5,6 +5,14 @@
 //  Created by Coen ten Thije Boonkkamp on 28/12/2025.
 //
 
+#if canImport(Darwin)
+    import Darwin
+#elseif canImport(Glibc)
+    import Glibc
+#elseif os(Windows)
+    import WinSDK
+#endif
+
 @_exported public import IO_NonBlocking_Primitives
 
 extension IO.NonBlocking {
@@ -211,7 +219,11 @@ extension IO.NonBlocking {
     ///
     /// Deadlines are used instead of durations to avoid drift
     /// when poll is interrupted and restarted.
-    public struct Deadline: Sendable {
+    ///
+    /// ## Clock
+    /// Uses monotonic time (`CLOCK_MONOTONIC` on POSIX systems) to ensure
+    /// consistent timing regardless of system clock adjustments.
+    public struct Deadline: Sendable, Comparable {
         /// Nanoseconds since an arbitrary epoch (typically system boot).
         public let nanoseconds: UInt64
 
@@ -222,5 +234,74 @@ extension IO.NonBlocking {
 
         /// A deadline in the infinite future (no timeout).
         public static let never = Deadline(nanoseconds: .max)
+
+        // MARK: - Clock Helpers
+
+        /// The current monotonic time as a deadline.
+        public static var now: Deadline {
+            Deadline(nanoseconds: monotonicNanoseconds())
+        }
+
+        /// Creates a deadline at a given duration from now.
+        ///
+        /// - Parameter nanoseconds: Duration from now in nanoseconds.
+        /// - Returns: A deadline at `now + nanoseconds`.
+        public static func after(nanoseconds: Int64) -> Deadline {
+            let current = monotonicNanoseconds()
+            if nanoseconds <= 0 {
+                return Deadline(nanoseconds: current)
+            }
+            // Saturating add to avoid overflow
+            let result = current.addingReportingOverflow(UInt64(nanoseconds))
+            return Deadline(nanoseconds: result.overflow ? .max : result.partialValue)
+        }
+
+        /// Creates a deadline at a given duration from now.
+        ///
+        /// - Parameter milliseconds: Duration from now in milliseconds.
+        /// - Returns: A deadline at `now + milliseconds`.
+        public static func after(milliseconds: Int64) -> Deadline {
+            after(nanoseconds: milliseconds * 1_000_000)
+        }
+
+        /// Whether this deadline has passed.
+        public var hasExpired: Bool {
+            Self.monotonicNanoseconds() >= nanoseconds
+        }
+
+        /// Nanoseconds remaining until deadline, or 0 if expired.
+        public var remainingNanoseconds: Int64 {
+            let current = Self.monotonicNanoseconds()
+            if current >= nanoseconds {
+                return 0
+            }
+            return Int64(nanoseconds - current)
+        }
+
+        // MARK: - Comparable
+
+        public static func < (lhs: Deadline, rhs: Deadline) -> Bool {
+            lhs.nanoseconds < rhs.nanoseconds
+        }
+
+        // MARK: - Private
+
+        /// Gets the current monotonic time in nanoseconds.
+        private static func monotonicNanoseconds() -> UInt64 {
+            #if os(Windows)
+            var counter: LARGE_INTEGER = LARGE_INTEGER()
+            var frequency: LARGE_INTEGER = LARGE_INTEGER()
+            QueryPerformanceCounter(&counter)
+            QueryPerformanceFrequency(&frequency)
+            // Convert to nanoseconds
+            let seconds = counter.QuadPart / frequency.QuadPart
+            let remainder = counter.QuadPart % frequency.QuadPart
+            return UInt64(seconds) * 1_000_000_000 + UInt64(remainder * 1_000_000_000 / frequency.QuadPart)
+            #else
+            var ts = timespec()
+            clock_gettime(CLOCK_MONOTONIC, &ts)
+            return UInt64(ts.tv_sec) * 1_000_000_000 + UInt64(ts.tv_nsec)
+            #endif
+        }
     }
 }
