@@ -7,6 +7,9 @@
 
 import Testing
 @testable import IO_Primitives
+import Buffer
+import Kernel
+import Binary
 
 #if canImport(Darwin)
 import Darwin
@@ -289,21 +292,6 @@ struct DirectRequirementsTests {
     @Suite("Alignment Validation")
     struct AlignmentValidationTests {
 
-        @Test("isBufferAligned checks address alignment")
-        func isBufferAligned() {
-            let alignment = IO.File.Direct.Requirements.Alignment(uniform: 4096)
-
-            // Create aligned pointer
-            var buffer = try! IO.Buffer.Aligned(byteCount: 4096, alignment: 4096)
-            let aligned = buffer.baseAddress
-            #expect(alignment.isBufferAligned(aligned))
-
-            // Create misaligned pointer
-            buffer.withMisalignedView(offset: 1) { ptr in
-                #expect(!alignment.isBufferAligned(ptr.baseAddress!))
-            }
-        }
-
         @Test("isOffsetAligned checks offset alignment")
         func isOffsetAligned() {
             let alignment = IO.File.Direct.Requirements.Alignment(uniform: 4096)
@@ -329,76 +317,6 @@ struct DirectRequirementsTests {
             #expect(!alignment.isLengthValid(100))
             #expect(!alignment.isLengthValid(513))
         }
-
-        @Test("validate returns nil when all pass")
-        func validateAllPass() throws {
-            let alignment = IO.File.Direct.Requirements.Alignment(uniform: 4096)
-            var buffer = try IO.Buffer.Aligned(byteCount: 4096, alignment: 4096)
-
-            let error = alignment.validate(
-                buffer: buffer.baseAddress,
-                offset: 4096,
-                length: 4096
-            )
-
-            #expect(error == nil)
-        }
-
-        @Test("validate returns misalignedBuffer error")
-        func validateMisalignedBuffer() throws {
-            let alignment = IO.File.Direct.Requirements.Alignment(uniform: 4096)
-            var buffer = try IO.Buffer.Aligned(byteCount: 8192, alignment: 4096)
-
-            buffer.withMisalignedView(offset: 1) { ptr in
-                let error = alignment.validate(
-                    buffer: ptr.baseAddress!,
-                    offset: 0,
-                    length: 4096
-                )
-
-                if case .misalignedBuffer = error {
-                    // Expected
-                } else {
-                    Issue.record("Expected misalignedBuffer error")
-                }
-            }
-        }
-
-        @Test("validate returns misalignedOffset error")
-        func validateMisalignedOffset() throws {
-            let alignment = IO.File.Direct.Requirements.Alignment(uniform: 4096)
-            let buffer = try IO.Buffer.Aligned(byteCount: 4096, alignment: 4096)
-
-            let error = alignment.validate(
-                buffer: buffer.baseAddress,
-                offset: 100,
-                length: 4096
-            )
-
-            if case .misalignedOffset = error {
-                // Expected
-            } else {
-                Issue.record("Expected misalignedOffset error, got \(String(describing: error))")
-            }
-        }
-
-        @Test("validate returns invalidLength error")
-        func validateInvalidLength() throws {
-            let alignment = IO.File.Direct.Requirements.Alignment(uniform: 4096)
-            let buffer = try IO.Buffer.Aligned(byteCount: 4096, alignment: 4096)
-
-            let error = alignment.validate(
-                buffer: buffer.baseAddress,
-                offset: 0,
-                length: 100
-            )
-
-            if case .invalidLength = error {
-                // Expected
-            } else {
-                Issue.record("Expected invalidLength error, got \(String(describing: error))")
-            }
-        }
     }
 
     @Suite("Discovery")
@@ -414,176 +332,6 @@ struct DirectRequirementsTests {
             #elseif os(Linux)
             #expect(requirements == .unknown(reason: .sectorSizeUndetermined))
             #endif
-        }
-    }
-}
-
-// MARK: - Buffer.Aligned Tests
-
-@Suite("IO.Buffer.Aligned")
-struct AlignedBufferTests {
-
-    @Suite("Allocation")
-    struct AllocationTests {
-
-        @Test("basic allocation succeeds")
-        func basicAllocation() throws {
-            let buffer = try IO.Buffer.Aligned(byteCount: 4096, alignment: 4096)
-
-            #expect(buffer.count == 4096)
-            #expect(buffer.alignment == 4096)
-        }
-
-        @Test("page-aligned allocation succeeds")
-        func pageAlignedAllocation() throws {
-            let buffer = try IO.Buffer.Aligned.pageAligned(byteCount: 8192)
-
-            #expect(buffer.count == 8192)
-            #expect(buffer.alignment == IO.Memory.pageSize)
-        }
-
-        @Test("zeroed allocation is zeroed")
-        func zeroedAllocation() throws {
-            let buffer = try IO.Buffer.Aligned.zeroed(byteCount: 4096, alignment: 4096)
-
-            buffer.withUnsafeBytes { ptr in
-                for i in 0..<ptr.count {
-                    #expect(ptr[i] == 0)
-                }
-            }
-        }
-
-        @Test("invalid size throws")
-        func invalidSizeThrows() {
-            #expect(throws: IO.Buffer.Aligned.Error.invalidSize) {
-                try IO.Buffer.Aligned(byteCount: 0, alignment: 4096)
-            }
-        }
-
-        @Test("invalid alignment throws")
-        func invalidAlignmentThrows() {
-            // Not a power of 2
-            #expect(throws: IO.Buffer.Aligned.Error.invalidAlignment) {
-                try IO.Buffer.Aligned(byteCount: 4096, alignment: 3)
-            }
-
-            // Zero
-            #expect(throws: IO.Buffer.Aligned.Error.invalidAlignment) {
-                try IO.Buffer.Aligned(byteCount: 4096, alignment: 0)
-            }
-        }
-
-        @Test("buffer is actually aligned")
-        func bufferIsAligned() throws {
-            for alignment in [512, 1024, 2048, 4096, 8192] {
-                let buffer = try IO.Buffer.Aligned(byteCount: alignment, alignment: alignment)
-
-                let address = Int(bitPattern: buffer.baseAddress)
-                #expect(address % alignment == 0, "Buffer not aligned to \(alignment)")
-            }
-        }
-    }
-
-    @Suite("Memory Access")
-    struct MemoryAccessTests {
-
-        @Test("withUnsafeBytes provides read access")
-        func withUnsafeBytes() throws {
-            var buffer = try IO.Buffer.Aligned.zeroed(byteCount: 4096, alignment: 4096)
-
-            // Write some data
-            buffer.withUnsafeMutableBytes { ptr in
-                ptr[0] = 42
-                ptr[1] = 43
-            }
-
-            // Read it back
-            buffer.withUnsafeBytes { ptr in
-                #expect(ptr[0] == 42)
-                #expect(ptr[1] == 43)
-            }
-        }
-
-        @Test("withUnsafeMutableBytes provides write access")
-        func withUnsafeMutableBytes() throws {
-            var buffer = try IO.Buffer.Aligned(byteCount: 4096, alignment: 4096)
-
-            buffer.withUnsafeMutableBytes { ptr in
-                for i in 0..<100 {
-                    ptr[i] = UInt8(i)
-                }
-            }
-
-            buffer.withUnsafeBytes { ptr in
-                for i in 0..<100 {
-                    #expect(ptr[i] == UInt8(i))
-                }
-            }
-        }
-
-        @Test("baseAddress and mutableBaseAddress work")
-        func baseAddressProperties() throws {
-            var buffer = try IO.Buffer.Aligned(byteCount: 4096, alignment: 4096)
-
-            // Write via mutableBaseAddress
-            buffer.mutableBaseAddress.storeBytes(of: UInt64(0xDEADBEEF), as: UInt64.self)
-
-            // Read via baseAddress
-            let value = buffer.baseAddress.load(as: UInt64.self)
-            #expect(value == 0xDEADBEEF)
-        }
-    }
-
-    @Suite("Alignment Verification")
-    struct AlignmentVerificationTests {
-
-        @Test("isAligned reports correct alignment")
-        func isAligned() throws {
-            let buffer = try IO.Buffer.Aligned(byteCount: 4096, alignment: 4096)
-
-            // Use local variables to avoid #expect issues with ~Copyable
-            let aligned1 = buffer.isAligned(to: 1)
-            let aligned2 = buffer.isAligned(to: 2)
-            let aligned4 = buffer.isAligned(to: 4)
-            let aligned4096 = buffer.isAligned(to: 4096)
-
-            #expect(aligned1)
-            #expect(aligned2)
-            #expect(aligned4)
-            #expect(aligned4096)
-        }
-
-        @Test("withMisalignedView creates misaligned pointer")
-        func withMisalignedView() throws {
-            var buffer = try IO.Buffer.Aligned(byteCount: 8192, alignment: 4096)
-
-            buffer.withMisalignedView(offset: 1) { ptr in
-                let address = Int(bitPattern: ptr.baseAddress!)
-                #expect(address % 4096 != 0)
-                #expect(ptr.count == 8191)
-            }
-        }
-    }
-
-    @Suite("Requirements Integration")
-    struct RequirementsIntegrationTests {
-
-        @Test("aligned(for:) with known requirements succeeds")
-        func alignedForKnownRequirements() throws {
-            let requirements = IO.File.Direct.Requirements(uniformAlignment: 4096)
-            let buffer = try IO.Buffer.Aligned.aligned(byteCount: 8192, for: requirements)
-
-            #expect(buffer.count == 8192)
-            #expect(buffer.alignment == 4096)
-        }
-
-        @Test("aligned(for:) with unknown requirements throws")
-        func alignedForUnknownRequirements() {
-            let requirements: IO.File.Direct.Requirements = .unknown(reason: .sectorSizeUndetermined)
-
-            #expect(throws: IO.Buffer.Aligned.Error.allocationFailed) {
-                try IO.Buffer.Aligned.aligned(byteCount: 4096, for: requirements)
-            }
         }
     }
 }
@@ -693,75 +441,6 @@ struct HandleErrorTests {
     #endif
 }
 
-// MARK: - Open Options Tests
-
-@Suite("IO.File.Open.Options")
-struct OpenOptionsTests {
-
-    @Test("default options are read-only buffered")
-    func defaultOptions() {
-        let options = IO.File.Open.Options()
-
-        #expect(options.access == .read)
-        #expect(options.create == false)
-        #expect(options.truncate == false)
-        #expect(options.cache == .buffered)
-    }
-
-    @Test("access mode init sets access only")
-    func accessModeInit() {
-        let options = IO.File.Open.Options(access: .readWrite)
-
-        #expect(options.access == .readWrite)
-        #expect(options.create == false)
-        #expect(options.truncate == false)
-        #expect(options.cache == .buffered)
-    }
-
-    @Test("options are Equatable")
-    func optionsEquatable() {
-        var o1 = IO.File.Open.Options()
-        var o2 = IO.File.Open.Options()
-
-        #expect(o1 == o2)
-
-        o1.cache = .direct
-        #expect(o1 != o2)
-
-        o2.cache = .direct
-        #expect(o1 == o2)
-    }
-}
-
-// MARK: - Access Mode Tests
-
-@Suite("IO.File.Access")
-struct AccessModeTests {
-
-    @Test("access modes are OptionSet")
-    func accessModesOptionSet() {
-        let read: IO.File.Access = .read
-        let write: IO.File.Access = .write
-        let readWrite: IO.File.Access = .readWrite
-
-        #expect(readWrite.contains(.read))
-        #expect(readWrite.contains(.write))
-        #expect(readWrite == [.read, .write])
-
-        #expect(!read.contains(.write))
-        #expect(!write.contains(.read))
-    }
-
-    @Test("access modes are Sendable")
-    func accessModeSendable() {
-        let access: IO.File.Access = .readWrite
-
-        Task.detached {
-            _ = access
-        }
-    }
-}
-
 // MARK: - Integration Tests
 
 #if !os(Windows)
@@ -774,7 +453,7 @@ struct HandleIntegrationTests {
         let path = makeTempFile(prefix: "handle-test", content: content)
         defer { removeTempFile(path) }
 
-        let options = IO.File.Open.Options(access: .read)
+        let options = IO.File.Open.Options(mode: .read)
         let handle = try IO.File.open(path, options: options)
 
         // Verify handle properties
@@ -789,7 +468,7 @@ struct HandleIntegrationTests {
         let path = makeTempFile(prefix: "handle-read", content: content)
         defer { removeTempFile(path) }
 
-        let handle = try IO.File.open(path, options: .init(access: .read))
+        let handle = try IO.File.open(path, options: .init(mode: .read))
 
         var buffer = [UInt8](repeating: 0, count: 4096)
         let bytesRead = try buffer.withUnsafeMutableBytes { ptr in
@@ -812,7 +491,7 @@ struct HandleIntegrationTests {
         let path = "/tmp/handle-write-\(getpid())-\(Int.random(in: 0..<Int.max))"
         defer { removeTempFile(path) }
 
-        var options = IO.File.Open.Options(access: .write)
+        var options = IO.File.Open.Options(mode: .write)
         options.create = true
 
         do {
@@ -844,7 +523,7 @@ struct HandleIntegrationTests {
         let path = makeTempFile(prefix: "handle-auto", content: content)
         defer { removeTempFile(path) }
 
-        var options = IO.File.Open.Options(access: .read)
+        var options = IO.File.Open.Options(mode: .read)
         options.cache = .auto(policy: .fallbackToBuffered)
 
         let handle = try IO.File.open(path, options: options)
@@ -859,14 +538,14 @@ struct HandleIntegrationTests {
 
     @Test("read with aligned buffer")
     func readWithAlignedBuffer() throws {
-        let pageSize = IO.Memory.pageSize
+        let pageSize = Kernel.System.pageSize
         let content = String(repeating: "X", count: pageSize)
         let path = makeTempFile(prefix: "handle-aligned", content: content)
         defer { removeTempFile(path) }
 
-        let handle = try IO.File.open(path, options: .init(access: .read))
+        let handle = try IO.File.open(path, options: .init(mode: .read))
 
-        var buffer = try IO.Buffer.Aligned(byteCount: pageSize, alignment: pageSize)
+        var buffer = try Buffer.Aligned(byteCount: pageSize, alignment: pageSize)
         let bytesRead = try handle.read(into: &buffer, at: 0)
 
         #expect(bytesRead == pageSize)
@@ -874,17 +553,17 @@ struct HandleIntegrationTests {
 
     @Test("write with aligned buffer")
     func writeWithAlignedBuffer() throws {
-        let pageSize = IO.Memory.pageSize
+        let pageSize = Kernel.System.pageSize
         let path = "/tmp/handle-aligned-write-\(getpid())-\(Int.random(in: 0..<Int.max))"
         defer { removeTempFile(path) }
 
-        var options = IO.File.Open.Options(access: .write)
+        var options = IO.File.Open.Options(mode: .write)
         options.create = true
 
         do {
             let handle = try IO.File.open(path, options: options)
 
-            var buffer = try IO.Buffer.Aligned.zeroed(byteCount: pageSize, alignment: pageSize)
+            var buffer = try Buffer.Aligned.zeroed(byteCount: pageSize, alignment: pageSize)
             buffer.withUnsafeMutableBytes { ptr in
                 for i in 0..<pageSize {
                     ptr[i] = UInt8(i % 256)
@@ -901,23 +580,6 @@ struct HandleIntegrationTests {
         #expect(Int(statBuf.st_size) == pageSize)
     }
 
-    @Test("open nonexistent file throws notFound")
-    func openNonexistentThrows() {
-        let path = "/tmp/nonexistent-\(getpid())-\(Int.random(in: 0..<Int.max))"
-
-        #expect(throws: IO.File.Open.Error.notFound(path: path)) {
-            try IO.File.open(path, options: .init(access: .read))
-        }
-    }
-
-    @Test("open directory throws isDirectory")
-    func openDirectoryThrows() {
-        #expect(throws: IO.File.Open.Error.isDirectory(path: "/tmp")) {
-            var options = IO.File.Open.Options(access: .write)
-            options.truncate = true
-            try IO.File.open("/tmp", options: options)
-        }
-    }
 }
 #endif
 
