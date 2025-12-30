@@ -52,6 +52,12 @@ extension IO.Memory.Map {
         /// The mapping was previously unmapped and cannot be used.
         case alreadyUnmapped
 
+        /// Lock acquisition failed during coordinated mapping.
+        ///
+        /// This occurs when `.coordinated` safety is requested but the file
+        /// lock cannot be acquired (e.g., another process holds an exclusive lock).
+        case lockAcquisitionFailed(IO.File.Lock.Error)
+
         /// Platform-specific error with error code.
         case platform(code: Int32, message: String)
     }
@@ -131,6 +137,8 @@ extension IO.Memory.Map.Error: CustomStringConvertible {
             return "Unsupported file type for mapping"
         case .alreadyUnmapped:
             return "Mapping already unmapped"
+        case .lockAcquisitionFailed(let lockError):
+            return "Lock acquisition failed: \(lockError.description)"
         case .platform(let code, let message):
             return "Platform error \(code): \(message)"
         }

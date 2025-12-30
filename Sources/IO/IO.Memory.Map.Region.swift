@@ -72,8 +72,8 @@ extension IO.Memory.Map {
         private var mappingHandle: HANDLE?
         #endif
 
-        /// Placeholder for future lock token when `.coordinated` safety is used.
-        /// This will be replaced with actual lock token in Phase 2.
+        /// Lock token for `.coordinated` safety mode.
+        /// Holds a file lock for the mapping lifetime to prevent SIGBUS from truncation.
         private var lockToken: LockToken?
 
         // MARK: - Computed Properties
@@ -266,24 +266,36 @@ extension IO.Memory.Map.Region {
     }
 }
 
-// MARK: - Placeholder Lock Token
+// MARK: - Lock Token Wrapper
 
 extension IO.Memory.Map.Region {
-    /// Placeholder lock token for Phase 1.
+    /// Wrapper that holds a file lock for the Region's lifetime.
     ///
-    /// This will be replaced with `IO.File.Lock.Token` in Phase 2.
-    /// For now, it's a no-op placeholder that maintains API compatibility.
-    struct LockToken: Sendable {
-        // In Phase 2, this will hold the actual lock
-        // For now, it just tracks that a lock was requested
+    /// This is a class because `IO.File.Lock.Token` is ~Copyable and cannot
+    /// be stored directly in an optional field. The class provides indirection.
+    final class LockToken: @unchecked Sendable {
+        #if os(Windows)
+        private var token: IO.File.Lock.Token?
 
-        let mode: Safety.LockMode
-        let scope: Safety.LockScope
-        let range: (start: Int, end: Int)
+        init(handle: HANDLE, range: IO.File.Lock.Range, mode: IO.File.Lock.Mode) throws {
+            self.token = try IO.File.Lock.Token(handle: handle, range: range, mode: mode)
+        }
+        #else
+        private var token: IO.File.Lock.Token?
+
+        init(descriptor: Int32, range: IO.File.Lock.Range, mode: IO.File.Lock.Mode) throws {
+            self.token = try IO.File.Lock.Token(descriptor: descriptor, range: range, mode: mode)
+        }
+        #endif
 
         func release() {
-            // No-op in Phase 1
-            // In Phase 2, this will release the file lock
+            // Setting to nil drops the token, triggering its deinit which releases the lock
+            token = nil
+        }
+
+        deinit {
+            // Token's deinit will release the lock if still held
+            // No explicit action needed here - just let the token be destroyed
         }
     }
 }
@@ -320,7 +332,10 @@ extension IO.Memory.Map.Region {
         // Adjust sharing for copyOnWrite access
         let effectiveSharing: Sharing = (access == .copyOnWrite) ? .private : sharing
 
-        // Perform the mapping
+        // Perform all throwing work before initializing any stored properties
+        // (required for ~Copyable types)
+
+        // 1. Map the file
         let result: IO.Memory.Map.Mapping
         do {
             result = try IO.Memory.Map.mapFile(
@@ -334,6 +349,27 @@ extension IO.Memory.Map.Region {
             throw IO.Memory.Map.Error(from: error)
         }
 
+        // 2. Acquire lock if needed
+        let acquiredLockToken: LockToken?
+        if case .coordinated(let mode, let scope) = effectiveSafety {
+            let lockRange = Self.computeLockRange(scope: scope, alignedOffset: alignedOffset, mappingLength: mappingLen)
+            let lockMode: IO.File.Lock.Mode = (mode == .shared) ? .shared : .exclusive
+            do {
+                acquiredLockToken = try LockToken(descriptor: fileDescriptor, range: lockRange, mode: lockMode)
+            } catch let lockError as IO.File.Lock.Error {
+                // Unmap on lock failure (before we've initialized self)
+                try? IO.Memory.Map.unmap(address: result.baseAddress, length: mappingLen)
+                throw .lockAcquisitionFailed(lockError)
+            } catch {
+                // Unexpected error type - shouldn't happen but handle gracefully
+                try? IO.Memory.Map.unmap(address: result.baseAddress, length: mappingLen)
+                throw .platform(code: 0, message: "Unexpected lock error: \(error)")
+            }
+        } else {
+            acquiredLockToken = nil
+        }
+
+        // Now initialize all stored properties at once
         self.mappingBaseAddress = result.baseAddress
         self.mappingLength = result.mappedLength
         self.offsetDelta = delta
@@ -341,14 +377,7 @@ extension IO.Memory.Map.Region {
         self.access = access
         self.sharing = effectiveSharing
         self.safety = effectiveSafety
-
-        // Create placeholder lock token if coordinated
-        if case .coordinated(let mode, let scope) = effectiveSafety {
-            let lockRange = self.computeLockRange(scope: scope, alignedOffset: alignedOffset, mappingLength: mappingLen)
-            self.lockToken = LockToken(mode: mode, scope: scope, range: lockRange)
-        } else {
-            self.lockToken = nil
-        }
+        self.lockToken = acquiredLockToken
     }
     #endif
 
@@ -381,7 +410,10 @@ extension IO.Memory.Map.Region {
         // Adjust sharing for copyOnWrite access
         let effectiveSharing: Sharing = (access == .copyOnWrite) ? .private : sharing
 
-        // Perform the mapping
+        // Perform all throwing work before initializing any stored properties
+        // (required for ~Copyable types)
+
+        // 1. Map the file
         let result: IO.Memory.Map.Mapping
         do {
             result = try IO.Memory.Map.mapFile(
@@ -395,6 +427,27 @@ extension IO.Memory.Map.Region {
             throw IO.Memory.Map.Error(from: error)
         }
 
+        // 2. Acquire lock if needed
+        let acquiredLockToken: LockToken?
+        if case .coordinated(let mode, let scope) = effectiveSafety {
+            let lockRange = Self.computeLockRange(scope: scope, alignedOffset: alignedOffset, mappingLength: mappingLen)
+            let lockMode: IO.File.Lock.Mode = (mode == .shared) ? .shared : .exclusive
+            do {
+                acquiredLockToken = try LockToken(handle: fileHandle, range: lockRange, mode: lockMode)
+            } catch let lockError as IO.File.Lock.Error {
+                // Unmap on lock failure (before we've initialized self)
+                try? IO.Memory.Map.unmap(address: result.baseAddress, mappingHandle: result.mappingHandle)
+                throw .lockAcquisitionFailed(lockError)
+            } catch {
+                // Unexpected error type - shouldn't happen but handle gracefully
+                try? IO.Memory.Map.unmap(address: result.baseAddress, mappingHandle: result.mappingHandle)
+                throw .platform(code: 0, message: "Unexpected lock error: \(error)")
+            }
+        } else {
+            acquiredLockToken = nil
+        }
+
+        // Now initialize all stored properties at once
         self.mappingBaseAddress = result.baseAddress
         self.mappingLength = result.mappedLength
         self.offsetDelta = delta
@@ -403,24 +456,17 @@ extension IO.Memory.Map.Region {
         self.sharing = effectiveSharing
         self.safety = effectiveSafety
         self.mappingHandle = result.mappingHandle
-
-        // Create placeholder lock token if coordinated
-        if case .coordinated(let mode, let scope) = effectiveSafety {
-            let lockRange = self.computeLockRange(scope: scope, alignedOffset: alignedOffset, mappingLength: mappingLen)
-            self.lockToken = LockToken(mode: mode, scope: scope, range: lockRange)
-        } else {
-            self.lockToken = nil
-        }
+        self.lockToken = acquiredLockToken
     }
     #endif
 
     /// Computes the lock range based on scope.
-    private func computeLockRange(scope: Safety.LockScope, alignedOffset: Int, mappingLength: Int) -> (start: Int, end: Int) {
+    private static func computeLockRange(scope: Safety.LockScope, alignedOffset: Int, mappingLength: Int) -> IO.File.Lock.Range {
         switch scope {
         case .wholeFile:
-            return (0, Int.max)
+            return .wholeFile
         case .mappedRange:
-            return (alignedOffset, alignedOffset + mappingLength)
+            return IO.File.Lock.Range(start: UInt64(alignedOffset), end: UInt64(alignedOffset + mappingLength))
         }
     }
 }
@@ -484,7 +530,7 @@ extension IO.Memory.Map.Region {
     public consuming func unmap() {
         guard let base = mappingBaseAddress else { return }
 
-        // Release lock token first (in Phase 2, this will actually release the lock)
+        // Release lock token first
         lockToken?.release()
 
         // Unmap the region
