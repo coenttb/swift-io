@@ -5,6 +5,8 @@
 //  Created by Coen ten Thije Boonkkamp on 30/12/2025.
 //
 
+public import Kernel
+
 #if canImport(Darwin)
 import Darwin
 #elseif canImport(Glibc)
@@ -26,7 +28,9 @@ extension IO.File.Open {
     /// Options for opening a file.
     public struct Options: Sendable, Equatable {
         /// Access mode (read, write, or both).
-        public var access: IO.File.Access
+        ///
+        /// Uses `Kernel.File.Open.Mode` directly from swift-kernel.
+        public var mode: Kernel.File.Open.Mode
 
         /// Create the file if it doesn't exist.
         public var create: Bool
@@ -39,15 +43,15 @@ extension IO.File.Open {
 
         /// Creates default options (read-only, buffered).
         public init() {
-            self.access = .read
+            self.mode = .read
             self.create = false
             self.truncate = false
             self.cache = .buffered
         }
 
         /// Creates options with specific access mode.
-        public init(access: IO.File.Access) {
-            self.access = access
+        public init(mode: Kernel.File.Open.Mode) {
+            self.mode = mode
             self.create = false
             self.truncate = false
             self.cache = .buffered
@@ -128,6 +132,62 @@ extension IO.File.Open.Error {
         }
     }
     #endif
+}
+
+// MARK: - From Kernel.Open.Error
+
+extension IO.File.Open.Error {
+    /// Creates an IO open error from a Kernel open error.
+    package init(from error: Kernel.Open.Error, path: String) {
+        switch error {
+        case .path(let pathError):
+            switch pathError {
+            case .notFound:
+                self = .notFound(path: path)
+            case .notDirectory:
+                self = .notFound(path: path)
+            case .isDirectory:
+                self = .isDirectory(path: path)
+            case .exists:
+                self = .alreadyExists(path: path)
+            case .loop:
+                self = .platform(code: -1, message: "Symbolic link loop")
+            case .nameTooLong:
+                self = .platform(code: -1, message: "Path too long")
+            case .notEmpty, .crossDevice:
+                self = .platform(code: -1, message: "\(pathError)")
+            }
+
+        case .permission(let permError):
+            switch permError {
+            case .denied, .notPermitted, .readOnlyFilesystem:
+                self = .permissionDenied(path: path)
+            }
+
+        case .handle(let handleError):
+            switch handleError {
+            case .invalid:
+                self = .platform(code: -1, message: "Invalid handle")
+            case .processLimit, .systemLimit:
+                self = .tooManyOpenFiles
+            }
+
+        case .signal:
+            self = .platform(code: -1, message: "Interrupted by signal")
+
+        case .space(let spaceError):
+            switch spaceError {
+            case .exhausted, .quota:
+                self = .platform(code: -1, message: "No space")
+            }
+
+        case .io(let ioError):
+            self = .platform(code: -1, message: "I/O error: \(ioError)")
+
+        case .platform(let platformError):
+            self = .platform(code: -1, message: "\(platformError)")
+        }
+    }
 }
 
 // MARK: - CustomStringConvertible

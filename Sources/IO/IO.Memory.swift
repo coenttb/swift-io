@@ -6,10 +6,7 @@
 //
 
 // IO.Memory namespace is defined in IO Primitives.
-// This file can add IO-module-specific extensions if needed.
-
-// Re-export for documentation purposes:
-// - `IO.Memory.Map.Region`: Move-only memory-mapped file region
-// - `IO.Memory.Map.Error`: Semantic error types
-// - `IO.Memory.Map.Platform`: Low-level syscall wrappers (from IO Primitives)
-// - `IO.Memory.Platform`: Page size, alignment helpers (from IO Primitives)
+// Memory-related types have moved to dedicated packages:
+// - Memory mapping: Use `MMap.Region` from swift-mmap
+// - Aligned buffers: Use `Buffer.Aligned` from swift-buffer
+// - Page size: Use `Kernel.System.pageSize` from swift-kernel

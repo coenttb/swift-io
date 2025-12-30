@@ -12,6 +12,7 @@ import Glibc
 #endif
 
 public import IO_Primitives
+public import Binary
 
 extension IO.NonBlocking {
     /// A non-blocking I/O channel for socket-based read and write operations.
@@ -133,7 +134,7 @@ extension IO.NonBlocking {
         /// ## Cancellation
         ///
         /// If the task is cancelled while waiting for readiness, throws `.cancelled`.
-        public mutating func read<B: IO.ContiguousMutableBuffer>(
+        public mutating func read<B: Binary.Mutable>(
             into buffer: inout B
         ) async throws(Failure) -> Int {
             // Check half-close state
@@ -206,8 +207,8 @@ extension IO.NonBlocking {
         ///     offset += try await channel.write(Array(slice))
         /// }
         /// ```
-        public mutating func write<B: IO.ContiguousBuffer>(
-            _ buffer: B
+        public mutating func write<B: Binary.Contiguous>(
+            _ buffer: borrowing B
         ) async throws(Failure) -> Int {
             // Check half-close state
             if await lifecycle.isWriteClosed {

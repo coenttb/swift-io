@@ -33,7 +33,7 @@ extension IO.File.Direct {
     /// switch req {
     /// case .known(let alignment):
     ///     // Safe to use .direct mode
-    ///     var buffer = try IO.Buffer.Aligned(
+    ///     var buffer = try Buffer.Aligned(
     ///         byteCount: 4096,
     ///         alignment: alignment.bufferAlignment
     ///     )

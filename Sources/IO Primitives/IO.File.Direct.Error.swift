@@ -27,7 +27,7 @@ extension IO.File.Direct {
         /// The buffer memory address is not properly aligned.
         ///
         /// Direct I/O requires the buffer to be aligned to the sector size.
-        /// Use `IO.Buffer.Aligned` for portable aligned allocation.
+        /// Use `Buffer.Aligned` for portable aligned allocation.
         case misalignedBuffer(address: Int, required: Int)
 
         /// The file offset is not properly aligned.

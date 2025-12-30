@@ -293,18 +293,4 @@ extension IO.File.Direct {
 
 // MARK: - Common Helpers
 
-extension IO.File.Direct {
-    /// Gets the system page size.
-    ///
-    /// This is useful for aligned buffer allocation and as a fallback
-    /// alignment value.
-    package static var pageSize: Int {
-        #if os(Windows)
-        var systemInfo = SYSTEM_INFO()
-        GetSystemInfo(&systemInfo)
-        return Int(systemInfo.dwPageSize)
-        #else
-        return Int(sysconf(Int32(_SC_PAGESIZE)))
-        #endif
-    }
-}
+// Page size: Use `Kernel.System.pageSize` from swift-kernel

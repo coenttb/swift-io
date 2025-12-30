@@ -5,7 +5,12 @@
 //  Created by Coen ten Thije Boonkkamp on 30/12/2025.
 //
 
-extension IO.File {
-    /// File locking operations namespace.
-    public enum Lock {}
-}
+// File locking has moved to swift-kernel.
+// Use `Kernel.Lock` directly from swift-kernel.
+//
+// Migration guide:
+// - IO.File.Lock.Mode     -> Kernel.Lock.Kind
+// - IO.File.Lock.Range    -> Kernel.Lock.Range
+// - IO.File.Lock.Acquire  -> Kernel.Lock.Acquire
+// - IO.File.Lock.Token    -> Kernel.Lock.Token
+// - IO.File.Lock.Error    -> Kernel.Lock.Error

@@ -25,12 +25,20 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/swift-standards/swift-time-standard.git", from: "0.2.0"),
-        .package(url: "https://github.com/swift-standards/swift-standards", from: "0.21.0"),
+        .package(url: "https://github.com/swift-standards/swift-standards", from: "0.24.1"),
         .package(url: "https://github.com/apple/swift-nio", from: "2.70.0"),
+        .package(url: "https://github.com/coenttb/swift-kernel.git", from: "0.1.0"),
+        .package(url: "https://github.com/coenttb/swift-buffer.git", from: "0.1.0"),
+        .package(url: "https://github.com/coenttb/swift-mmap.git", from: "0.1.0"),
     ],
     targets: [
         .target(
-            name: "IO Primitives"
+            name: "IO Primitives",
+            dependencies: [
+                .product(name: "Kernel", package: "swift-kernel"),
+                .product(name: "Buffer", package: "swift-buffer"),
+                .product(name: "Binary", package: "swift-standards"),
+            ]
         ),
         .target(
             name: "IO Blocking",
@@ -45,7 +53,11 @@ let package = Package(
         ),
         .target(
             name: "IO",
-            dependencies: ["IO Blocking", "IO Blocking Threads"]
+            dependencies: [
+                "IO Blocking",
+                "IO Blocking Threads",
+                .product(name: "MMap", package: "swift-mmap"),
+            ]
         ),
         .target(
             name: "IO NonBlocking Primitives",
@@ -69,6 +81,7 @@ let package = Package(
                 "IO NonBlocking Driver",
                 .target(name: "IO NonBlocking Kqueue", condition: .when(platforms: [.macOS, .iOS, .tvOS, .watchOS])),
                 .target(name: "IO NonBlocking Epoll", condition: .when(platforms: [.linux])),
+                .product(name: "Binary", package: "swift-standards"),
             ]
         ),
         .testTarget(
@@ -135,7 +148,9 @@ let package = Package(
         ),
         .executableTarget(
             name: "_Lock Test Process",
-            dependencies: ["IO Primitives"],
+            dependencies: [
+                .product(name: "Kernel", package: "swift-kernel"),
+            ],
             path: "Sources/_Lock Test Process"
         ),
     ]

@@ -13,6 +13,9 @@ import Glibc
 import WinSDK
 #endif
 
+public import Kernel
+public import Buffer
+
 extension IO.File {
     /// A move-only file handle with Direct I/O support.
     ///
@@ -47,7 +50,7 @@ extension IO.File {
     /// let handle = try IO.File.open(path, options: options)
     ///
     /// // Allocate aligned buffer
-    /// var buffer = try IO.Buffer.Aligned(byteCount: 4096, alignment: 4096)
+    /// var buffer = try Buffer.Aligned(byteCount: 4096, alignment: 4096)
     ///
     /// // Read with automatic alignment validation
     /// let bytesRead = try handle.read(into: &buffer, at: 0)
@@ -84,7 +87,7 @@ extension IO.File {
         }
 
         deinit {
-            IO.File.Syscalls.close(descriptor)
+            try? Kernel.Close.close(descriptor)
         }
     }
 }
@@ -100,26 +103,12 @@ extension IO.File.Handle {
     ///   - buffer: The buffer to read into.
     ///   - offset: The file offset to read from.
     /// - Returns: The number of bytes read.
-    /// - Throws: `IO.File.Handle.Error` on failure or alignment violation.
+    /// - Throws: `Kernel.Read.Error` on failure.
     public func read(
         into buffer: UnsafeMutableRawBufferPointer,
         at offset: Int64
-    ) throws(Error) -> Int {
-        // Validate alignment for Direct I/O
-        if direct == .direct {
-            try validateAlignment(
-                buffer: buffer.baseAddress!,
-                offset: offset,
-                length: buffer.count
-            )
-        }
-
-        return try IO.File.Syscalls.pread(
-            descriptor,
-            into: buffer.baseAddress!,
-            count: buffer.count,
-            offset: offset
-        )
+    ) throws(Kernel.Read.Error) -> Int {
+        try Kernel.Read.pread(descriptor, into: buffer, at: offset)
     }
 
     /// Reads from the file at a specific offset into an aligned buffer.
@@ -128,17 +117,14 @@ extension IO.File.Handle {
     ///   - buffer: The aligned buffer to read into.
     ///   - offset: The file offset to read from.
     /// - Returns: The number of bytes read.
-    /// - Throws: `IO.File.Handle.Error` on failure.
+    /// - Throws: `Kernel.Read.Error` on failure.
     public func read(
-        into buffer: inout IO.Buffer.Aligned,
+        into buffer: inout Buffer.Aligned,
         at offset: Int64
-    ) throws(Error) -> Int {
-        // Use mutableBaseAddress to avoid rethrows closure type inference issues
-        let ptr = UnsafeMutableRawBufferPointer(
-            start: buffer.mutableBaseAddress,
-            count: buffer.count
-        )
-        return try read(into: ptr, at: offset)
+    ) throws(Kernel.Read.Error) -> Int {
+        try buffer.withUnsafeMutableBytes { (ptr: UnsafeMutableRawBufferPointer) throws(Kernel.Read.Error) -> Int in
+            try read(into: ptr, at: offset)
+        }
     }
 }
 
@@ -147,32 +133,16 @@ extension IO.File.Handle {
 extension IO.File.Handle {
     /// Writes to the file at a specific offset.
     ///
-    /// For Direct I/O handles, this validates alignment before the syscall.
-    ///
     /// - Parameters:
     ///   - buffer: The buffer to write from.
     ///   - offset: The file offset to write at.
     /// - Returns: The number of bytes written.
-    /// - Throws: `IO.File.Handle.Error` on failure or alignment violation.
+    /// - Throws: `Kernel.Write.Error` on failure.
     public func write(
         from buffer: UnsafeRawBufferPointer,
         at offset: Int64
-    ) throws(Error) -> Int {
-        // Validate alignment for Direct I/O
-        if direct == .direct {
-            try validateAlignment(
-                buffer: buffer.baseAddress!,
-                offset: offset,
-                length: buffer.count
-            )
-        }
-
-        return try IO.File.Syscalls.pwrite(
-            descriptor,
-            from: buffer.baseAddress!,
-            count: buffer.count,
-            offset: offset
-        )
+    ) throws(Kernel.Write.Error) -> Int {
+        try Kernel.Write.pwrite(descriptor, from: buffer, at: offset)
     }
 
     /// Writes to the file at a specific offset from an aligned buffer.
@@ -181,17 +151,14 @@ extension IO.File.Handle {
     ///   - buffer: The aligned buffer to write from.
     ///   - offset: The file offset to write at.
     /// - Returns: The number of bytes written.
-    /// - Throws: `IO.File.Handle.Error` on failure.
+    /// - Throws: `Kernel.Write.Error` on failure.
     public func write(
-        from buffer: borrowing IO.Buffer.Aligned,
+        from buffer: borrowing Buffer.Aligned,
         at offset: Int64
-    ) throws(Error) -> Int {
-        // Use baseAddress to avoid rethrows closure type inference issues
-        let ptr = UnsafeRawBufferPointer(
-            start: buffer.baseAddress,
-            count: buffer.count
-        )
-        return try write(from: ptr, at: offset)
+    ) throws(Kernel.Write.Error) -> Int {
+        try buffer.withUnsafeBytes { (ptr: UnsafeRawBufferPointer) throws(Kernel.Write.Error) -> Int in
+            try write(from: ptr, at: offset)
+        }
     }
 }
 
@@ -228,7 +195,7 @@ extension IO.File.Handle {
     /// After calling this method, the handle is consumed and cannot be used.
     /// The descriptor is closed regardless of whether the close syscall succeeds.
     public consuming func close() {
-        IO.File.Syscalls.close(descriptor)
+        try? Kernel.Close.close(descriptor)
     }
 }
 

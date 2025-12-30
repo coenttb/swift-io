@@ -5,6 +5,8 @@
 //  Created by Coen ten Thije Boonkkamp on 30/12/2025.
 //
 
+public import Kernel
+
 #if canImport(Darwin)
 import Darwin
 #elseif canImport(Glibc)
@@ -132,6 +134,72 @@ extension IO.File.Handle.Error {
             self = .invalidHandle
         case .platform(let code, let message):
             self = .platform(code: code, message: message)
+        }
+    }
+}
+
+// MARK: - From Kernel.Read.Error
+
+extension IO.File.Handle.Error {
+    /// Creates an IO handle error from a Kernel read error.
+    package init(from error: Kernel.Read.Error, operation: IO.File.Handle.Operation) {
+        switch error {
+        case .handle(let handleError):
+            switch handleError {
+            case .invalid, .processLimit, .systemLimit:
+                self = .invalidHandle
+            }
+
+        case .signal:
+            self = .interrupted
+
+        case .blocking:
+            self = .platform(code: -1, message: "\(operation): Would block")
+
+        case .io:
+            self = .platform(code: -1, message: "\(operation): I/O error")
+
+        case .memory:
+            self = .alignmentViolation(operation: operation.rawValue)
+
+        case .platform(let platformError):
+            self = .platform(code: -1, message: "\(operation): \(platformError)")
+        }
+    }
+}
+
+// MARK: - From Kernel.Write.Error
+
+extension IO.File.Handle.Error {
+    /// Creates an IO handle error from a Kernel write error.
+    package init(from error: Kernel.Write.Error, operation: IO.File.Handle.Operation) {
+        switch error {
+        case .handle(let handleError):
+            switch handleError {
+            case .invalid, .processLimit, .systemLimit:
+                self = .invalidHandle
+            }
+
+        case .signal:
+            self = .interrupted
+
+        case .blocking:
+            self = .platform(code: -1, message: "\(operation): Would block")
+
+        case .io:
+            self = .platform(code: -1, message: "\(operation): I/O error")
+
+        case .space(let spaceError):
+            switch spaceError {
+            case .exhausted, .quota:
+                self = .noSpace
+            }
+
+        case .memory:
+            self = .alignmentViolation(operation: operation.rawValue)
+
+        case .platform(let platformError):
+            self = .platform(code: -1, message: "\(operation): \(platformError)")
         }
     }
 }

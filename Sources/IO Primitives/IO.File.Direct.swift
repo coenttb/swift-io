@@ -37,7 +37,7 @@
 /// - **Offset alignment**: File offset must be aligned
 /// - **Length multiple**: I/O size must be a multiple of the alignment unit
 ///
-/// Use `IO.Buffer.Aligned` for portable aligned buffer allocation.
+/// Use `Buffer.Aligned` for portable aligned buffer allocation.
 ///
 /// ## mmap Interaction
 ///
@@ -58,7 +58,7 @@
 /// }
 ///
 /// // Allocate aligned buffer
-/// var buffer = try IO.Buffer.Aligned(
+/// var buffer = try Buffer.Aligned(
 ///     byteCount: 4096,
 ///     alignment: align.bufferAlignment
 /// )

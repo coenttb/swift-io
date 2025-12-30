@@ -36,7 +36,7 @@ import Glibc
 import WinSDK
 #endif
 
-import IO_Primitives
+import Kernel
 
 // MARK: - Argument Parsing
 
@@ -52,7 +52,7 @@ struct Arguments {
 
     let command: Command
     let filePath: String
-    var range: IO.File.Lock.Range = .wholeFile
+    var range: Kernel.Lock.Range = .file
     var holdSeconds: Int? = nil
     var deadlineMs: Int = 1000  // Default 1 second
     var signalReady: Bool = false
@@ -193,49 +193,52 @@ func main() -> Int32 {
     }
     defer { close(fd) }
 
-    let mode: IO.File.Lock.Mode
-    let acquire: IO.File.Lock.Acquire
+    let kind: Kernel.Lock.Kind
+    let acquire: Kernel.Lock.Acquire
 
     switch args.command {
     case .lockExclusive:
-        mode = .exclusive
+        kind = .exclusive
         acquire = .wait
     case .lockShared:
-        mode = .shared
+        kind = .shared
         acquire = .wait
     case .tryExclusive:
-        mode = .exclusive
+        kind = .exclusive
         acquire = .try
     case .tryShared:
-        mode = .shared
+        kind = .shared
         acquire = .try
     case .deadlineExclusive:
-        mode = .exclusive
+        kind = .exclusive
         acquire = .timeout(.milliseconds(args.deadlineMs))
     case .deadlineShared:
-        mode = .shared
+        kind = .shared
         acquire = .timeout(.milliseconds(args.deadlineMs))
     }
 
     // Acquire lock
-    let token: IO.File.Lock.Token
+    var token: Kernel.Lock.Token
     do {
-        token = try IO.File.Lock.Token(
+        token = try Kernel.Lock.Token(
             descriptor: fd,
             range: args.range,
-            mode: mode,
+            kind: kind,
             acquire: acquire
         )
     } catch {
         switch error {
-        case .wouldBlock:
-            fputs("WOULD_BLOCK\n", stdout)
-            fflush(stdout)
-            return 1
-        case .timedOut:
-            fputs("TIMED_OUT\n", stdout)
-            fflush(stdout)
-            return 2
+        case .contention:
+            // Could be wouldBlock or timedOut
+            if case .try = acquire {
+                fputs("WOULD_BLOCK\n", stdout)
+                fflush(stdout)
+                return 1
+            } else {
+                fputs("TIMED_OUT\n", stdout)
+                fflush(stdout)
+                return 2
+            }
         default:
             fputs("Failed to acquire lock: \(error)\n", stderr)
             return 3
@@ -295,49 +298,52 @@ func main() -> Int32 {
     }
     defer { CloseHandle(handle) }
 
-    let mode: IO.File.Lock.Mode
-    let acquire: IO.File.Lock.Acquire
+    let kind: Kernel.Lock.Kind
+    let acquire: Kernel.Lock.Acquire
 
     switch args.command {
     case .lockExclusive:
-        mode = .exclusive
+        kind = .exclusive
         acquire = .wait
     case .lockShared:
-        mode = .shared
+        kind = .shared
         acquire = .wait
     case .tryExclusive:
-        mode = .exclusive
+        kind = .exclusive
         acquire = .try
     case .tryShared:
-        mode = .shared
+        kind = .shared
         acquire = .try
     case .deadlineExclusive:
-        mode = .exclusive
+        kind = .exclusive
         acquire = .timeout(.milliseconds(args.deadlineMs))
     case .deadlineShared:
-        mode = .shared
+        kind = .shared
         acquire = .timeout(.milliseconds(args.deadlineMs))
     }
 
     // Acquire lock
-    let token: IO.File.Lock.Token
+    var token: Kernel.Lock.Token
     do {
-        token = try IO.File.Lock.Token(
-            handle: handle,
+        token = try Kernel.Lock.Token(
+            descriptor: handle,
             range: args.range,
-            mode: mode,
+            kind: kind,
             acquire: acquire
         )
     } catch {
         switch error {
-        case .wouldBlock:
-            fputs("WOULD_BLOCK\n", stdout)
-            fflush(stdout)
-            return 1
-        case .timedOut:
-            fputs("TIMED_OUT\n", stdout)
-            fflush(stdout)
-            return 2
+        case .contention:
+            // Could be wouldBlock or timedOut
+            if case .try = acquire {
+                fputs("WOULD_BLOCK\n", stdout)
+                fflush(stdout)
+                return 1
+            } else {
+                fputs("TIMED_OUT\n", stdout)
+                fflush(stdout)
+                return 2
+            }
         default:
             fputs("Failed to acquire lock: \(error)\n", stderr)
             return 3

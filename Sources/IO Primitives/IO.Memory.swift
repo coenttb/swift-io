@@ -8,7 +8,9 @@
 extension IO {
     /// Namespace for memory operations.
     ///
-    /// Contains platform-level memory utilities and mapping syscalls.
-    /// The high-level `IO.Memory.Map.Region` type is in the IO module.
+    /// Memory-related types have moved to dedicated packages:
+    /// - Memory mapping: Use `MMap.Region` from swift-mmap
+    /// - Aligned buffers: Use `Buffer.Aligned` from swift-buffer
+    /// - Page size: Use `Kernel.System.pageSize` from swift-kernel
     public enum Memory {}
 }
