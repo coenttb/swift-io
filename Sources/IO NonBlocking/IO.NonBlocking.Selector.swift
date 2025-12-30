@@ -71,8 +71,8 @@ extension IO.NonBlocking {
         /// Flag for signaling shutdown to poll thread.
         private let shutdownFlag: PollLoop.Shutdown.Flag
 
-        /// Handle to the poll thread.
-        private let pollThreadHandle: IO.Thread.Handle
+        /// Handle to the poll thread (consumed on shutdown).
+        private var pollThreadHandle: IO.Thread.Handle?
 
         /// Registration table.
         private var registrations: [ID: Registration] = [:]
@@ -135,7 +135,7 @@ extension IO.NonBlocking {
             registrationQueue: IO.NonBlocking.Registration.Queue,
             shutdownFlag: PollLoop.Shutdown.Flag,
             nextDeadline: PollLoop.NextDeadline,
-            pollThreadHandle: IO.Thread.Handle
+            pollThreadHandle: consuming IO.Thread.Handle
         ) {
             self.driver = driver
             self.executor = executor
@@ -145,7 +145,7 @@ extension IO.NonBlocking {
             self.registrationQueue = registrationQueue
             self.shutdownFlag = shutdownFlag
             self.nextDeadline = nextDeadline
-            self.pollThreadHandle = pollThreadHandle
+            self.pollThreadHandle = consume pollThreadHandle
         }
 
         /// Create and start a new selector.
@@ -191,7 +191,8 @@ extension IO.NonBlocking {
             )
 
             // Start poll thread with context
-            let pollThreadHandle = IO.Thread.spawn(context) { context in
+            // Uses trap because thread spawn failure is unrecoverable for the selector runtime
+            let pollThreadHandle = IO.Thread.trap(context) { context in
                 PollLoop.run(context)
             }
 
@@ -999,8 +1000,8 @@ extension IO.NonBlocking {
             eventBridge.shutdown()
             replyBridge.shutdown()
 
-            // Wait for poll thread to complete
-            pollThreadHandle.join()
+            // Wait for poll thread to complete (consume the handle)
+            pollThreadHandle.take()?.join()
 
             state = .shutdown
         }
