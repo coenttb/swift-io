@@ -1,5 +1,5 @@
 //
-//  IO.Blocking.Threads.Thread.Worker Tests.swift
+//  IO.Blocking.Threads.Worker Tests.swift
 //  swift-io
 //
 
@@ -8,16 +8,16 @@ import Testing
 
 @testable import IO_Blocking_Threads
 
-extension IO.Blocking.Threads.Thread.Worker {
+extension IO.Blocking.Threads.Worker {
     #TestSuites
 }
 
 // MARK: - Unit Tests
 
-extension IO.Blocking.Threads.Thread.Worker.Test.Unit {
+extension IO.Blocking.Threads.Worker.Test.Unit {
     @Test("type exists")
     func typeExists() {
-        // IO.Blocking.Threads.Thread.Worker is an internal type
+        // IO.Blocking.Threads.Worker is an internal type
         // This test verifies compilation
     }
 }

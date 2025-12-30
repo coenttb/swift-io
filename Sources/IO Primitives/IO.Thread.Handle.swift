@@ -16,18 +16,24 @@
 extension IO.Thread {
     /// Opaque handle to an OS thread.
     ///
+    /// ## Move-Only Semantics
+    /// This type is `~Copyable` to enforce exactly-once `join()` semantics.
+    /// Copying the handle would allow double-join, which is undefined behavior
+    /// on all platforms (double `CloseHandle` on Windows, double `pthread_join` on POSIX).
+    ///
     /// ## Safety
     /// This type is `@unchecked Sendable` because the underlying handle
     /// (pthread_t or HANDLE) can be safely passed between threads.
-    public struct Handle: @unchecked Sendable {
+    /// The move-only constraint ensures exactly-once consumption.
+    public struct Handle: ~Copyable, @unchecked Sendable {
         #if os(Windows)
-            let handle: HANDLE
+            private let handle: HANDLE
 
             init(handle: HANDLE) {
                 self.handle = handle
             }
         #else
-            let thread: pthread_t
+            private let thread: pthread_t
 
             init(thread: pthread_t) {
                 self.thread = thread
@@ -37,13 +43,27 @@ extension IO.Thread {
 }
 
 extension IO.Thread.Handle {
-    /// Wait for the thread to complete.
-    public func join() {
+    /// Wait for the thread to complete and release the handle.
+    ///
+    /// This is a consuming operation - the handle cannot be used after calling `join()`.
+    /// On Windows, this calls `WaitForSingleObject` then `CloseHandle`.
+    /// On POSIX, this calls `pthread_join`.
+    ///
+    /// - Precondition: Must NOT be called from this thread (deadlock).
+    /// - Note: Must be called exactly once. The `~Copyable` constraint enforces this.
+    public consuming func join() {
+        precondition(
+            isCurrentThread == false,
+            "IO.Thread.Handle.join() called on the current thread"
+        )
         #if os(Windows)
-            WaitForSingleObject(handle, INFINITE)
-            CloseHandle(handle)
+            let result = WaitForSingleObject(handle, INFINITE)
+            precondition(result == WAIT_OBJECT_0, "WaitForSingleObject failed: \(result)")
+            let ok = CloseHandle(handle)
+            precondition(ok != 0, "CloseHandle failed")
         #else
-            pthread_join(thread, nil)
+            let result = pthread_join(thread, nil)
+            precondition(result == 0, "pthread_join failed: \(result)")
         #endif
     }
 

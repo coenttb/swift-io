@@ -1,5 +1,5 @@
 //
-//  IO.Blocking.Threads.Thread.Worker.State.swift
+//  IO.Blocking.Threads.Worker.State.swift
 //  swift-io
 //
 //  Created by Coen ten Thije Boonkkamp on 24/12/2025.
@@ -7,7 +7,7 @@
 
 import Synchronization
 
-extension IO.Blocking.Threads.Thread.Worker {
+extension IO.Blocking.Threads.Worker {
     /// Shared mutable state for all workers in the lane.
     ///
     /// ## Safety Invariant (for @unchecked Sendable)

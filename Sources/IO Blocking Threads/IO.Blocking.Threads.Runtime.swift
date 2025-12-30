@@ -12,16 +12,21 @@ extension IO.Blocking.Threads {
     /// - `state` is thread-safe via its internal lock
     /// - `threads` is only mutated in `start()` before any concurrent access
     /// - `isStarted` and `threads` mutations are synchronized via state.lock
+    ///
+    /// ## Thread Handle Storage
+    /// Uses `Worker.Handle` reference wrappers to store ~Copyable
+    /// `IO.Thread.Handle` values in arrays. The reference wrapper enforces
+    /// exactly-once join semantics while allowing Copyable array storage.
     final class Runtime: @unchecked Sendable {
-        let state: Thread.Worker.State
-        private(set) var threads: [Thread.Handle] = []
-        private(set) var deadlineManagerThread: Thread.Handle?
+        let state: Worker.State
+        private(set) var threads: [Worker.Handle] = []
+        private(set) var deadlineManagerThread: Worker.Handle?
         private(set) var isStarted: Bool = false
         let options: Options
 
         init(options: Options) {
             self.options = options
-            self.state = Thread.Worker.State(
+            self.state = Worker.State(
                 queueLimit: options.queueLimit,
                 acceptanceWaitersLimit: options.acceptanceWaitersLimit
             )
@@ -35,23 +40,26 @@ extension IO.Blocking.Threads {
             isStarted = true
 
             // Start worker threads
+            // Thread creation failure is catastrophic - we use IO.Thread.trap
+            // since the lane cannot function without its worker threads.
             for i in 0..<options.workers {
-                let worker = Thread.Worker(id: i, state: state)
-                let handle = Thread.spawn {
+                let worker = Worker(id: i, state: state)
+                let handle = IO.Thread.trap {
                     worker.run()
                 }
-                threads.append(handle)
+                threads.append(Worker.Handle(handle))
             }
 
             // Start deadline manager thread
             let deadlineManager = Deadline.Manager(state: state)
-            deadlineManagerThread = Thread.spawn {
+            let handle = IO.Thread.trap {
                 deadlineManager.run()
             }
+            deadlineManagerThread = Worker.Handle(handle)
         }
 
         func joinAllThreads() {
-            // Join worker threads
+            // Join worker threads - each join() consumes the inner handle exactly once
             for thread in threads {
                 thread.join()
             }

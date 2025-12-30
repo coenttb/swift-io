@@ -15,9 +15,42 @@ extension IO.Executor {
     /// This type is `@unchecked Sendable` because it provides internal synchronization.
     /// Jobs are enqueued under lock and executed serially on the dedicated thread.
     ///
-    /// ## Lifecycle
-    /// The executor thread starts immediately upon initialization and runs until
-    /// `shutdown()` is called. After shutdown, no new jobs can be enqueued.
+    /// ## Lifecycle Requirements
+    ///
+    /// **IMPORTANT**: This type has strict lifecycle requirements:
+    ///
+    /// 1. **Must call `shutdown()` before deallocation**: The executor owns an OS thread
+    ///    that must be explicitly joined. Failing to call `shutdown()` before the executor
+    ///    is deallocated will trap with a diagnostic message.
+    ///
+    /// 2. **Cannot shutdown from executor's own thread**: Calling `shutdown()` from a job
+    ///    running on the executor would deadlock (joining a thread from itself). This is
+    ///    detected and traps with a diagnostic message.
+    ///
+    /// 3. **Shutdown is idempotent-ish**: Calling `shutdown()` on an already-shutdown
+    ///    executor traps. Call exactly once.
+    ///
+    /// ## Example Usage
+    /// ```swift
+    /// let executor = IO.Executor.Thread()
+    /// defer { executor.shutdown() }
+    ///
+    /// // Pin an actor to this executor
+    /// actor MyActor {
+    ///     nonisolated var unownedExecutor: UnownedSerialExecutor {
+    ///         executor.asUnownedSerialExecutor()
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// ## Why These Traps Exist
+    /// These preconditions exist because silent failure would be worse:
+    /// - Leaking an OS thread is a resource leak that compounds over time
+    /// - Joining from self is undefined behavior on some platforms
+    /// - Double-shutdown indicates a logic error in the caller
+    ///
+    /// If you need a more forgiving API, consider wrapping this in a helper that
+    /// tracks shutdown state and handles edge cases for your use case.
     public final class Thread: SerialExecutor, TaskExecutor, @unchecked Sendable {
         private let sync: Synchronization
         private var jobs: Job.Queue
@@ -33,8 +66,14 @@ extension IO.Executor {
 
             // Retain self until the OS thread takes ownership.
             // Uses IO.Pointer.Retained for safe Sendable crossing.
-            // spawn(_:_:) accepts the value explicitly, avoiding closure capture issues.
-            self.threadHandle = IO.Thread.spawn(IO.Pointer.Retained(self)) { retained in
+            // trap(_:_:) accepts the value explicitly, avoiding closure capture issues.
+            //
+            // Thread creation failure here is catastrophic - the executor cannot function
+            // without its thread. We use IO.Thread.trap because:
+            // 1. Most callers cannot recover from thread exhaustion
+            // 2. Making init() throwing would cascade through the entire API
+            // 3. Thread creation failure typically indicates system-wide resource exhaustion
+            self.threadHandle = IO.Thread.trap(IO.Pointer.Retained(self)) { retained in
                 let executor = retained.take()
                 executor.runLoop()
             }
@@ -111,7 +150,9 @@ extension IO.Executor.Thread {
     /// - Precondition: Must be called exactly once before the executor is deallocated.
     /// - Precondition: Must not be called before the thread has started.
     public func shutdown() {
-        guard let handle = threadHandle else {
+        // Take ownership of the handle from storage.
+        // Using explicit _take pattern for ~Copyable Optional.
+        guard let handle = threadHandle._take() else {
             preconditionFailure(
                 "IO.Executor.Thread.shutdown() called on already-shutdown or never-started executor"
             )
@@ -127,6 +168,5 @@ extension IO.Executor.Thread {
         }
         sync.broadcast()
         handle.join()
-        threadHandle = nil
     }
 }

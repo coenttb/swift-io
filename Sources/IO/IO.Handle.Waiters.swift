@@ -82,7 +82,20 @@ extension IO.Handle.Waiters {
     /// Dequeue the next waiter (structural only; no resumption side effects).
     ///
     /// Returns `nil` if the queue is empty.
-    /// Skips nil slots (which can occur if the buffer has been corrupted).
+    ///
+    /// ## Nil Slot Handling
+    /// Skips nil slots as a defensive measure. In the current implementation,
+    /// nil slots should not occur within the active range because:
+    /// - `enqueue()` always stores a non-nil waiter
+    /// - All dequeue operations null the slot AND decrement `_count` atomically
+    ///
+    /// The nil-skipping exists to ensure robustness if the invariant is
+    /// accidentally violated during future refactoring.
+    ///
+    /// ## Count Invariants
+    /// - `enqueue()` increments `_count` by 1
+    /// - This method decrements `_count` by 1 per slot consumed (including nil slots)
+    /// - `_count > 0` guarantees the loop terminates even if all slots are nil
     ///
     /// MUST be called on the actor executor.
     public mutating func dequeue() -> IO.Handle.Waiter? {
@@ -94,7 +107,7 @@ extension IO.Handle.Waiters {
             if let waiter {
                 return waiter
             }
-            // Nil slot - skip and continue
+            // Nil slot (defensive) - skip and continue
         }
         return nil
     }

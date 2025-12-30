@@ -1,11 +1,11 @@
 //
-//  IO.Blocking.Threads.Thread.Worker.swift
+//  IO.Blocking.Threads.Worker.swift
 //  swift-io
 //
 //  Created by Coen ten Thije Boonkkamp on 24/12/2025.
 //
 
-extension IO.Blocking.Threads.Thread {
+extension IO.Blocking.Threads {
     /// Worker loop running on a dedicated OS thread.
     ///
     /// ## Design (Unified Single-Stage)
@@ -21,7 +21,7 @@ extension IO.Blocking.Threads.Thread {
     }
 }
 
-extension IO.Blocking.Threads.Thread.Worker {
+extension IO.Blocking.Threads.Worker {
     /// Maximum jobs to drain per wake cycle.
     /// Amortizes lock operations and reduces sleep/wake frequency.
     private static let drainLimit: Int = 16
