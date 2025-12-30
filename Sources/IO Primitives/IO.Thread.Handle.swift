@@ -60,7 +60,7 @@ extension IO.Thread.Handle {
             let result = WaitForSingleObject(handle, INFINITE)
             precondition(result == WAIT_OBJECT_0, "WaitForSingleObject failed: \(result)")
             let ok = CloseHandle(handle)
-            precondition(ok != 0, "CloseHandle failed")
+            precondition(ok, "CloseHandle failed")
         #else
             let result = pthread_join(thread, nil)
             precondition(result == 0, "pthread_join failed: \(result)")
