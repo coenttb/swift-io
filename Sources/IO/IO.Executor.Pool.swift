@@ -951,6 +951,8 @@ extension IO.Executor.Pool where Resource: ~Copyable {
                 throw .shutdownInProgress
             case .cancelled:
                 throw .cancelled
+            case .timeout:
+                throw .cancelled  // Timeout treated as cancellation at this layer
             case .failure(let transactionError):
                 switch transactionError {
                 case .lane(let laneError):
