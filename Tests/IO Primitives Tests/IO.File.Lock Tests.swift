@@ -108,6 +108,85 @@ struct IOFileLockTests {
         }
     }
 
+    // MARK: - Acquire Tests
+
+    @Suite("Acquire")
+    struct AcquireTests {
+
+        @Test("acquire modes are distinct")
+        func acquireModesDistinct() {
+            let tryMode = IO.File.Lock.Acquire.try
+            let waitMode = IO.File.Lock.Acquire.wait
+            let deadlineMode = IO.File.Lock.Acquire.deadline(.now + .seconds(5))
+
+            #expect(tryMode != waitMode)
+            #expect(waitMode != deadlineMode)
+            #expect(tryMode != deadlineMode)
+        }
+
+        @Test("timeout convenience creates deadline")
+        func timeoutConvenience() {
+            let before = ContinuousClock.Instant.now
+            let acquire = IO.File.Lock.Acquire.timeout(.seconds(5))
+            let after = ContinuousClock.Instant.now
+
+            if case .deadline(let instant) = acquire {
+                #expect(instant >= before + .seconds(5))
+                #expect(instant <= after + .seconds(5))
+            } else {
+                Issue.record("Expected .deadline case")
+            }
+        }
+
+        @Test("isNonBlocking returns correct values")
+        func isNonBlocking() {
+            #expect(IO.File.Lock.Acquire.try.isNonBlocking == true)
+            #expect(IO.File.Lock.Acquire.wait.isNonBlocking == false)
+            #expect(IO.File.Lock.Acquire.deadline(.now).isNonBlocking == false)
+        }
+
+        @Test("hasDeadline returns correct values")
+        func hasDeadline() {
+            #expect(IO.File.Lock.Acquire.try.hasDeadline == false)
+            #expect(IO.File.Lock.Acquire.wait.hasDeadline == false)
+            #expect(IO.File.Lock.Acquire.deadline(.now).hasDeadline == true)
+        }
+
+        @Test("isExpired checks deadline")
+        func isExpired() {
+            let past = IO.File.Lock.Acquire.deadline(.now - .seconds(1))
+            let future = IO.File.Lock.Acquire.deadline(.now + .seconds(60))
+
+            #expect(past.isExpired() == true)
+            #expect(future.isExpired() == false)
+            #expect(IO.File.Lock.Acquire.try.isExpired() == false)
+            #expect(IO.File.Lock.Acquire.wait.isExpired() == false)
+        }
+
+        @Test("remainingTime calculates correctly")
+        func remainingTime() {
+            let acquire = IO.File.Lock.Acquire.deadline(.now + .seconds(5))
+            let remaining = acquire.remainingTime()
+
+            #expect(remaining != nil)
+            if let r = remaining {
+                #expect(r > .zero)
+                #expect(r <= .seconds(5))
+            }
+
+            #expect(IO.File.Lock.Acquire.try.remainingTime() == nil)
+            #expect(IO.File.Lock.Acquire.wait.remainingTime() == nil)
+        }
+
+        @Test("acquire is Sendable")
+        func acquireIsSendable() {
+            let acquire = IO.File.Lock.Acquire.deadline(.now + .seconds(5))
+            Task.detached {
+                _ = acquire
+            }
+        }
+    }
+
     // MARK: - Range Tests
 
     @Suite("Range")
@@ -204,12 +283,15 @@ struct IOFileLockTests {
             // Specific descriptions
             #expect(IO.File.Lock.Error.wouldBlock.description == "Lock would block")
             #expect(IO.File.Lock.Error.deadlock.description == "Deadlock detected")
+            #expect(IO.File.Lock.Error.timedOut.description == "Lock acquisition timed out")
         }
 
         @Test("error is Equatable")
         func errorEquatable() {
             #expect(IO.File.Lock.Error.wouldBlock == IO.File.Lock.Error.wouldBlock)
             #expect(IO.File.Lock.Error.wouldBlock != IO.File.Lock.Error.interrupted)
+            #expect(IO.File.Lock.Error.timedOut == IO.File.Lock.Error.timedOut)
+            #expect(IO.File.Lock.Error.timedOut != IO.File.Lock.Error.wouldBlock)
 
             let platform1 = IO.File.Lock.Error.platform(code: 1, message: "a")
             let platform2 = IO.File.Lock.Error.platform(code: 1, message: "a")
@@ -242,7 +324,7 @@ struct IOFileLockTests {
                 descriptor: fd,
                 range: .wholeFile,
                 mode: .exclusive,
-                blocking: true
+                acquire: .wait
             )
 
             // Token should be valid (we can't really test much else without multi-process)
@@ -252,8 +334,8 @@ struct IOFileLockTests {
             token.release()
         }
 
-        @Test("tryLock with non-blocking returns immediately")
-        func tryLockNonBlocking() throws {
+        @Test("try acquire returns immediately when uncontested")
+        func tryAcquireUncontested() throws {
             let (path, fd) = createTempFilePOSIX(prefix: "swift-io-trylock-test")
             defer {
                 close(fd)
@@ -267,11 +349,142 @@ struct IOFileLockTests {
                 descriptor: fd,
                 range: .wholeFile,
                 mode: .exclusive,
-                blocking: false
+                acquire: .try
             )
 
             // Should succeed since no one else has the lock
             token.release()
+        }
+
+        @Test("deadline acquire with no contention succeeds")
+        func deadlineAcquireNoContention() throws {
+            let (path, fd) = createTempFilePOSIX(prefix: "swift-io-deadline-test")
+            defer {
+                close(fd)
+                unlink(path)
+            }
+
+            #expect(fd >= 0, "Failed to create test file")
+
+            // Acquire with short deadline
+            let token = try IO.File.Lock.Token(
+                descriptor: fd,
+                range: .wholeFile,
+                mode: .exclusive,
+                acquire: .timeout(.milliseconds(100))
+            )
+
+            token.release()
+        }
+
+        @Test("expired deadline throws timedOut")
+        func expiredDeadlineThrows() throws {
+            let (path, fd) = createTempFilePOSIX(prefix: "swift-io-expired-test")
+            defer {
+                close(fd)
+                unlink(path)
+            }
+
+            #expect(fd >= 0, "Failed to create test file")
+
+            // Open a second descriptor to the same file
+            let fd2 = open(path, O_RDWR)
+            defer { close(fd2) }
+
+            // Acquire lock on first descriptor
+            let token1 = try IO.File.Lock.Token(
+                descriptor: fd,
+                range: .wholeFile,
+                mode: .exclusive,
+                acquire: .wait
+            )
+
+            // Try to acquire with already-expired deadline on second descriptor
+            #expect(throws: IO.File.Lock.Error.timedOut) {
+                _ = try IO.File.Lock.Token(
+                    descriptor: fd2,
+                    range: .wholeFile,
+                    mode: .exclusive,
+                    acquire: .deadline(.now - .seconds(1))
+                )
+            }
+
+            token1.release()
+        }
+
+        @Test("POSIX: same-process re-locking succeeds (per-process lock semantics)")
+        func posixSameProcessRelockSucceeds() throws {
+            // POSIX fcntl locks are per-process, not per-file-descriptor.
+            // When the same process opens a file twice and locks via one descriptor,
+            // locking via another descriptor in the same process succeeds because
+            // lock ownership is (process, inode) based.
+            //
+            // This is documented POSIX behavior, not a bug.
+            let (path, fd) = createTempFilePOSIX(prefix: "swift-io-posix-relock-test")
+            defer {
+                close(fd)
+                unlink(path)
+            }
+
+            #expect(fd >= 0, "Failed to create test file")
+
+            // Open a second descriptor to the same file
+            let fd2 = open(path, O_RDWR)
+            defer { close(fd2) }
+
+            // Acquire lock on first descriptor
+            let token1 = try IO.File.Lock.Token(
+                descriptor: fd,
+                range: .wholeFile,
+                mode: .exclusive,
+                acquire: .wait
+            )
+
+            // On POSIX, same-process locking via another descriptor succeeds
+            // (this is expected per-process lock semantics)
+            let token2 = try IO.File.Lock.Token(
+                descriptor: fd2,
+                range: .wholeFile,
+                mode: .exclusive,
+                acquire: .try
+            )
+
+            // Both tokens are valid (same process owns the lock)
+            token2.release()
+            token1.release()
+        }
+
+        @Test("multiple tokens on same file work within same process")
+        func multipleTokensSameProcess() throws {
+            // This tests that our Token API works correctly given POSIX semantics.
+            // Within a process, multiple tokens on the same file don't contend.
+            let (path, fd) = createTempFilePOSIX(prefix: "swift-io-multi-token-test")
+            defer {
+                close(fd)
+                unlink(path)
+            }
+
+            #expect(fd >= 0, "Failed to create test file")
+
+            // Create two tokens on the same descriptor
+            let token1 = try IO.File.Lock.Token(
+                descriptor: fd,
+                range: .wholeFile,
+                mode: .exclusive,
+                acquire: .wait
+            )
+
+            // Second token on same descriptor also succeeds
+            let token2 = try IO.File.Lock.Token(
+                descriptor: fd,
+                range: .wholeFile,
+                mode: .exclusive,
+                acquire: .try
+            )
+
+            // Release in order (note: on POSIX, any release may affect lock state)
+            token2.release()
+            token1.release()
         }
     }
     #endif
@@ -297,15 +510,15 @@ struct IOFileLockTests {
                 handle: handle,
                 range: .wholeFile,
                 mode: .exclusive,
-                blocking: true
+                acquire: .wait
             )
 
             // Release the lock
             token.release()
         }
 
-        @Test("tryLock with non-blocking returns immediately")
-        func tryLockNonBlocking() throws {
+        @Test("try acquire returns immediately when uncontested")
+        func tryAcquireUncontested() throws {
             let (path, handle) = createTempFileWindows(prefix: "swift-io-trylock-test")
             defer {
                 CloseHandle(handle)
@@ -319,7 +532,7 @@ struct IOFileLockTests {
                 handle: handle,
                 range: .wholeFile,
                 mode: .exclusive,
-                blocking: false
+                acquire: .try
             )
 
             // Should succeed since no one else has the lock
@@ -401,6 +614,51 @@ struct IOFileLockTests {
             #expect(wasInClosure)
             #expect(result == 123)
         }
+
+        @Test("scoped locking with try acquire")
+        func scopedLockingWithTryAcquire() throws {
+            let (path, fd) = createTempFilePOSIX(prefix: "swift-io-scoped-try-test")
+            defer {
+                close(fd)
+                unlink(path)
+            }
+
+            #expect(fd >= 0, "Failed to create test file")
+
+            var wasInClosure = false
+
+            let result = try IO.File.Lock.withExclusive(descriptor: fd, acquire: .try) {
+                wasInClosure = true
+                return 99
+            }
+
+            #expect(wasInClosure)
+            #expect(result == 99)
+        }
+
+        @Test("scoped locking with deadline")
+        func scopedLockingWithDeadline() throws {
+            let (path, fd) = createTempFilePOSIX(prefix: "swift-io-scoped-deadline-test")
+            defer {
+                close(fd)
+                unlink(path)
+            }
+
+            #expect(fd >= 0, "Failed to create test file")
+
+            var wasInClosure = false
+
+            let result = try IO.File.Lock.withExclusive(
+                descriptor: fd,
+                acquire: .timeout(.milliseconds(100))
+            ) {
+                wasInClosure = true
+                return "deadline"
+            }
+
+            #expect(wasInClosure)
+            #expect(result == "deadline")
+        }
     }
     #endif
 
@@ -446,7 +704,7 @@ struct IOFileLockTests {
                 descriptor: fd,
                 range: .wholeFile,
                 mode: .exclusive,
-                blocking: true
+                acquire: .wait
             )
 
             // Spawn helper to try acquiring exclusive lock (should fail)
@@ -484,7 +742,7 @@ struct IOFileLockTests {
                 descriptor: fd,
                 range: .wholeFile,
                 mode: .exclusive,
-                blocking: true
+                acquire: .wait
             )
 
             // Spawn helper to try acquiring shared lock (should fail)
@@ -522,7 +780,7 @@ struct IOFileLockTests {
                 descriptor: fd,
                 range: .wholeFile,
                 mode: .shared,
-                blocking: true
+                acquire: .wait
             )
 
             // Spawn helper to try acquiring shared lock (should succeed)
@@ -561,7 +819,7 @@ struct IOFileLockTests {
                 descriptor: fd,
                 range: .wholeFile,
                 mode: .shared,
-                blocking: true
+                acquire: .wait
             )
 
             // Spawn helper to try acquiring exclusive lock (should fail)
@@ -599,7 +857,7 @@ struct IOFileLockTests {
                 descriptor: fd,
                 range: .bytes(start: 0, end: 100),
                 mode: .exclusive,
-                blocking: true
+                acquire: .wait
             )
 
             // Spawn helper to try acquiring exclusive lock on bytes 200-300 (should succeed)
@@ -637,7 +895,7 @@ struct IOFileLockTests {
                 descriptor: fd,
                 range: .bytes(start: 0, end: 200),
                 mode: .exclusive,
-                blocking: true
+                acquire: .wait
             )
 
             // Spawn helper to try acquiring exclusive lock on bytes 100-300 (overlaps, should fail)
@@ -656,6 +914,44 @@ struct IOFileLockTests {
 
             #expect(process.terminationStatus == 1, "Helper should exit with 1 (would block)")
             #expect(output.contains("WOULD_BLOCK"), "Helper should report WOULD_BLOCK")
+
+            token.release()
+        }
+
+        @Test("deadline expires while waiting for contested lock")
+        func deadlineExpiresWhenContested() throws {
+            let (path, fd) = Self.createTempFile()
+            defer {
+                close(fd)
+                unlink(path)
+            }
+
+            #expect(fd >= 0, "Failed to create test file")
+
+            // Acquire exclusive lock in this process
+            let token = try IO.File.Lock.Token(
+                descriptor: fd,
+                range: .wholeFile,
+                mode: .exclusive,
+                acquire: .wait
+            )
+
+            // Spawn helper to try acquiring with deadline (should time out)
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: Self.helperPath)
+            process.arguments = ["deadline-exclusive", path, "--deadline-ms", "100"]
+
+            let pipe = Pipe()
+            process.standardOutput = pipe
+
+            try process.run()
+            process.waitUntilExit()
+
+            let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: outputData, encoding: .utf8) ?? ""
+
+            #expect(process.terminationStatus == 2, "Helper should exit with 2 (timed out)")
+            #expect(output.contains("TIMED_OUT"), "Helper should report TIMED_OUT")
 
             token.release()
         }

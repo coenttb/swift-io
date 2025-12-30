@@ -8,20 +8,24 @@
 //    _Lock\ Test\ Process <command> <file> [options]
 //
 //  Commands:
-//    lock-exclusive <file>     Acquire exclusive lock, wait for signal, release
-//    lock-shared <file>        Acquire shared lock, wait for signal, release
-//    try-exclusive <file>      Try to acquire exclusive lock (non-blocking)
-//    try-shared <file>         Try to acquire shared lock (non-blocking)
+//    lock-exclusive <file>       Acquire exclusive lock, wait for signal, release
+//    lock-shared <file>          Acquire shared lock, wait for signal, release
+//    try-exclusive <file>        Try to acquire exclusive lock (non-blocking)
+//    try-shared <file>           Try to acquire shared lock (non-blocking)
+//    deadline-exclusive <file>   Acquire exclusive lock with deadline
+//    deadline-shared <file>      Acquire shared lock with deadline
 //
 //  Options:
-//    --range <start>-<end>     Lock byte range (default: whole file)
-//    --hold <seconds>          Hold lock for N seconds instead of waiting for stdin
-//    --signal-ready            Print "READY" when lock is acquired
+//    --range <start>-<end>       Lock byte range (default: whole file)
+//    --hold <seconds>            Hold lock for N seconds instead of waiting for stdin
+//    --deadline-ms <ms>          Deadline in milliseconds (for deadline-* commands)
+//    --signal-ready              Print "READY" when lock is acquired
 //
 //  Exit codes:
 //    0  Success (lock acquired, or released)
 //    1  Lock would block (for try-* commands)
-//    2  Error (invalid arguments, file not found, etc.)
+//    2  Lock timed out (for deadline-* commands)
+//    3  Error (invalid arguments, file not found, etc.)
 //
 
 #if canImport(Darwin)
@@ -42,12 +46,15 @@ struct Arguments {
         case lockShared
         case tryExclusive
         case tryShared
+        case deadlineExclusive
+        case deadlineShared
     }
 
     let command: Command
     let filePath: String
     var range: IO.File.Lock.Range = .wholeFile
     var holdSeconds: Int? = nil
+    var deadlineMs: Int = 1000  // Default 1 second
     var signalReady: Bool = false
 }
 
@@ -71,6 +78,10 @@ func parseArguments() -> Arguments? {
         command = .tryExclusive
     case "try-shared":
         command = .tryShared
+    case "deadline-exclusive":
+        command = .deadlineExclusive
+    case "deadline-shared":
+        command = .deadlineShared
     default:
         fputs("Unknown command: \(commandStr)\n", stderr)
         printUsage()
@@ -112,6 +123,18 @@ func parseArguments() -> Arguments? {
             }
             result.holdSeconds = seconds
 
+        case "--deadline-ms":
+            guard i + 1 < args.count else {
+                fputs("--deadline-ms requires an argument\n", stderr)
+                return nil
+            }
+            i += 1
+            guard let ms = Int(args[i]) else {
+                fputs("Invalid deadline milliseconds\n", stderr)
+                return nil
+            }
+            result.deadlineMs = ms
+
         case "--signal-ready":
             result.signalReady = true
 
@@ -130,20 +153,24 @@ func printUsage() {
     Usage: _Lock\\ Test\\ Process <command> <file> [options]
 
     Commands:
-      lock-exclusive <file>     Acquire exclusive lock, wait, release
-      lock-shared <file>        Acquire shared lock, wait, release
-      try-exclusive <file>      Try exclusive lock (non-blocking)
-      try-shared <file>         Try shared lock (non-blocking)
+      lock-exclusive <file>       Acquire exclusive lock, wait, release
+      lock-shared <file>          Acquire shared lock, wait, release
+      try-exclusive <file>        Try exclusive lock (non-blocking)
+      try-shared <file>           Try shared lock (non-blocking)
+      deadline-exclusive <file>   Acquire exclusive lock with deadline
+      deadline-shared <file>      Acquire shared lock with deadline
 
     Options:
-      --range <start>-<end>     Lock byte range (default: whole file)
-      --hold <seconds>          Hold lock for N seconds
-      --signal-ready            Print "READY" when lock acquired
+      --range <start>-<end>       Lock byte range (default: whole file)
+      --hold <seconds>            Hold lock for N seconds
+      --deadline-ms <ms>          Deadline in milliseconds (default: 1000)
+      --signal-ready              Print "READY" when lock acquired
 
     Exit codes:
       0  Success
       1  Lock would block (try-* commands)
-      2  Error
+      2  Lock timed out (deadline-* commands)
+      3  Error
     """
     fputs(usage, stderr)
     fputs("\n", stderr)
@@ -155,33 +182,39 @@ func printUsage() {
 
 func main() -> Int32 {
     guard let args = parseArguments() else {
-        return 2
+        return 3
     }
 
     // Open the file
     let fd = open(args.filePath, O_RDWR)
     guard fd >= 0 else {
         fputs("Failed to open file: \(args.filePath)\n", stderr)
-        return 2
+        return 3
     }
     defer { close(fd) }
 
     let mode: IO.File.Lock.Mode
-    let blocking: Bool
+    let acquire: IO.File.Lock.Acquire
 
     switch args.command {
     case .lockExclusive:
         mode = .exclusive
-        blocking = true
+        acquire = .wait
     case .lockShared:
         mode = .shared
-        blocking = true
+        acquire = .wait
     case .tryExclusive:
         mode = .exclusive
-        blocking = false
+        acquire = .try
     case .tryShared:
         mode = .shared
-        blocking = false
+        acquire = .try
+    case .deadlineExclusive:
+        mode = .exclusive
+        acquire = .timeout(.milliseconds(args.deadlineMs))
+    case .deadlineShared:
+        mode = .shared
+        acquire = .timeout(.milliseconds(args.deadlineMs))
     }
 
     // Acquire lock
@@ -191,16 +224,22 @@ func main() -> Int32 {
             descriptor: fd,
             range: args.range,
             mode: mode,
-            blocking: blocking
+            acquire: acquire
         )
-    } catch IO.File.Lock.Error.wouldBlock {
-        // Non-blocking acquisition failed
-        fputs("WOULD_BLOCK\n", stdout)
-        fflush(stdout)
-        return 1
     } catch {
-        fputs("Failed to acquire lock: \(error)\n", stderr)
-        return 2
+        switch error {
+        case .wouldBlock:
+            fputs("WOULD_BLOCK\n", stdout)
+            fflush(stdout)
+            return 1
+        case .timedOut:
+            fputs("TIMED_OUT\n", stdout)
+            fflush(stdout)
+            return 2
+        default:
+            fputs("Failed to acquire lock: \(error)\n", stderr)
+            return 3
+        }
     }
 
     // Signal ready if requested
@@ -234,47 +273,50 @@ exit(main())
 // Windows implementation
 func main() -> Int32 {
     guard let args = parseArguments() else {
-        return 2
-    }
-
-    // Convert path to wide string
-    let widePath = args.filePath.withCString(encodedAs: UTF16.self) { ptr in
-        return ptr
+        return 3
     }
 
     // Open the file
-    let handle = CreateFileW(
-        widePath,
-        DWORD(GENERIC_READ | GENERIC_WRITE),
-        0,  // No sharing
-        nil,
-        DWORD(OPEN_EXISTING),
-        DWORD(FILE_ATTRIBUTE_NORMAL),
-        nil
-    )
+    let handle = args.filePath.withCString(encodedAs: UTF16.self) { widePath in
+        CreateFileW(
+            widePath,
+            DWORD(GENERIC_READ | GENERIC_WRITE),
+            0,  // No sharing
+            nil,
+            DWORD(OPEN_EXISTING),
+            DWORD(FILE_ATTRIBUTE_NORMAL),
+            nil
+        )
+    }
 
     guard handle != INVALID_HANDLE_VALUE else {
         fputs("Failed to open file: \(args.filePath)\n", stderr)
-        return 2
+        return 3
     }
     defer { CloseHandle(handle) }
 
     let mode: IO.File.Lock.Mode
-    let blocking: Bool
+    let acquire: IO.File.Lock.Acquire
 
     switch args.command {
     case .lockExclusive:
         mode = .exclusive
-        blocking = true
+        acquire = .wait
     case .lockShared:
         mode = .shared
-        blocking = true
+        acquire = .wait
     case .tryExclusive:
         mode = .exclusive
-        blocking = false
+        acquire = .try
     case .tryShared:
         mode = .shared
-        blocking = false
+        acquire = .try
+    case .deadlineExclusive:
+        mode = .exclusive
+        acquire = .timeout(.milliseconds(args.deadlineMs))
+    case .deadlineShared:
+        mode = .shared
+        acquire = .timeout(.milliseconds(args.deadlineMs))
     }
 
     // Acquire lock
@@ -284,15 +326,22 @@ func main() -> Int32 {
             handle: handle,
             range: args.range,
             mode: mode,
-            blocking: blocking
+            acquire: acquire
         )
-    } catch IO.File.Lock.Error.wouldBlock {
-        fputs("WOULD_BLOCK\n", stdout)
-        fflush(stdout)
-        return 1
     } catch {
-        fputs("Failed to acquire lock: \(error)\n", stderr)
-        return 2
+        switch error {
+        case .wouldBlock:
+            fputs("WOULD_BLOCK\n", stdout)
+            fflush(stdout)
+            return 1
+        case .timedOut:
+            fputs("TIMED_OUT\n", stdout)
+            fflush(stdout)
+            return 2
+        default:
+            fputs("Failed to acquire lock: \(error)\n", stderr)
+            return 3
+        }
     }
 
     // Signal ready if requested

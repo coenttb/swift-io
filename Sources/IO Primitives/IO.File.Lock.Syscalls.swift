@@ -155,8 +155,8 @@ extension IO.File.Lock {
         range: Range,
         mode: Mode,
         type: FlockType
-    ) -> Darwin.flock {
-        var flock = Darwin.flock()
+    ) -> flock {
+        var flock = flock()
 
         switch type {
         case .lock:
