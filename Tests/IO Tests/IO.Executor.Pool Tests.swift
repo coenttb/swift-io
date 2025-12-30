@@ -162,7 +162,7 @@ extension IOExecutorPoolTests.Test.EdgeCase {
             switch error {
             case .shutdownInProgress:
                 #expect(true, "transaction correctly rejects at submission gate")
-            case .cancelled:
+            case .cancelled, .timeout:
                 Issue.record("shutdown should not surface as cancelled")
             case .failure:
                 Issue.record("shutdown should reject at gate, not as failure")
@@ -246,7 +246,7 @@ extension IOExecutorPoolTests.Test.EdgeCase {
             switch error {
             case .shutdownInProgress:
                 #expect(true, "shutdown correctly surfaces as .shutdownInProgress")
-            case .cancelled:
+            case .cancelled, .timeout:
                 Issue.record("shutdown should not surface as cancelled")
             case .failure(let inner):
                 switch inner {
@@ -280,7 +280,7 @@ extension IOExecutorPoolTests.Test.EdgeCase {
             switch error {
             case .shutdownInProgress:
                 #expect(true, "register correctly surfaces as .shutdownInProgress")
-            case .cancelled:
+            case .cancelled, .timeout:
                 Issue.record("shutdown should not surface as cancelled")
             case .failure:
                 Issue.record("shutdown MUST NOT be encoded as failure")
