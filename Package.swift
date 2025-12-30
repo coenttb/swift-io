@@ -70,6 +70,11 @@ let package = Package(
                 .product(name: "StandardsTestSupport", package: "swift-standards"),
             ]
         ),
+        .executableTarget(
+            name: "_Lock Test Process",
+            dependencies: ["IO Primitives"],
+            path: "Sources/_Lock Test Process"
+        ),
     ]
 )
 

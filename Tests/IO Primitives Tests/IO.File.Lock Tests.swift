@@ -12,6 +12,73 @@ import Testing
     import Darwin
 #elseif canImport(Glibc)
     import Glibc
+#elseif os(Windows)
+    import WinSDK
+#endif
+
+// Foundation only used for multi-process tests (Process, URL, Pipe)
+#if canImport(Foundation)
+    import Foundation
+#endif
+
+// MARK: - Cross-Platform Test Helpers
+
+/// Returns a unique temporary file path for testing
+func tempFilePath(prefix: String) -> String {
+    #if os(Windows)
+    var buffer = [WCHAR](repeating: 0, count: Int(MAX_PATH))
+    GetTempPathW(DWORD(buffer.count), &buffer)
+    let tempDir = String(decodingCString: buffer, as: UTF16.self)
+    return "\(tempDir)\(prefix)-\(GetCurrentProcessId())-\(Int.random(in: 0..<Int.max))"
+    #else
+    return "/tmp/\(prefix)-\(getpid())-\(Int.random(in: 0..<Int.max))"
+    #endif
+}
+
+#if !os(Windows)
+/// Creates a temporary file and returns its path and file descriptor (POSIX)
+func createTempFilePOSIX(prefix: String) -> (path: String, fd: Int32) {
+    let path = tempFilePath(prefix: prefix)
+    let fd = open(path, O_CREAT | O_RDWR, 0o644)
+    return (path, fd)
+}
+
+/// Writes data to a file descriptor (POSIX)
+func writeDataPOSIX(_ data: String, to fd: Int32) {
+    _ = data.withCString { ptr in
+        #if canImport(Darwin)
+        Darwin.write(fd, ptr, data.count)
+        #elseif canImport(Glibc)
+        Glibc.write(fd, ptr, data.count)
+        #endif
+    }
+}
+#endif
+
+#if os(Windows)
+/// Creates a temporary file and returns its path and handle (Windows)
+func createTempFileWindows(prefix: String) -> (path: String, handle: HANDLE) {
+    let path = tempFilePath(prefix: prefix)
+    let handle = path.withCString(encodedAs: UTF16.self) { widePath in
+        CreateFileW(
+            widePath,
+            DWORD(GENERIC_READ | GENERIC_WRITE),
+            0,
+            nil,
+            DWORD(CREATE_ALWAYS),
+            DWORD(FILE_ATTRIBUTE_NORMAL),
+            nil
+        )
+    }
+    return (path, handle)
+}
+
+/// Deletes a file (Windows)
+func deleteFileWindows(_ path: String) {
+    path.withCString(encodedAs: UTF16.self) { widePath in
+        DeleteFileW(widePath)
+    }
+}
 #endif
 
 @Suite("IO.File.Lock")
@@ -153,7 +220,7 @@ struct IOFileLockTests {
         }
     }
 
-    // MARK: - Token and Scoped Locking Tests
+    // MARK: - Token and Scoped Locking Tests (POSIX)
 
     #if !os(Windows)
     @Suite("Token")
@@ -161,25 +228,14 @@ struct IOFileLockTests {
 
         @Test("token acquires and releases lock on real file")
         func tokenAcquiresAndReleasesLock() throws {
-            // Create a temporary file
-            let path = "/tmp/swift-io-lock-test-\(getpid())"
-            let fd = open(path, O_CREAT | O_RDWR, 0o644)
+            let (path, fd) = createTempFilePOSIX(prefix: "swift-io-lock-test")
             defer {
                 close(fd)
                 unlink(path)
             }
 
             #expect(fd >= 0, "Failed to create test file")
-
-            // Write some data
-            let data = "test data"
-            _ = data.withCString { ptr in
-                #if canImport(Darwin)
-                Darwin.write(fd, ptr, data.count)
-                #elseif canImport(Glibc)
-                Glibc.write(fd, ptr, data.count)
-                #endif
-            }
+            writeDataPOSIX("test data", to: fd)
 
             // Acquire exclusive lock
             let token = try IO.File.Lock.Token(
@@ -198,8 +254,7 @@ struct IOFileLockTests {
 
         @Test("tryLock with non-blocking returns immediately")
         func tryLockNonBlocking() throws {
-            let path = "/tmp/swift-io-trylock-test-\(getpid())"
-            let fd = open(path, O_CREAT | O_RDWR, 0o644)
+            let (path, fd) = createTempFilePOSIX(prefix: "swift-io-trylock-test")
             defer {
                 close(fd)
                 unlink(path)
@@ -219,14 +274,69 @@ struct IOFileLockTests {
             token.release()
         }
     }
+    #endif
 
+    // MARK: - Token Tests (Windows)
+
+    #if os(Windows)
+    @Suite("Token")
+    struct TokenTests {
+
+        @Test("token acquires and releases lock on real file")
+        func tokenAcquiresAndReleasesLock() throws {
+            let (path, handle) = createTempFileWindows(prefix: "swift-io-lock-test")
+            defer {
+                CloseHandle(handle)
+                deleteFileWindows(path)
+            }
+
+            #expect(handle != INVALID_HANDLE_VALUE, "Failed to create test file")
+
+            // Acquire exclusive lock
+            let token = try IO.File.Lock.Token(
+                handle: handle,
+                range: .wholeFile,
+                mode: .exclusive,
+                blocking: true
+            )
+
+            // Release the lock
+            token.release()
+        }
+
+        @Test("tryLock with non-blocking returns immediately")
+        func tryLockNonBlocking() throws {
+            let (path, handle) = createTempFileWindows(prefix: "swift-io-trylock-test")
+            defer {
+                CloseHandle(handle)
+                deleteFileWindows(path)
+            }
+
+            #expect(handle != INVALID_HANDLE_VALUE, "Failed to create test file")
+
+            // Try to acquire lock without blocking
+            let token = try IO.File.Lock.Token(
+                handle: handle,
+                range: .wholeFile,
+                mode: .exclusive,
+                blocking: false
+            )
+
+            // Should succeed since no one else has the lock
+            token.release()
+        }
+    }
+    #endif
+
+    // MARK: - Scoped Locking Tests (POSIX)
+
+    #if !os(Windows)
     @Suite("Scoped Locking")
     struct ScopedLockingTests {
 
         @Test("withExclusive holds lock during closure")
         func withExclusiveHoldsLock() throws {
-            let path = "/tmp/swift-io-exclusive-test-\(getpid())"
-            let fd = open(path, O_CREAT | O_RDWR, 0o644)
+            let (path, fd) = createTempFilePOSIX(prefix: "swift-io-exclusive-test")
             defer {
                 close(fd)
                 unlink(path)
@@ -247,8 +357,7 @@ struct IOFileLockTests {
 
         @Test("withShared holds lock during closure")
         func withSharedHoldsLock() throws {
-            let path = "/tmp/swift-io-shared-test-\(getpid())"
-            let fd = open(path, O_CREAT | O_RDWR, 0o644)
+            let (path, fd) = createTempFilePOSIX(prefix: "swift-io-shared-test")
             defer {
                 close(fd)
                 unlink(path)
@@ -269,8 +378,7 @@ struct IOFileLockTests {
 
         @Test("scoped locking with byte range")
         func scopedLockingWithByteRange() throws {
-            let path = "/tmp/swift-io-range-test-\(getpid())"
-            let fd = open(path, O_CREAT | O_RDWR, 0o644)
+            let (path, fd) = createTempFilePOSIX(prefix: "swift-io-range-test")
             defer {
                 close(fd)
                 unlink(path)
@@ -279,14 +387,7 @@ struct IOFileLockTests {
             #expect(fd >= 0, "Failed to create test file")
 
             // Write enough data
-            let data = String(repeating: "x", count: 1024)
-            _ = data.withCString { ptr in
-                #if canImport(Darwin)
-                Darwin.write(fd, ptr, data.count)
-                #elseif canImport(Glibc)
-                Glibc.write(fd, ptr, data.count)
-                #endif
-            }
+            writeDataPOSIX(String(repeating: "x", count: 1024), to: fd)
 
             let range = IO.File.Lock.Range(start: 100, end: 200)
 
@@ -299,6 +400,264 @@ struct IOFileLockTests {
 
             #expect(wasInClosure)
             #expect(result == 123)
+        }
+    }
+    #endif
+
+    // MARK: - Multi-Process Contention Tests
+
+    #if canImport(Foundation) && !os(Windows)
+    @Suite("Multi-Process Contention")
+    struct MultiProcessContentionTests {
+
+        /// Path to the lock test helper executable
+        static var helperPath: String {
+            // The helper is built alongside tests in .build/debug
+            #if os(macOS)
+            let buildDir = ".build/arm64-apple-macosx/debug"
+            #elseif os(Linux)
+            let buildDir = ".build/debug"
+            #else
+            let buildDir = ".build/debug"
+            #endif
+            return "\(buildDir)/_Lock Test Process"
+        }
+
+        /// Creates a temporary file for testing
+        static func createTempFile() -> (path: String, fd: Int32) {
+            let (path, fd) = createTempFilePOSIX(prefix: "swift-io-contention-test")
+            // Write some data so the file isn't empty
+            writeDataPOSIX(String(repeating: "x", count: 1024), to: fd)
+            return (path, fd)
+        }
+
+        @Test("exclusive lock blocks try-exclusive from another process")
+        func exclusiveBlocksTryExclusive() throws {
+            let (path, fd) = Self.createTempFile()
+            defer {
+                close(fd)
+                unlink(path)
+            }
+
+            #expect(fd >= 0, "Failed to create test file")
+
+            // Acquire exclusive lock in this process
+            let token = try IO.File.Lock.Token(
+                descriptor: fd,
+                range: .wholeFile,
+                mode: .exclusive,
+                blocking: true
+            )
+
+            // Spawn helper to try acquiring exclusive lock (should fail)
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: Self.helperPath)
+            process.arguments = ["try-exclusive", path, "--signal-ready"]
+
+            let pipe = Pipe()
+            process.standardOutput = pipe
+
+            try process.run()
+            process.waitUntilExit()
+
+            let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: outputData, encoding: .utf8) ?? ""
+
+            #expect(process.terminationStatus == 1, "Helper should exit with 1 (would block)")
+            #expect(output.contains("WOULD_BLOCK"), "Helper should report WOULD_BLOCK")
+
+            token.release()
+        }
+
+        @Test("exclusive lock blocks try-shared from another process")
+        func exclusiveBlocksTryShared() throws {
+            let (path, fd) = Self.createTempFile()
+            defer {
+                close(fd)
+                unlink(path)
+            }
+
+            #expect(fd >= 0, "Failed to create test file")
+
+            // Acquire exclusive lock in this process
+            let token = try IO.File.Lock.Token(
+                descriptor: fd,
+                range: .wholeFile,
+                mode: .exclusive,
+                blocking: true
+            )
+
+            // Spawn helper to try acquiring shared lock (should fail)
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: Self.helperPath)
+            process.arguments = ["try-shared", path]
+
+            let pipe = Pipe()
+            process.standardOutput = pipe
+
+            try process.run()
+            process.waitUntilExit()
+
+            let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: outputData, encoding: .utf8) ?? ""
+
+            #expect(process.terminationStatus == 1, "Helper should exit with 1 (would block)")
+            #expect(output.contains("WOULD_BLOCK"), "Helper should report WOULD_BLOCK")
+
+            token.release()
+        }
+
+        @Test("shared lock allows try-shared from another process")
+        func sharedAllowsTryShared() throws {
+            let (path, fd) = Self.createTempFile()
+            defer {
+                close(fd)
+                unlink(path)
+            }
+
+            #expect(fd >= 0, "Failed to create test file")
+
+            // Acquire shared lock in this process
+            let token = try IO.File.Lock.Token(
+                descriptor: fd,
+                range: .wholeFile,
+                mode: .shared,
+                blocking: true
+            )
+
+            // Spawn helper to try acquiring shared lock (should succeed)
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: Self.helperPath)
+            process.arguments = ["try-shared", path, "--hold", "0", "--signal-ready"]
+
+            let pipe = Pipe()
+            process.standardOutput = pipe
+
+            try process.run()
+            process.waitUntilExit()
+
+            let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: outputData, encoding: .utf8) ?? ""
+
+            #expect(process.terminationStatus == 0, "Helper should exit with 0 (success)")
+            #expect(output.contains("READY"), "Helper should report READY")
+            #expect(output.contains("RELEASED"), "Helper should report RELEASED")
+
+            token.release()
+        }
+
+        @Test("shared lock blocks try-exclusive from another process")
+        func sharedBlocksTryExclusive() throws {
+            let (path, fd) = Self.createTempFile()
+            defer {
+                close(fd)
+                unlink(path)
+            }
+
+            #expect(fd >= 0, "Failed to create test file")
+
+            // Acquire shared lock in this process
+            let token = try IO.File.Lock.Token(
+                descriptor: fd,
+                range: .wholeFile,
+                mode: .shared,
+                blocking: true
+            )
+
+            // Spawn helper to try acquiring exclusive lock (should fail)
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: Self.helperPath)
+            process.arguments = ["try-exclusive", path]
+
+            let pipe = Pipe()
+            process.standardOutput = pipe
+
+            try process.run()
+            process.waitUntilExit()
+
+            let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: outputData, encoding: .utf8) ?? ""
+
+            #expect(process.terminationStatus == 1, "Helper should exit with 1 (would block)")
+            #expect(output.contains("WOULD_BLOCK"), "Helper should report WOULD_BLOCK")
+
+            token.release()
+        }
+
+        @Test("non-overlapping byte ranges don't conflict")
+        func nonOverlappingRangesDontConflict() throws {
+            let (path, fd) = Self.createTempFile()
+            defer {
+                close(fd)
+                unlink(path)
+            }
+
+            #expect(fd >= 0, "Failed to create test file")
+
+            // Acquire exclusive lock on bytes 0-100 in this process
+            let token = try IO.File.Lock.Token(
+                descriptor: fd,
+                range: .bytes(start: 0, end: 100),
+                mode: .exclusive,
+                blocking: true
+            )
+
+            // Spawn helper to try acquiring exclusive lock on bytes 200-300 (should succeed)
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: Self.helperPath)
+            process.arguments = ["try-exclusive", path, "--range", "200-300", "--hold", "0", "--signal-ready"]
+
+            let pipe = Pipe()
+            process.standardOutput = pipe
+
+            try process.run()
+            process.waitUntilExit()
+
+            let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: outputData, encoding: .utf8) ?? ""
+
+            #expect(process.terminationStatus == 0, "Helper should exit with 0 (success)")
+            #expect(output.contains("READY"), "Helper should report READY")
+
+            token.release()
+        }
+
+        @Test("overlapping byte ranges do conflict")
+        func overlappingRangesConflict() throws {
+            let (path, fd) = Self.createTempFile()
+            defer {
+                close(fd)
+                unlink(path)
+            }
+
+            #expect(fd >= 0, "Failed to create test file")
+
+            // Acquire exclusive lock on bytes 0-200 in this process
+            let token = try IO.File.Lock.Token(
+                descriptor: fd,
+                range: .bytes(start: 0, end: 200),
+                mode: .exclusive,
+                blocking: true
+            )
+
+            // Spawn helper to try acquiring exclusive lock on bytes 100-300 (overlaps, should fail)
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: Self.helperPath)
+            process.arguments = ["try-exclusive", path, "--range", "100-300"]
+
+            let pipe = Pipe()
+            process.standardOutput = pipe
+
+            try process.run()
+            process.waitUntilExit()
+
+            let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: outputData, encoding: .utf8) ?? ""
+
+            #expect(process.terminationStatus == 1, "Helper should exit with 1 (would block)")
+            #expect(output.contains("WOULD_BLOCK"), "Helper should report WOULD_BLOCK")
+
+            token.release()
         }
     }
     #endif
