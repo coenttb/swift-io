@@ -38,12 +38,11 @@ extension IO.Completion {
     /// }
     /// ```
     ///
-    /// ## Typed Continuation
+    /// ## Void Continuation
     ///
-    /// Uses `CheckedContinuation<IO.Completion.ID, Never>` - a Copyable signal type.
-    /// The continuation carries only the operation ID; the actor extracts the buffer
-    /// and event from storage after await. This satisfies Swift's Copyable constraint
-    /// on continuation payloads.
+    /// Uses `CheckedContinuation<Void, Never>` - the continuation is purely a wakeup
+    /// latch, not a data path. The actor extracts the buffer and event from storage
+    /// after await. This makes it clear the continuation carries no meaningful data.
     ///
     /// ## Thread Safety
     ///
@@ -74,8 +73,8 @@ extension IO.Completion {
 
         /// The continuation. Set once during arm(), cleared once during takeForResume().
         ///
-        /// Uses non-throwing continuation with Copyable ID to satisfy Swift's constraint.
-        var continuation: CheckedContinuation<IO.Completion.ID, Never>?
+        /// Uses Void continuation - it's purely a wakeup latch, not a data path.
+        var continuation: CheckedContinuation<Void, Never>?
 
         /// The operation ID this waiter is waiting on.
         public let id: IO.Completion.ID
@@ -88,14 +87,14 @@ extension IO.Completion {
 
         /// Arms the waiter with a continuation.
         ///
-        /// - Parameter continuation: The continuation to resume on completion.
+        /// - Parameter continuation: The Void continuation to resume on completion.
         /// - Returns: `true` if armed successfully, `false` if already cancelled.
         ///
         /// If cancelled before arming, returns false and caller should
-        /// resume the continuation with cancellation immediately.
+        /// resume the continuation immediately.
         @discardableResult
         public func arm(
-            continuation: CheckedContinuation<IO.Completion.ID, Never>
+            continuation: CheckedContinuation<Void, Never>
         ) -> Bool {
             let (exchanged, original) = _state.compareExchange(
                 expected: .unarmed,
@@ -169,17 +168,17 @@ extension IO.Completion {
         public struct Resume {
             let waiter: Waiter
 
-            /// Resumes the waiter with the given ID.
+            /// Resumes the waiter.
             ///
-            /// This method consumes the waiter state and resumes the continuation
-            /// exactly once. Safe to call from submit() for early completion handling.
+            /// This method consumes the waiter state and resumes the Void continuation
+            /// exactly once. Safe to call from submit() for early completion handling
+            /// or from onCancel for cancellation.
             ///
-            /// - Parameter id: The operation ID to resume with.
             /// - Returns: `true` if resumed, `false` if already drained or not armed.
             @discardableResult
-            public func id(_ id: IO.Completion.ID) -> Bool {
+            public func now() -> Bool {
                 if let (cont, _) = waiter.take.forResume() {
-                    cont.resume(returning: id)
+                    cont.resume()
                     return true
                 }
                 return false
@@ -194,9 +193,9 @@ extension IO.Completion {
             ///
             /// Called by the queue actor to get the continuation and resume it.
             ///
-            /// - Returns: The continuation and whether it was cancelled, or nil if already drained.
+            /// - Returns: The Void continuation and whether it was cancelled, or nil if already drained.
             public func forResume() -> (
-                continuation: CheckedContinuation<IO.Completion.ID, Never>,
+                continuation: CheckedContinuation<Void, Never>,
                 cancelled: Bool
             )? {
                 while true {

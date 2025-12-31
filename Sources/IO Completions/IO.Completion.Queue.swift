@@ -246,16 +246,16 @@ extension IO.Completion {
             // Capture wakeup for cancellation handler
             let wakeup = wakeupChannel
 
-            // Continuation carries only ID (Copyable)
-            let _: IO.Completion.ID = await withTaskCancellationHandler {
-                await withCheckedContinuation { (c: CheckedContinuation<IO.Completion.ID, Never>) in
+            // Void continuation - purely a wakeup latch, not a data path
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
                     let armed = waiter.arm(continuation: c)
 
                     if !armed {
                         // Cancelled before arm - task was cancelled between Waiter creation
-                        // and arm(). Skip driver submission. Resume via Task {} hop to avoid
-                        // reentrancy hazards (resume before handler installation).
-                        Task { waiter.resume.id(id) }
+                        // and arm(). Skip driver submission. Resume directly since waiter
+                        // state machine handles idempotency.
+                        waiter.resume.now()
                         return
                     }
 
@@ -265,16 +265,16 @@ extension IO.Completion {
 
                     // Early completion: If completion arrived before we armed,
                     // drain() couldn't resume us (waiter wasn't armed).
-                    // Now that we're armed, resume via Task {} hop for safety.
+                    // Now that we're armed, resume directly.
                     if storage.completion != nil {
-                        Task { waiter.resume.id(id) }
+                        waiter.resume.now()
                     }
                 }
             } onCancel: {
                 waiter.cancel()
                 // Resume immediately - submit() will see wasCancelled and return cancelled event.
-                // resume.id() is idempotent; if drain() already resumed, this is a no-op.
-                waiter.resume.id(id)
+                // resume.now() is idempotent; if drain() already resumed, this is a no-op.
+                waiter.resume.now()
             }
 
             // Actor decides outcome after await - single removal point
@@ -286,38 +286,37 @@ extension IO.Completion {
             var extractedBuffer: Buffer.Aligned? = nil
             swap(&extractedBuffer, &entry.storage.buffer)
 
-            // Check for shutdown (takes priority over cancellation)
-            if isShutdown {
-                throw .failure(.lifecycle(.shutdownInProgress))
-            }
-
-            // === Cancellation Semantics: Completion-Wins (v1) ===
+            // === Outcome Decision: Completion-Wins Ordering ===
             //
-            // If a kernel completion is recorded for an operation, deliver it even if
-            // the task was cancelled. Rationale:
-            // - Completed work should not be discarded
+            // Priority order (timeless invariant):
+            //   1. Completion wins over everything (including cancellation AND shutdown)
+            //   2. Cancellation wins only when no completion exists
+            //   3. Shutdown only affects operations with no completion and no cancellation
+            //
+            // Rationale:
+            // - Completed work should never be discarded
             // - Returning valid data is more useful to callers
-            // - Simpler implementation (no completion suppression across platforms)
+            // - "Don't discard completed work" is a stable, decades-long rule
             //
-            // The waiter.wasCancelled flag is only consulted when no completion arrived.
             // Buffer is always returned (Pattern A preservation) regardless of outcome.
-            // Cancellation is best-effort; late kernel completions may arrive and will
-            // be drained/discarded safely if the submission has been logically concluded.
 
-            // Determine event: either from completion or synthesized for cancellation
             let event: IO.Completion.Event
             if let completedEvent = entry.storage.completion {
+                // COMPLETION WINS - deliver even if cancelled or shutdown
                 entry.storage.completion = nil
                 event = completedEvent
             } else if entry.waiter.wasCancelled {
                 // Pattern A: Cancellation returns result with buffer, not throws.
-                // Channel layer can convert to throw if desired.
                 event = IO.Completion.Event(
                     id: id,
                     kind: entry.storage.kind,
                     outcome: IO.Completion.Outcome.cancelled
                 )
+            } else if isShutdown {
+                // Shutdown only throws when no completion and no cancellation
+                throw .failure(.lifecycle(.shutdownInProgress))
             } else {
+                // Should not happen if invariants hold
                 throw .failure(.operation(.invalidSubmission))
             }
 
@@ -338,6 +337,44 @@ extension IO.Completion {
             // - io_uring: IORING_OP_ASYNC_CANCEL
         }
 
+        // MARK: - Test Probes
+
+        #if DEBUG
+        /// Waits until a completion is recorded for the given ID.
+        ///
+        /// Test-only probe for synchronizing on "completion recorded" state.
+        /// This is the correct barrier for completion-wins tests: wait until
+        /// the actor has processed the bridge event, not just until the fake
+        /// injected it.
+        ///
+        /// - Parameters:
+        ///   - id: The operation ID to wait for.
+        ///   - timeout: Maximum time to wait.
+        /// - Throws: If timeout expires before completion is recorded.
+        public func _waitUntilRecorded(
+            _ id: IO.Completion.ID,
+            timeout: Duration = .milliseconds(500)
+        ) async throws {
+            let deadline = ContinuousClock.now + timeout
+            while ContinuousClock.now < deadline {
+                // Check if completion is recorded
+                if let entry = entries[id] {
+                    if entry.storage.completion != nil {
+                        return  // Completion recorded
+                    }
+                } else {
+                    // Entry removed = already finalized
+                    return
+                }
+                await Task.yield()
+            }
+            throw _TestTimeoutError()
+        }
+
+        /// Test-only timeout error.
+        public struct _TestTimeoutError: Swift.Error {}
+        #endif
+
         // MARK: - Event Processing
 
         /// Drains events from the bridge and resumes waiters.
@@ -345,21 +382,25 @@ extension IO.Completion {
         /// drain() does NOT remove entries - that happens in submit() after await.
         /// This ensures a single finalization point and proper early completion handling.
         /// The actor is the only place that decides the final outcome.
+        ///
+        /// Late completions for already-removed entries are safely ignored (not an error).
         func drain(_ events: [IO.Completion.Event]) {
             for event in events {
                 // Look up entry but do NOT remove (submit() removes after await)
                 guard let entry = entries[event.id] else {
-                    // Stale completion (already finalized by submit())
+                    // Late completion - entry already finalized by submit().
+                    // This is expected under completion-wins + cancellation + shutdown.
+                    // Simply drop it; not an invariant violation.
                     continue
                 }
 
                 // Store event in storage for submit() to consume
                 entry.storage.completion = event
 
-                // Resume waiter if armed. Uses resume.id() for proper state consumption.
+                // Resume waiter if armed. Uses resume.now() for proper state consumption.
                 // If not armed yet, completion is stored in storage.
                 // submit() will see it when it arms and resume immediately.
-                entry.waiter.resume.id(event.id)
+                entry.waiter.resume.now()
             }
         }
 
@@ -382,9 +423,9 @@ extension IO.Completion {
             }
 
             // Resume all armed waiters - they will see isShutdown after await
-            // and throw lifecycle error. Use resume.id() for proper state consumption.
-            for (id, entry) in entries {
-                entry.waiter.resume.id(id)
+            // and throw lifecycle error. Use resume.now() for proper state consumption.
+            for (_, entry) in entries {
+                entry.waiter.resume.now()
             }
             // Note: entries are not removed here - submit() will remove them
             // and throw lifecycle error when it sees isShutdown.

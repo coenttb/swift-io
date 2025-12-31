@@ -27,31 +27,29 @@ extension IO.Completion.Waiter.Test.Unit {
     func cancelBeforeArmReturnsFalse() async {
         // This tests the core fix: arm() returning false when
         // cancellation happens before arm is called.
-        let id = IO.Completion.ID(raw: 1)
-        let waiter = IO.Completion.Waiter(id: id)
+        let waiter = IO.Completion.Waiter(id: IO.Completion.ID(raw: 1))
 
         // Cancel BEFORE arming
         waiter.cancel()
         #expect(waiter.wasCancelled)
 
         // Now arm - should return false (not crash!)
-        await withCheckedContinuation { (c: CheckedContinuation<IO.Completion.ID, Never>) in
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
             let armed = waiter.arm(continuation: c)
             #expect(!armed, "arm() should return false when cancelled before arm")
             #expect(waiter.isArmed, "waiter should still be armed (in armedCancelled state)")
             #expect(waiter.wasCancelled, "cancellation should be preserved")
 
             // Resume to avoid leak
-            waiter.resume.id(id)
+            waiter.resume.now()
         }
     }
 
     @Test("cancel after arm marks waiter as cancelled")
     func cancelAfterArm() async {
-        let id = IO.Completion.ID(raw: 1)
-        let waiter = IO.Completion.Waiter(id: id)
+        let waiter = IO.Completion.Waiter(id: IO.Completion.ID(raw: 1))
 
-        await withCheckedContinuation { (c: CheckedContinuation<IO.Completion.ID, Never>) in
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
             let armed = waiter.arm(continuation: c)
             #expect(armed, "arm() should succeed")
             #expect(waiter.isArmed)
@@ -62,22 +60,21 @@ extension IO.Completion.Waiter.Test.Unit {
             #expect(waiter.wasCancelled)
 
             // Resume
-            waiter.resume.id(id)
+            waiter.resume.now()
         }
     }
 
     @Test("takeForResume indicates cancelled state")
     func takeForResumeIndicatesCancelled() async {
-        let id = IO.Completion.ID(raw: 1)
-        let waiter = IO.Completion.Waiter(id: id)
+        let waiter = IO.Completion.Waiter(id: IO.Completion.ID(raw: 1))
 
-        await withCheckedContinuation { (c: CheckedContinuation<IO.Completion.ID, Never>) in
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
             waiter.arm(continuation: c)
             waiter.cancel()
 
             if let result = waiter.take.forResume() {
                 #expect(result.cancelled, "takeForResume should indicate cancelled")
-                result.continuation.resume(returning: id)
+                result.continuation.resume()
             } else {
                 Issue.record("takeForResume should return continuation")
             }
@@ -87,18 +84,17 @@ extension IO.Completion.Waiter.Test.Unit {
     @Test("double resume returns false on second call")
     func doubleResumeReturnsFalse() async {
         // Tests the exactly-once invariant
-        let id = IO.Completion.ID(raw: 1)
-        let waiter = IO.Completion.Waiter(id: id)
+        let waiter = IO.Completion.Waiter(id: IO.Completion.ID(raw: 1))
 
-        await withCheckedContinuation { (c: CheckedContinuation<IO.Completion.ID, Never>) in
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
             waiter.arm(continuation: c)
 
             // First resume should succeed
-            let first = waiter.resume.id(id)
+            let first = waiter.resume.now()
             #expect(first, "first resume should succeed")
 
             // Second resume should fail (already drained)
-            let second = waiter.resume.id(id)
+            let second = waiter.resume.now()
             #expect(!second, "second resume should fail")
         }
     }
@@ -133,14 +129,13 @@ extension IO.Completion.Waiter.Test.EdgeCase {
     @Test("cancel-before-arm then takeForResume indicates cancelled")
     func cancelBeforeArmThenTakeForResume() async {
         // This is the key scenario that was crashing before the fix
-        let id = IO.Completion.ID(raw: 1)
-        let waiter = IO.Completion.Waiter(id: id)
+        let waiter = IO.Completion.Waiter(id: IO.Completion.ID(raw: 1))
 
         // Cancel BEFORE arm (simulates fast onCancel race)
         waiter.cancel()
         #expect(waiter.wasCancelled)
 
-        await withCheckedContinuation { (c: CheckedContinuation<IO.Completion.ID, Never>) in
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
             // Arm returns false but stores continuation
             let armed = waiter.arm(continuation: c)
             #expect(!armed)
@@ -148,7 +143,7 @@ extension IO.Completion.Waiter.Test.EdgeCase {
             // takeForResume should still work and indicate cancelled
             if let result = waiter.take.forResume() {
                 #expect(result.cancelled, "should indicate cancelled")
-                result.continuation.resume(returning: id)
+                result.continuation.resume()
             } else {
                 Issue.record("takeForResume should return continuation even after cancel-before-arm")
             }
@@ -157,10 +152,9 @@ extension IO.Completion.Waiter.Test.EdgeCase {
 
     @Test("multiple cancels are idempotent")
     func multipleCancelsIdempotent() async {
-        let id = IO.Completion.ID(raw: 1)
-        let waiter = IO.Completion.Waiter(id: id)
+        let waiter = IO.Completion.Waiter(id: IO.Completion.ID(raw: 1))
 
-        await withCheckedContinuation { (c: CheckedContinuation<IO.Completion.ID, Never>) in
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
             waiter.arm(continuation: c)
 
             // Cancel multiple times - should not crash
@@ -171,21 +165,20 @@ extension IO.Completion.Waiter.Test.EdgeCase {
             #expect(waiter.wasCancelled)
 
             // Resume
-            waiter.resume.id(id)
+            waiter.resume.now()
         }
     }
 
     @Test("cancel after drain is no-op")
     func cancelAfterDrain() async {
-        let id = IO.Completion.ID(raw: 1)
-        let waiter = IO.Completion.Waiter(id: id)
+        let waiter = IO.Completion.Waiter(id: IO.Completion.ID(raw: 1))
 
-        await withCheckedContinuation { (c: CheckedContinuation<IO.Completion.ID, Never>) in
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
             waiter.arm(continuation: c)
 
             // Drain first
             if let result = waiter.take.forResume() {
-                result.continuation.resume(returning: id)
+                result.continuation.resume()
             }
 
             // Cancel after drain - should not crash
@@ -211,7 +204,7 @@ extension IO.Completion.Waiter.Test.Invariants {
         // takeForResume() to get the continuation.
         var resumed = false
 
-        await withCheckedContinuation { (c: CheckedContinuation<IO.Completion.ID, Never>) in
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
             let waiter = IO.Completion.Waiter(id: IO.Completion.ID(raw: 1))
             waiter.arm(continuation: c)
 
@@ -222,7 +215,7 @@ extension IO.Completion.Waiter.Test.Invariants {
             // Now drain properly
             if let result = waiter.take.forResume() {
                 resumed = true
-                result.continuation.resume(returning: waiter.id)
+                result.continuation.resume()
             }
         }
 
@@ -232,10 +225,9 @@ extension IO.Completion.Waiter.Test.Invariants {
     @Test("single resumption funnel - only takeForResume provides continuation")
     func singleResumptionFunnel() async {
         // Verifies the invariant: continuation is only available via takeForResume
-        let id = IO.Completion.ID(raw: 1)
-        let waiter = IO.Completion.Waiter(id: id)
+        let waiter = IO.Completion.Waiter(id: IO.Completion.ID(raw: 1))
 
-        await withCheckedContinuation { (c: CheckedContinuation<IO.Completion.ID, Never>) in
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
             waiter.arm(continuation: c)
 
             // First take succeeds
@@ -247,7 +239,7 @@ extension IO.Completion.Waiter.Test.Invariants {
             #expect(second == nil)
 
             // Resume the first
-            first?.continuation.resume(returning: id)
+            first?.continuation.resume()
         }
     }
 }
@@ -468,6 +460,136 @@ extension IO.Completion.Queue.Test.Integration {
         }
 
         #expect(successCount == count, "all \(count) operations should complete successfully")
+
+        await queue.shutdown()
+    }
+
+    @Test("completion-wins: recorded completion beats cancellation (invariant)")
+    func completionWinsOverCancellation() async throws {
+        // This test enforces the "completion-wins" invariant:
+        // Once a completion is RECORDED (in storage.completion), it must be
+        // delivered even if the task is cancelled. Cancellation only wins
+        // when no completion has been recorded.
+        //
+        // Key distinction: "recorded" means the actor has processed the bridge
+        // event, not just that the fake injected it. We use _waitUntilRecorded
+        // to synchronize on the correct state.
+        //
+        // This is a "decades" invariant - prevents future refactors from
+        // accidentally reversing the ordering.
+
+        let fake = IO.Completion.Driver.Fake()
+        let driver = IO.Completion.Driver(fake)
+        let queue = try await IO.Completion.Queue(driver: driver)
+
+        let id = await queue.nextID()
+
+        // Submit in a task
+        let resultTask = Task { () -> IO.Completion.Event in
+            let operation = IO.Completion.Operation.nop(id: id)
+            let result = try await queue.submit(operation)
+            return result.take().event
+        }
+
+        // Wait until submission is recorded
+        try await fake.waitUntilSubmitted(id: id)
+
+        // Inject completion
+        fake.complete(id: id, kind: .nop, outcome: .success(.bytes(42)))
+
+        // Wait until completion is RECORDED by the actor (critical barrier)
+        try await queue._waitUntilRecorded(id)
+
+        // NOW cancel - completion is already recorded, must win
+        resultTask.cancel()
+
+        // Must get the real completion, NOT cancelled
+        let event = try await resultTask.value
+
+        #expect(event.outcome == .success(.bytes(42)),
+               "completion-wins: recorded completion must be delivered. Got: \(event.outcome)")
+        #expect(event.id == id)
+        #expect(event.kind == .nop)
+
+        await queue.shutdown()
+    }
+
+    @Test("late completion after cancel is ignored (invariant)")
+    func lateCompletionAfterCancelIsIgnored() async throws {
+        // This test enforces the "late completions are dropped" rule:
+        // If cancellation wins (no completion recorded yet), a later completion
+        // arriving after the operation is finalized must be safely ignored.
+        //
+        // This prevents crashes and invariant violations from stale completions.
+
+        let fake = IO.Completion.Driver.Fake()
+        let driver = IO.Completion.Driver(fake)
+        let queue = try await IO.Completion.Queue(driver: driver)
+
+        let id = await queue.nextID()
+
+        // Submit in a task
+        let resultTask = Task { () -> IO.Completion.Event in
+            let operation = IO.Completion.Operation.nop(id: id)
+            let result = try await queue.submit(operation)
+            return result.take().event
+        }
+
+        // Wait until submission is recorded
+        try await fake.waitUntilSubmitted(id: id)
+
+        // Cancel FIRST (before any completion)
+        resultTask.cancel()
+
+        // Get the result - should be cancelled
+        let event = try await resultTask.value
+        #expect(event.outcome == .cancelled,
+               "cancel-first should result in cancelled outcome")
+
+        // NOW inject a late completion - must be safely ignored
+        fake.complete(id: id, kind: .nop, outcome: .success(.bytes(99)))
+
+        // Give drain a chance to process (if there's a bug, it would crash here)
+        await Task.yield()
+        await Task.yield()
+
+        // If we get here without crash, late completion was safely ignored
+        await queue.shutdown()
+    }
+
+    @Test("submit does not throw CancellationError (Pattern A)")
+    func submitDoesNotThrowCancellationError() async throws {
+        // Pattern A: cancellation returns a result with .cancelled outcome,
+        // it does NOT throw CancellationError. This preserves buffer ownership.
+        //
+        // This test prevents future refactors from "fixing" it back to
+        // Swift default cancellation behavior.
+
+        let fake = IO.Completion.Driver.Fake()
+        let driver = IO.Completion.Driver(fake)
+        let queue = try await IO.Completion.Queue(driver: driver)
+
+        let id = await queue.nextID()
+
+        let resultTask = Task { () -> IO.Completion.Event in
+            let operation = IO.Completion.Operation.nop(id: id)
+            let result = try await queue.submit(operation)
+            return result.take().event
+        }
+
+        try await fake.waitUntilSubmitted(id: id)
+
+        // Cancel without injecting completion
+        resultTask.cancel()
+
+        // Must NOT throw CancellationError
+        do {
+            let event = try await resultTask.value
+            #expect(event.outcome == .cancelled,
+                   "cancelled task should get .cancelled outcome, not throw")
+        } catch is CancellationError {
+            Issue.record("submit must not throw CancellationError - Pattern A violated")
+        }
 
         await queue.shutdown()
     }
