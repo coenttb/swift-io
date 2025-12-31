@@ -165,30 +165,47 @@ extension IO.Handle.Waiter {
     }
 }
 
+// MARK: - Take Accessor
+
 extension IO.Handle.Waiter {
-    /// Take the continuation for resumption. Actor-only operation.
-    ///
-    /// This method transitions the waiter to drained state and returns the
-    /// continuation. The actor must resume the returned continuation.
-    ///
-    /// - Returns: The continuation if available, along with cancellation status.
-    ///   Returns `nil` if not yet armed or already drained.
-    public func take(forResume: Void = ()) -> (continuation: CheckedContinuation<Void, Never>, wasCancelled: Bool)? {
-        guard
-            let previous = transition({ current in
-                guard current.isArmed && !current.isDrained else { return nil }
-                return current.isCancelled ? .cancelledDrained : .drained
-            })
-        else {
-            return nil
+    /// Accessor for take operations.
+    public struct Take {
+        unowned let waiter: IO.Handle.Waiter
+
+        /// Take the continuation for resumption. Actor-only operation.
+        ///
+        /// This method transitions the waiter to drained state and returns the
+        /// continuation. The actor must resume the returned continuation.
+        ///
+        /// - Returns: The continuation if available, along with cancellation status.
+        ///   Returns `nil` if not yet armed or already drained.
+        public func callAsFunction(
+        ) -> (continuation: CheckedContinuation<Void, Never>, wasCancelled: Bool)? {
+            forResume()
         }
 
-        // Take the continuation (only one caller can reach here per waiter)
-        guard let c = continuation else {
-            preconditionFailure("Waiter armed but continuation was nil")
-        }
-        continuation = nil
+        /// Take the continuation for resumption. Actor-only operation.
+        public func forResume(
+        ) -> (continuation: CheckedContinuation<Void, Never>, wasCancelled: Bool)? {
+            guard
+                let previous = waiter.transition({ current in
+                    guard current.isArmed && !current.isDrained else { return nil }
+                    return current.isCancelled ? .cancelledDrained : .drained
+                })
+            else {
+                return nil
+            }
 
-        return (c, previous.isCancelled)
+            // Take the continuation (only one caller can reach here per waiter)
+            guard let c = waiter.continuation else {
+                preconditionFailure("Waiter armed but continuation was nil")
+            }
+            waiter.continuation = nil
+
+            return (c, previous.isCancelled)
+        }
     }
+
+    /// Accessor for take operations.
+    public var take: Take { Take(waiter: self) }
 }

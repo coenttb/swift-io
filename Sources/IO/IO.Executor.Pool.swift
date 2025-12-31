@@ -617,7 +617,7 @@ extension IO.Executor.Pool where Resource: ~Copyable {
                 enqueued = false
 
                 // Ensure the task does not hang if we fail to enqueue after installing a continuation.
-                if let result = waiter.take(forResume: ()) {
+                if let result = waiter.take.forResume() {
                     result.continuation.resume()
                 } else {
                     continuation.resume()
@@ -856,7 +856,7 @@ extension IO.Executor.Pool where Resource: ~Copyable {
 
             // Cancelled: resume immediately so task can observe cancellation.
             if waiter.wasCancelled {
-                if let result = waiter.take(forResume: ()) {
+                if let result = waiter.take.forResume() {
                     result.continuation.resume()
                 }
                 // Whether or not takeForResume succeeded, waiter is done.
@@ -867,7 +867,7 @@ extension IO.Executor.Pool where Resource: ~Copyable {
             entry.reservedHandle = consume h
             entry.state = .reserved(waiterToken: waiter.token)
 
-            guard let result = waiter.take(forResume: ()) else {
+            guard let result = waiter.take.forResume() else {
                 // Waiter got cancelled between our check and takeForResume.
                 // Reclaim handle and continue draining.
                 guard let reclaimed = entry.takeReserved(token: waiter.token) else {

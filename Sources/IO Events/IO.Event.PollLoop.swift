@@ -162,7 +162,7 @@ extension IO.Event {
             replyBridge: Registration.Reply.Bridge
         ) {
             // Process remaining deregistration requests
-            for request in registrationQueue.dequeue(all: ()) {
+            for request in registrationQueue.dequeue.all() {
                 switch request {
                 case .deregister(let id, let replyID):
                     do {

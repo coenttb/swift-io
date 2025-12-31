@@ -172,12 +172,12 @@ extension IO.Event {
 
                 case .eof:
                     // True EOF - transition state
-                    await lifecycle.close(read: ())
+                    await lifecycle.close.read()
                     return 0
 
                 case .wouldBlock:
                     // Arm for read readiness, restoring token on error
-                    try await arm(forRead: ())
+                    try await arm(for: .read)
                     // Continue loop to retry read
 
                 case .error(let err):
@@ -247,7 +247,7 @@ extension IO.Event {
 
                 case .wouldBlock:
                     // Arm for write readiness, restoring token on error
-                    try await arm(forWrite: ())
+                    try await arm(for: .write)
                     // Continue loop to retry write
 
                 case .error(let err):
@@ -258,17 +258,19 @@ extension IO.Event {
 
         // MARK: - Arming Helpers
 
-        /// Arm for read readiness.
+        /// Arm for the specified interest.
         ///
         /// Uses `armPreservingToken` to ensure the token is always restored on failure.
         /// This keeps the channel in a consistent state even after cancellation or shutdown.
-        private mutating func arm(forRead: Void) async throws(Failure) {
+        ///
+        /// - Parameter interest: The interest to arm for (`.read` or `.write`).
+        private mutating func arm(for interest: IO.Event.Interest) async throws(Failure) {
             // Try registering token first (swap to extract)
             var takenRegistering: Token<Registering>? = nil
             swap(&registering, &takenRegistering)
 
             if let taken = takenRegistering {
-                switch await selector.armPreservingToken(consume taken, interest: .read) {
+                switch await selector.armPreservingToken(consume taken, interest: interest) {
                 case .armed(let result):
                     armed = consume result.token
                     // Check for socket error
@@ -290,59 +292,7 @@ extension IO.Event {
             swap(&armed, &takenArmed)
 
             if let taken = takenArmed {
-                switch await selector.armPreservingToken(consume taken, interest: .read) {
-                case .armed(let result):
-                    armed = consume result.token
-                    // Check for socket error
-                    if result.event.flags.contains(.error) {
-                        if let err = pendingSocketError() {
-                            throw Failure.failure(.platform(errno: err))
-                        }
-                    }
-                case .failed(token: let restoredToken, failure: let failure):
-                    // Restore the token and rethrow - channel remains usable
-                    armed = consume restoredToken
-                    throw failure
-                }
-                return
-            }
-
-            preconditionFailure("No token available - concurrent operation or already closed?")
-        }
-
-        /// Arm for write readiness.
-        ///
-        /// Uses `armPreservingToken` to ensure the token is always restored on failure.
-        /// This keeps the channel in a consistent state even after cancellation or shutdown.
-        private mutating func arm(forWrite: Void) async throws(Failure) {
-            // Try registering token first (swap to extract)
-            var takenRegistering: Token<Registering>? = nil
-            swap(&registering, &takenRegistering)
-
-            if let taken = takenRegistering {
-                switch await selector.armPreservingToken(consume taken, interest: .write) {
-                case .armed(let result):
-                    armed = consume result.token
-                    // Check for socket error
-                    if result.event.flags.contains(.error) {
-                        if let err = pendingSocketError() {
-                            throw Failure.failure(.platform(errno: err))
-                        }
-                    }
-                case .failed(token: let restoredToken, failure: let failure):
-                    // Restore the token and rethrow - channel remains usable
-                    registering = consume restoredToken
-                    throw failure
-                }
-                return
-            }
-
-            // Try armed token (swap to extract)
-            var takenArmed: Token<Armed>? = nil
-            swap(&armed, &takenArmed)
-
-            if let taken = takenArmed {
-                switch await selector.armPreservingToken(consume taken, interest: .write) {
+                switch await selector.armPreservingToken(consume taken, interest: interest) {
                 case .armed(let result):
                     armed = consume result.token
                     // Check for socket error
@@ -425,7 +375,7 @@ extension IO.Event {
             if await lifecycle.isReadClosed {
                 return
             }
-            await lifecycle.close(read: ())
+            await lifecycle.close.read()
 
             // Perform syscall, normalize errors for idempotence
             let result = systemShutdown(descriptor, SHUT_RD)
@@ -452,7 +402,7 @@ extension IO.Event {
             if await lifecycle.isWriteClosed {
                 return
             }
-            await lifecycle.close(write: ())
+            await lifecycle.close.write()
 
             // Perform syscall, normalize errors for idempotence
             let result = systemShutdown(descriptor, SHUT_WR)
@@ -568,8 +518,34 @@ extension IO.Event.Channel {
             state == .closed
         }
 
-        /// Transition to read-closed state.
-        func close(read: Void) {
+        // MARK: - Close Accessor
+
+        /// Accessor for close operations.
+        struct Close {
+            let lifecycle: Lifecycle
+
+            /// Transition to read-closed state.
+            func read() async {
+                await lifecycle.closeRead()
+            }
+
+            /// Transition to write-closed state.
+            func write() async {
+                await lifecycle.closeWrite()
+            }
+
+            /// Transition to fully closed state.
+            /// - Returns: `true` if already closed (no-op), `false` if transition occurred.
+            func callAsFunction() async -> Bool {
+                await lifecycle.closeAll()
+            }
+        }
+
+        /// Accessor for close operations.
+        nonisolated var close: Close { Close(lifecycle: self) }
+
+        /// Internal: Transition to read-closed state.
+        private func closeRead() {
             switch state {
             case .open:
                 state = .readClosed
@@ -580,8 +556,8 @@ extension IO.Event.Channel {
             }
         }
 
-        /// Transition to write-closed state.
-        func close(write: Void) {
+        /// Internal: Transition to write-closed state.
+        private func closeWrite() {
             switch state {
             case .open:
                 state = .writeClosed
@@ -592,9 +568,9 @@ extension IO.Event.Channel {
             }
         }
 
-        /// Transition to fully closed state.
+        /// Internal: Transition to fully closed state.
         /// - Returns: `true` if already closed (no-op), `false` if transition occurred.
-        func close() -> Bool {
+        private func closeAll() -> Bool {
             if state == .closed {
                 return true
             }

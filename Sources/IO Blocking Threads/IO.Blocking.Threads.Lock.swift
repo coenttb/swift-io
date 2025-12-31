@@ -267,13 +267,26 @@ extension IO.Blocking.Threads {
         /// Access deadline condition variable operations.
         var deadline: Deadline { Deadline(self) }
 
-        // MARK: - Shutdown Helper
+        // MARK: - Broadcast Accessor
 
-        /// Broadcast to both worker and deadline condition variables.
-        /// Used during shutdown to wake all waiting threads.
-        func broadcast(all: Void = ()) {
-            worker.broadcast()
-            deadline.broadcast()
+        /// Accessor for broadcast operations.
+        struct Broadcast {
+            unowned let lock: Lock
+
+            /// Broadcast to both worker and deadline condition variables.
+            /// Used during shutdown to wake all waiting threads.
+            func all() {
+                lock.worker.broadcast()
+                lock.deadline.broadcast()
+            }
+
+            /// Broadcast to both worker and deadline condition variables.
+            func callAsFunction() {
+                all()
+            }
         }
+
+        /// Accessor for broadcast operations.
+        var broadcast: Broadcast { Broadcast(lock: self) }
     }
 }

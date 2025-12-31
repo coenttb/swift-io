@@ -40,7 +40,7 @@ extension IO.Blocking {
                 runtime.state.lock.withLock {
                     runtime.state.isShutdown = true
                 }
-                runtime.state.lock.broadcast(all: ())
+                runtime.state.lock.broadcast.all()
                 runtime.joinAllThreads()
             }
         }
@@ -93,7 +93,7 @@ extension IO.Blocking.Threads {
         }
 
         // Lazy start workers
-        runtime.start(ifNeeded: ())
+        runtime.start.ifNeeded()
 
         let state = runtime.state
         let options = runtime.options
@@ -228,12 +228,12 @@ extension IO.Blocking.Threads {
         state.isShutdown = true
 
         // Drain acceptance waiters
-        waitersToFail = state.acceptanceWaiters.drain(all: ())
+        waitersToFail = state.acceptanceWaiters.drain()
 
         state.lock.unlock()
 
         // Wake all workers and deadline manager
-        state.lock.broadcast(all: ())
+        state.lock.broadcast.all()
 
         // Fail acceptance waiters via their contexts (outside lock)
         for waiter in waitersToFail {

@@ -20,30 +20,47 @@ extension IO.Event.Registration.Queue {
         }
     }
 
-    /// Dequeue a single request (FIFO order).
-    ///
-    /// Safe to call from any thread (typically the poll thread).
-    ///
-    /// - Returns: The next request, or `nil` if the queue is empty.
-    public func dequeue() -> IO.Event.Registration.Request? {
-        state.withLock { state in
-            guard !state.requests.isEmpty else { return nil }
-            return state.requests.removeFirst()
+    // MARK: - Dequeue Accessor
+
+    /// Accessor for dequeue operations.
+    public struct Dequeue {
+        let queue: IO.Event.Registration.Queue
+
+        /// Dequeue a single request (FIFO order).
+        ///
+        /// Safe to call from any thread (typically the poll thread).
+        ///
+        /// - Returns: The next request, or `nil` if the queue is empty.
+        public func one() -> IO.Event.Registration.Request? {
+            queue.state.withLock { state in
+                guard !state.requests.isEmpty else { return nil }
+                return state.requests.removeFirst()
+            }
+        }
+
+        /// Dequeue a single request (FIFO order).
+        ///
+        /// Convenience for `one()`.
+        public func callAsFunction() -> IO.Event.Registration.Request? {
+            one()
+        }
+
+        /// Dequeue all pending requests.
+        ///
+        /// Used during shutdown to process remaining requests.
+        ///
+        /// - Returns: All pending requests.
+        public func all() -> [IO.Event.Registration.Request] {
+            queue.state.withLock { state in
+                let requests = state.requests
+                state.requests.removeAll()
+                return requests
+            }
         }
     }
 
-    /// Dequeue all pending requests.
-    ///
-    /// Used during shutdown to process remaining requests.
-    ///
-    /// - Returns: All pending requests.
-    public func dequeue(all: Void = ()) -> [IO.Event.Registration.Request] {
-        state.withLock { state in
-            let requests = state.requests
-            state.requests.removeAll()
-            return requests
-        }
-    }
+    /// Accessor for dequeue operations.
+    public var dequeue: Dequeue { Dequeue(queue: self) }
 
     /// Check if there are pending requests.
     public var hasPending: Bool {

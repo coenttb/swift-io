@@ -32,31 +32,47 @@ extension IO.Blocking.Threads {
             )
         }
 
-        func start(ifNeeded: Void = ()) {
-            state.lock.lock()
-            defer { state.lock.unlock() }
+        // MARK: - Start Accessor
 
-            guard !isStarted else { return }
-            isStarted = true
+        /// Accessor for start operations.
+        struct Start {
+            let runtime: Runtime
 
-            // Start worker threads
-            // Thread creation failure is catastrophic - we use IO.Thread.trap
-            // since the lane cannot function without its worker threads.
-            for i in 0..<options.workers {
-                let worker = Worker(id: i, state: state)
-                let handle = IO.Thread.trap {
-                    worker.run()
+            /// Start threads if not already started.
+            func ifNeeded() {
+                runtime.state.lock.lock()
+                defer { runtime.state.lock.unlock() }
+
+                guard !runtime.isStarted else { return }
+                runtime.isStarted = true
+
+                // Start worker threads
+                // Thread creation failure is catastrophic - we use IO.Thread.trap
+                // since the lane cannot function without its worker threads.
+                for i in 0..<runtime.options.workers {
+                    let worker = Worker(id: i, state: runtime.state)
+                    let handle = IO.Thread.trap {
+                        worker.run()
+                    }
+                    runtime.threads.append(Worker.Handle(handle))
                 }
-                threads.append(Worker.Handle(handle))
+
+                // Start deadline manager thread
+                let deadlineManager = Deadline.Manager(state: runtime.state)
+                let handle = IO.Thread.trap {
+                    deadlineManager.run()
+                }
+                runtime.deadlineManagerThread = Worker.Handle(handle)
             }
 
-            // Start deadline manager thread
-            let deadlineManager = Deadline.Manager(state: state)
-            let handle = IO.Thread.trap {
-                deadlineManager.run()
+            /// Start threads if not already started.
+            func callAsFunction() {
+                ifNeeded()
             }
-            deadlineManagerThread = Worker.Handle(handle)
         }
+
+        /// Accessor for start operations.
+        var start: Start { Start(runtime: self) }
 
         func joinAllThreads() {
             // Join worker threads - each join() consumes the inner handle exactly once

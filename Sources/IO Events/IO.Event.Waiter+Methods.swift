@@ -105,42 +105,62 @@ extension IO.Event.Waiter {
         _state.load(ordering: .acquiring).isDrained
     }
 
-    /// Take the continuation for resumption. Actor-only operation.
-    ///
-    /// This method transitions the waiter to drained state and returns the
-    /// continuation. The actor must resume the returned continuation with
-    /// a `Result<Event, Failure>`.
-    ///
-    /// - Returns: The continuation if available, along with cancellation status.
-    ///   Returns `nil` if not yet armed or already drained.
-    public func take(forResume: Void = ()) -> (continuation: CheckedContinuation<Result<IO.Event, IO.Event.Failure>, Never>, wasCancelled: Bool)? {
-        while true {
-            let current = _state.load(ordering: .acquiring)
+}
 
-            // Not armed yet or already drained
-            if !current.isArmed || current.isDrained {
-                return nil
+// MARK: - Take Accessor
+
+extension IO.Event.Waiter {
+    /// Accessor for take operations.
+    public struct Take {
+        unowned let waiter: IO.Event.Waiter
+
+        /// Take the continuation for resumption. Actor-only operation.
+        ///
+        /// This method transitions the waiter to drained state and returns the
+        /// continuation. The actor must resume the returned continuation with
+        /// a `Result<Event, Failure>`.
+        ///
+        /// - Returns: The continuation if available, along with cancellation status.
+        ///   Returns `nil` if not yet armed or already drained.
+        public func callAsFunction(
+        ) -> (continuation: CheckedContinuation<Result<IO.Event, IO.Event.Failure>, Never>, wasCancelled: Bool)? {
+            forResume()
+        }
+
+        /// Take the continuation for resumption. Actor-only operation.
+        public func forResume(
+        ) -> (continuation: CheckedContinuation<Result<IO.Event, IO.Event.Failure>, Never>, wasCancelled: Bool)? {
+            while true {
+                let current = waiter._state.load(ordering: .acquiring)
+
+                // Not armed yet or already drained
+                if !current.isArmed || current.isDrained {
+                    return nil
+                }
+
+                let desired: State = current.isCancelled ? .cancelledDrained : .drained
+                let (exchanged, _) = waiter._state.compareExchange(
+                    expected: current,
+                    desired: desired,
+                    ordering: .acquiringAndReleasing
+                )
+
+                guard exchanged else {
+                    // Race - retry
+                    continue
+                }
+
+                // Take the continuation (only one caller can reach here per waiter)
+                guard let c = waiter.continuation else {
+                    preconditionFailure("Waiter armed but continuation was nil")
+                }
+                waiter.continuation = nil
+
+                return (c, current.isCancelled)
             }
-
-            let desired: State = current.isCancelled ? .cancelledDrained : .drained
-            let (exchanged, _) = _state.compareExchange(
-                expected: current,
-                desired: desired,
-                ordering: .acquiringAndReleasing
-            )
-
-            guard exchanged else {
-                // Race - retry
-                continue
-            }
-
-            // Take the continuation (only one caller can reach here per waiter)
-            guard let c = continuation else {
-                preconditionFailure("Waiter armed but continuation was nil")
-            }
-            continuation = nil
-
-            return (c, current.isCancelled)
         }
     }
+
+    /// Accessor for take operations.
+    public var take: Take { Take(waiter: self) }
 }
