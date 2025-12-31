@@ -23,7 +23,7 @@ extension IO.Completion {
     /// ## Runtime Detection
     ///
     /// The `isSupported` property checks if io_uring is available at runtime.
-    /// If not available, the EventsAdapter (epoll-based) is used as fallback.
+    /// If not available, `Driver.bestAvailable()` throws `.capability(.backendUnavailable)`.
     ///
     /// ## Design
     ///
@@ -83,7 +83,7 @@ extension IO.Completion.IOUring {
         return IO.Completion.Driver(
             capabilities: capabilities(entries: entries),
             create: { try create(entries: entries) },
-            submit: submit,
+            submitStorage: submitStorage,
             flush: flush,
             poll: poll,
             close: close,
@@ -204,10 +204,10 @@ extension IO.Completion.IOUring {
         )
     }
 
-    /// Submits an operation to io_uring.
-    static func submit(
+    /// Submits operation storage to io_uring.
+    static func submitStorage(
         _ handle: borrowing IO.Completion.Driver.Handle,
-        _ operation: borrowing IO.Completion.Operation
+        _ storage: IO.Completion.Operation.Storage
     ) throws(IO.Completion.Error) {
         guard handle.isIOUring else {
             throw .capability(.backendUnavailable)
@@ -216,11 +216,11 @@ extension IO.Completion.IOUring {
         // Fill an SQE based on operation kind
         // This is a placeholder - actual implementation would:
         // 1. Get next SQE from SQ ring
-        // 2. Fill fields based on operation kind
-        // 3. Set user_data to operation.storage pointer
+        // 2. Fill fields based on storage.kind
+        // 3. Set user_data to storage.userData (pointer recovery)
         // 4. Advance SQ tail
 
-        switch operation.kind {
+        switch storage.kind {
         case .read:
             // IORING_OP_READ
             break

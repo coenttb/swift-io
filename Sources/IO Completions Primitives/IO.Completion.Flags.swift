@@ -18,7 +18,6 @@ extension IO.Completion {
     ///
     /// - **io_uring**: Maps from `IORING_CQE_F_*` flags
     /// - **IOCP**: Limited flag support, mainly for batching hints
-    /// - **EventsAdapter**: Minimal flags (mostly `more` for batching)
     public struct Flags: OptionSet, Sendable, Hashable {
         public let rawValue: UInt8
 

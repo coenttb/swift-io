@@ -14,8 +14,8 @@ extension IO.Completion.Driver {
     /// ## Platform Storage
     ///
     /// - **Windows**: `CreateIoCompletionPort()` handle (`HANDLE`)
-    /// - **Linux (io_uring)**: Ring file descriptor + ring memory pointer
-    /// - **Darwin/Linux (EventsAdapter)**: kqueue/epoll fd + pending ops map
+    /// - **Linux**: io_uring ring file descriptor + ring memory pointer
+    /// - **Darwin**: kqueue fd (for Fake driver testing only)
     ///
     /// ## Thread Safety
     ///
@@ -104,9 +104,9 @@ extension IO.Completion.Driver {
         @usableFromInline
         package var isIOUring: Bool { _ringPtr != nil }
         #else
-        /// The Darwin kqueue file descriptor.
+        /// The Darwin file descriptor.
         ///
-        /// For use by kqueue EventsAdapter only.
+        /// For use by Fake driver testing only (Darwin has no completion backend).
         @usableFromInline
         package var descriptor: Int32 { _descriptor }
         #endif

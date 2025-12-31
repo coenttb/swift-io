@@ -13,7 +13,6 @@ extension IO.Completion {
     /// Each kind maps to platform-specific submission mechanisms:
     /// - **IOCP**: WSARecv, WSASend, ReadFile, WriteFile, AcceptEx, ConnectEx
     /// - **io_uring**: IORING_OP_* constants
-    /// - **EventsAdapter**: Arm readiness → syscall → completion
     ///
     /// ## Capability Checking
     ///
@@ -109,18 +108,6 @@ extension IO.Completion {
         }
 
         // MARK: - Predefined Sets
-
-        /// Operations supported by the EventsAdapter (v1).
-        ///
-        /// Limited subset for Darwin and Linux epoll fallback.
-        public static let eventsAdapterV1: KindSet = [
-            KindSet(.nop),
-            KindSet(.read),
-            KindSet(.write),
-            KindSet(.accept),
-            KindSet(.connect),
-            KindSet(.wakeup),
-        ]
 
         /// Operations supported by Windows IOCP.
         public static let iocp: KindSet = [

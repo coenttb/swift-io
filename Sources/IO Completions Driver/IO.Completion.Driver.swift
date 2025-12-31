@@ -21,8 +21,8 @@ extension IO.Completion {
     /// The Driver provides a uniform interface over platform-specific
     /// completion mechanisms:
     /// - **Windows**: IOCP (I/O Completion Ports)
-    /// - **Linux**: io_uring (with epoll fallback)
-    /// - **Darwin**: EventsAdapter (completion façade over kqueue)
+    /// - **Linux**: io_uring
+    /// - **Darwin**: Not supported (use IO.Events with kqueue instead)
     ///
     /// ## Thread Safety Model
     ///
@@ -54,12 +54,15 @@ extension IO.Completion {
         /// Create a new completion handle.
         let _create: @Sendable () throws(Error) -> Handle
 
-        /// Submit an operation for completion.
+        /// Submit operation storage to the completion backend.
         ///
-        /// Called from poll thread only.
-        let _submit: @Sendable (
+        /// Called from poll thread only. This is the primary submit witness.
+        /// Takes `Operation.Storage` directly, allowing the poll thread to
+        /// drain the `Submission.Queue` and submit storages without
+        /// reconstructing `Operation` wrappers.
+        let _submitStorage: @Sendable (
             borrowing Handle,
-            borrowing Operation
+            Operation.Storage
         ) throws(Error) -> Void
 
         /// Flush pending submissions to the kernel.
@@ -95,16 +98,24 @@ extension IO.Completion {
         /// to wake the poll thread. Uses platform-specific primitives:
         /// - IOCP: `PostQueuedCompletionStatus`
         /// - io_uring: eventfd or IORING_OP_NOP
-        /// - EventsAdapter: kqueue EVFILT_USER or eventfd
         let _createWakeupChannel: @Sendable (borrowing Handle) throws(Error) -> Wakeup.Channel
 
         // MARK: - Initialization
 
         /// Creates a driver with the given witness closures.
+        ///
+        /// - Parameters:
+        ///   - capabilities: Backend capabilities.
+        ///   - create: Creates a new completion handle.
+        ///   - submitStorage: Submits operation storage to the backend.
+        ///   - flush: Flushes pending submissions.
+        ///   - poll: Waits for completion events.
+        ///   - close: Closes the handle.
+        ///   - createWakeupChannel: Creates a wakeup channel.
         public init(
             capabilities: Capabilities,
             create: @escaping @Sendable () throws(Error) -> Handle,
-            submit: @escaping @Sendable (borrowing Handle, borrowing Operation) throws(Error) -> Void,
+            submitStorage: @escaping @Sendable (borrowing Handle, Operation.Storage) throws(Error) -> Void,
             flush: @escaping @Sendable (borrowing Handle) throws(Error) -> Int,
             poll: @escaping @Sendable (borrowing Handle, Deadline?, inout [Event]) throws(Error) -> Int,
             close: @escaping @Sendable (consuming Handle) -> Void,
@@ -112,7 +123,7 @@ extension IO.Completion {
         ) {
             self.capabilities = capabilities
             self._create = create
-            self._submit = submit
+            self._submitStorage = submitStorage
             self._flush = flush
             self._poll = poll
             self._close = close
@@ -127,11 +138,26 @@ extension IO.Completion {
         }
 
         /// Submit an operation.
+        ///
+        /// Convenience API that extracts storage from the operation.
+        /// For direct storage submission (used by poll loop), use
+        /// `submit(_:storage:)` instead.
         public func submit(
             _ handle: borrowing Handle,
-            operation: borrowing Operation
+            operation: consuming Operation
         ) throws(Error) {
-            try _submit(handle, operation)
+            try _submitStorage(handle, operation.storage)
+        }
+
+        /// Submit operation storage directly.
+        ///
+        /// Primary submit API used by the poll loop after draining
+        /// the submission queue.
+        public func submit(
+            _ handle: borrowing Handle,
+            storage: Operation.Storage
+        ) throws(Error) {
+            try _submitStorage(handle, storage)
         }
 
         /// Flush pending submissions.

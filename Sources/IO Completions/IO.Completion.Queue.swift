@@ -85,14 +85,20 @@ extension IO.Completion {
         /// The driver backend.
         let driver: Driver
 
-        /// The poll thread.
-        let pollThread: IO.Executor.Thread
+        /// The submission queue for actor → poll thread handoff.
+        let submissions: Submission.Queue
+
+        /// The bridge for poll thread → actor event handoff.
+        let bridge: Bridge
 
         /// The wakeup channel for signaling the poll thread.
         let wakeupChannel: Wakeup.Channel
 
-        /// The bridge for poll thread → actor event handoff.
-        let bridge: Bridge
+        /// The shutdown flag for the poll loop.
+        let shutdownFlag: PollLoop.Shutdown.Flag
+
+        /// The poll thread handle.
+        var pollThreadHandle: IO.Thread.Handle?
 
         /// Unified entry tracking.
         ///
@@ -106,6 +112,9 @@ extension IO.Completion {
 
         /// Whether shutdown has been initiated.
         private var isShutdown: Bool = false
+
+        /// The bridge drain task.
+        private var drainTask: Task<Void, Never>?
 
         // MARK: - Entry
 
@@ -139,8 +148,13 @@ extension IO.Completion {
         /// - Throws: If handle or poll thread creation fails.
         public init(driver: IO.Completion.Driver) async throws(Failure) {
             self.driver = driver
-            self.bridge = Bridge()
 
+            // Create thread-safe primitives
+            self.submissions = Submission.Queue()
+            self.bridge = Bridge()
+            self.shutdownFlag = PollLoop.Shutdown.Flag()
+
+            // Create driver handle
             let handle: IO.Completion.Driver.Handle
             do {
                 handle = try driver.create()
@@ -148,6 +162,7 @@ extension IO.Completion {
                 throw .failure(error)
             }
 
+            // Create wakeup channel
             let wakeupChannel: Wakeup.Channel
             do {
                 wakeupChannel = try driver.createWakeupChannel(handle)
@@ -156,15 +171,42 @@ extension IO.Completion {
             }
             self.wakeupChannel = wakeupChannel
 
-            // Start poll thread
-            // Note: In a real implementation, this would properly transfer
-            // the handle to the poll thread and run the poll loop
-            self.pollThread = IO.Executor.Thread()
+            // Build poll loop context (consumes handle)
+            let context = PollLoop.Context(
+                driver: driver,
+                handle: handle,
+                submissions: submissions,
+                wakeup: wakeupChannel,
+                bridge: bridge,
+                shutdownFlag: shutdownFlag
+            )
+
+            // Spawn poll thread using IO.Handoff.Cell for ownership transfer
+            let cell = IO.Handoff.Cell(context)
+            let token = cell.token()
+
+            do {
+                self.pollThreadHandle = try IO.Thread.spawn {
+                    let ctx = token.take()
+                    PollLoop.run(ctx)
+                }
+            } catch {
+                // Poll thread creation failed - clean up
+                wakeupChannel.close()
+                throw .failure(.lifecycle(.queueClosed))
+            }
+
+            // Start bridge drain task
+            self.drainTask = Task { [weak self] in
+                while let events = await self?.bridge.next() {
+                    await self?.drain(events)
+                }
+            }
         }
 
         deinit {
-            // Cleanup
-            wakeupChannel.close()
+            // Cleanup - drain task and wakeup channel
+            drainTask?.cancel()
         }
 
         // MARK: - ID Generation
@@ -217,9 +259,9 @@ extension IO.Completion {
                         return
                     }
 
-                    // Submit to driver
-                    // In a real implementation:
-                    // driver.submit(handle, storage)
+                    // Submit to poll thread via submission queue
+                    submissions.push(storage)
+                    wakeup.wake()
 
                     // Early completion: If completion arrived before we armed,
                     // drain() couldn't resume us (waiter wasn't armed).
@@ -328,7 +370,7 @@ extension IO.Completion {
         ///
         /// - Note: shutdown() should only be called when no new submits are in progress.
         ///   Unarmed waiters will progress when they arm (submit sees isShutdown).
-        public func shutdown() async throws(Failure) {
+        public func shutdown() async {
             guard !isShutdown else { return }
             isShutdown = true
 
@@ -347,14 +389,25 @@ extension IO.Completion {
             // Unarmed waiters: when they arm in submit(), they will proceed
             // immediately (continuation resumes) and see isShutdown after await.
 
+            // Set shutdown flag for poll loop
+            shutdownFlag.set()
+
             // Signal bridge shutdown
             bridge.shutdown()
 
             // Wake poll thread to exit
             wakeupChannel.wake()
 
+            // Close wakeup channel
+            wakeupChannel.close()
+
+            // Cancel drain task
+            drainTask?.cancel()
+
             // Wait for poll thread to exit
-            // pollThread.join() - would be called here
+            if let handle = pollThreadHandle._take() {
+                handle.join()
+            }
         }
     }
 }
@@ -365,21 +418,24 @@ extension IO.Completion.Driver {
     /// Returns the best available driver for the current platform.
     ///
     /// - **Windows**: IOCP
-    /// - **Linux**: io_uring if available, else EventsAdapter (epoll)
-    /// - **Darwin**: EventsAdapter (kqueue)
+    /// - **Linux**: io_uring (throws if unavailable)
+    /// - **Darwin**: throws `.capability(.backendUnavailable)` - no completion backend
     ///
-    /// - Throws: If no driver can be created.
+    /// Darwin has no true completion-based I/O facility. Use `IO.Events` (kqueue)
+    /// for Darwin. This separation keeps IO.Completion semantically pure:
+    /// only real proactor backends (IOCP, io_uring) are supported.
+    ///
+    /// - Throws: If no driver can be created or platform lacks completion support.
     public static func bestAvailable() throws(IO.Completion.Error) -> IO.Completion.Driver {
         #if os(Windows)
-        return IO.Completion.IOCP.driver()
+        return try IO.Completion.IOCP.driver()
         #elseif os(Linux)
-        if IO.Completion.IOUring.isSupported {
-            return try IO.Completion.IOUring.driver()
-        } else {
-            return IO.Completion.EventsAdapter.driver()
+        guard IO.Completion.IOUring.isSupported else {
+            throw .capability(.backendUnavailable)
         }
+        return try IO.Completion.IOUring.driver()
         #else
-        return IO.Completion.EventsAdapter.driver()
+        throw .capability(.backendUnavailable)
         #endif
     }
 }

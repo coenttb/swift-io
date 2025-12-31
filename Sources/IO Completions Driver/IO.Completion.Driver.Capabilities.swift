@@ -27,7 +27,6 @@ extension IO.Completion.Driver {
         ///
         /// - **IOCP**: Effectively unlimited (immediate submission)
         /// - **io_uring**: Ring size (typically 128-4096)
-        /// - **EventsAdapter**: 1 (no batching)
         public let maxSubmissions: Int
 
         /// Maximum number of completions that can be returned per poll.
@@ -47,7 +46,6 @@ extension IO.Completion.Driver {
         ///
         /// - **IOCP**: false (immediate)
         /// - **io_uring**: true (batch until flush)
-        /// - **EventsAdapter**: false (immediate per-op syscall)
         public let batchedSubmission: Bool
 
         /// Whether the backend supports registered/pinned buffers.
@@ -56,7 +54,6 @@ extension IO.Completion.Driver {
         ///
         /// - **io_uring**: true (IORING_REGISTER_BUFFERS)
         /// - **IOCP**: false
-        /// - **EventsAdapter**: false
         public let registeredBuffers: Bool
 
         /// Whether the backend supports multishot operations.
@@ -66,7 +63,6 @@ extension IO.Completion.Driver {
         ///
         /// - **io_uring 5.19+**: true (IORING_ACCEPT_MULTISHOT)
         /// - **IOCP**: false
-        /// - **EventsAdapter**: false
         public let multishot: Bool
 
         /// Creates a capabilities descriptor.

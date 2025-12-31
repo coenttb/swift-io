@@ -24,7 +24,6 @@ extension IO.Completion {
     ///
     /// - **IOCP**: Stored in completion key
     /// - **io_uring**: Stored in user_data field
-    /// - **EventsAdapter**: Internal map key
     public struct ID: Hashable, Sendable {
         /// The raw 64-bit identifier value.
         public let raw: UInt64

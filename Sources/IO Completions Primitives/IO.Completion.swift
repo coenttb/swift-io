@@ -12,8 +12,8 @@ extension IO {
     ///
     /// Provides a proactor-style completion-based I/O API:
     /// - **Windows**: IOCP (native)
-    /// - **Linux**: io_uring (native, runtime detection) with epoll fallback
-    /// - **Darwin**: Completion façade over kqueue
+    /// - **Linux**: io_uring (native, runtime detection)
+    /// - **Darwin**: Not supported (use IO.Events with kqueue instead)
     ///
     /// Core principle: `submit operation → await completion`
     ///
@@ -22,8 +22,8 @@ extension IO {
     /// The completion-based I/O system is layered:
     /// 1. **Primitives** (this module): `Completion`, `ID`, `Operation`, `Event`, `Result`, `Error`
     /// 2. **Driver**: Protocol witness struct for platform backends
-    /// 3. **Backends**: Platform-specific implementations (IOCP, io_uring, EventsAdapter)
-    /// 4. **Runtime**: Queue actor, Bridge, Channel
+    /// 3. **Backends**: Platform-specific implementations (IOCP, io_uring)
+    /// 4. **Runtime**: Queue actor, Bridge, PollLoop
     ///
     /// ## Key Types
     ///
