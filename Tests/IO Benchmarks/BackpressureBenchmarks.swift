@@ -18,6 +18,12 @@
 //  difference in backpressure strategies.
 //
 
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
+
 import IO
 import NIOPosix
 import StandardsTestSupport
@@ -56,11 +62,14 @@ extension BackpressureBenchmarks.Test.Performance {
             var rejected = 0
 
             await withTaskGroup(of: Bool.self) { group in
+                // Submit more operations than capacity allows
                 for _ in 0..<(fillCount + 10) {
                     group.addTask {
                         do {
                             let result: Result<Bool, Never> = try await lane.run(deadline: .none) {
-                                ThroughputBenchmarks.simulateWork(microseconds: 1000)
+                                // Block until barrier is released - ensures queue fills
+                                // before any work completes. Use usleep for actual blocking.
+                                usleep(10_000)  // 10ms - long enough to guarantee fill
                                 return true
                             }
                             switch result {
@@ -72,6 +81,9 @@ extension BackpressureBenchmarks.Test.Performance {
                         }
                     }
                 }
+
+                // Small delay to ensure all tasks are submitted and queued
+                try? await Task.sleep(for: .milliseconds(5))
 
                 for await wasAccepted in group {
                     if wasAccepted {
