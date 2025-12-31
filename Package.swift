@@ -19,6 +19,9 @@ let package = Package(
         .library(name: "IO Events Driver", targets: ["IO Events Driver"]),
         .library(name: "IO Events Kqueue", targets: ["IO Events Kqueue"]),
         .library(name: "IO Events", targets: ["IO Events"]),
+        .library(name: "IO Completions Primitives", targets: ["IO Completions Primitives"]),
+        .library(name: "IO Completions Driver", targets: ["IO Completions Driver"]),
+        .library(name: "IO Completions", targets: ["IO Completions"]),
     ],
     traits: [
         .trait(name: "Codable", description: "Enable Codable conformances for Handle.ID and other types"),
@@ -82,6 +85,36 @@ let package = Package(
                 .target(name: "IO Events Kqueue", condition: .when(platforms: [.macOS, .iOS, .tvOS, .watchOS])),
                 .target(name: "IO Events Epoll", condition: .when(platforms: [.linux])),
                 .product(name: "Binary", package: "swift-standards"),
+            ]
+        ),
+        .target(
+            name: "IO Completions Primitives",
+            dependencies: [
+                "IO Primitives",
+                .product(name: "Kernel", package: "swift-kernel"),
+                .product(name: "Buffer", package: "swift-buffer"),
+            ]
+        ),
+        .target(
+            name: "IO Completions Driver",
+            dependencies: ["IO Completions Primitives"]
+        ),
+        .target(
+            name: "IO Completions IOCP",
+            dependencies: ["IO Completions Driver"]
+        ),
+        .target(
+            name: "IO Completions IOUring",
+            dependencies: ["IO Completions Driver"]
+        ),
+        .target(
+            name: "IO Completions",
+            dependencies: [
+                "IO Completions Driver",
+                "IO Events",
+                .product(name: "Buffer", package: "swift-buffer"),
+                .target(name: "IO Completions IOCP", condition: .when(platforms: [.windows])),
+                .target(name: "IO Completions IOUring", condition: .when(platforms: [.linux])),
             ]
         ),
         .testTarget(
