@@ -53,7 +53,7 @@ extension RegistrationBenchmarks.Test.Performance {
 
             // Dequeue
             var count = 0
-            while let _ = queue.dequeue() {
+            while queue.dequeue() != nil {
                 count += 1
             }
             withExtendedLifetime(count) {}
@@ -86,7 +86,7 @@ extension RegistrationBenchmarks.Test.Performance {
 
             // Dequeue all
             var count = 0
-            while let _ = queue.dequeue() {
+            while queue.dequeue() != nil {
                 count += 1
             }
             withExtendedLifetime(count) {}

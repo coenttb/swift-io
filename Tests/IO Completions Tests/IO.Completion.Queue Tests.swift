@@ -616,25 +616,25 @@ extension IO.Completion.Driver.Fake {
 
 extension IO.Completion.Driver.Fake.Test.Unit {
     @Test("fake driver records submissions")
-    func recordsSubmissions() async {
+    func recordsSubmissions() async throws {
         let fake = IO.Completion.Driver.Fake()
         let driver = IO.Completion.Driver(fake)
 
-        let handle = try! driver.create()
+        let handle = try driver.create()
         let id = IO.Completion.ID(raw: 42)
         let operation = IO.Completion.Operation.nop(id: id)
 
-        try! driver.submit(handle, operation: operation)
+        try driver.submit(handle, operation: operation)
 
         #expect(fake.submissions[id] == .nop)
     }
 
     @Test("fake driver injects completions")
-    func injectsCompletions() async {
+    func injectsCompletions() async throws {
         let fake = IO.Completion.Driver.Fake()
         let driver = IO.Completion.Driver(fake)
 
-        let handle = try! driver.create()
+        let handle = try driver.create()
         let id = IO.Completion.ID(raw: 42)
 
         // Inject a completion
@@ -642,7 +642,7 @@ extension IO.Completion.Driver.Fake.Test.Unit {
 
         // Poll should return it
         var buffer: [IO.Completion.Event] = []
-        let count = try! driver.poll(handle, deadline: nil, into: &buffer)
+        let count = try driver.poll(handle, deadline: nil, into: &buffer)
 
         #expect(count == 1)
         #expect(buffer.count == 1)
@@ -652,12 +652,12 @@ extension IO.Completion.Driver.Fake.Test.Unit {
     }
 
     @Test("fake driver wakeup is recorded")
-    func wakeupRecorded() async {
+    func wakeupRecorded() async throws {
         let fake = IO.Completion.Driver.Fake()
         let driver = IO.Completion.Driver(fake)
 
-        let handle = try! driver.create()
-        let wakeup = try! driver.createWakeupChannel(handle)
+        let handle = try driver.create()
+        let wakeup = try driver.createWakeupChannel(handle)
 
         #expect(!fake.wasWoken)
 

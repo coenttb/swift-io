@@ -497,7 +497,7 @@ extension IO.Event.Channel {
     ///
     /// This actor manages only the lifecycle state transitions.
     /// I/O operations and token management are handled by Channel directly.
-    actor Lifecycle: Sendable {
+    actor Lifecycle {
         private var state: HalfCloseState = .open
 
         var isReadClosed: Bool {

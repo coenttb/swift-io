@@ -44,8 +44,7 @@ extension IO.Thread.Trap {
     public func callAsFunction(
         _ body: @escaping @Sendable () -> Void
     ) -> IO.Thread.Handle {
-        do { return try IO.Thread.spawn(body) }
-        catch { fatalError(error.description) }
+        do { return try IO.Thread.spawn(body) } catch { fatalError(error.description) }
     }
 
     /// Spawns a dedicated OS thread with an explicit value, trapping on failure.
@@ -59,7 +58,6 @@ extension IO.Thread.Trap {
         _ value: consuming T,
         _ body: @escaping @Sendable (consuming T) -> Void
     ) -> IO.Thread.Handle {
-        do { return try IO.Thread.spawn(value, body) }
-        catch { fatalError(error.description) }
+        do { return try IO.Thread.spawn(value, body) } catch { fatalError(error.description) }
     }
 }

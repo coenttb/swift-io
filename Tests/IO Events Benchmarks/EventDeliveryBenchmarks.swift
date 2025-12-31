@@ -85,7 +85,7 @@ extension EventDeliveryBenchmarks.Test.Performance {
 
             // Consumer
             var count = 0
-            while let _ = await bridge.next() {
+            while await bridge.next() != nil {
                 count += 1
             }
 

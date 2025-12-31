@@ -360,7 +360,7 @@ struct HandleErrorTests {
             ]
 
             for i in 0..<errors.count {
-                for j in (i+1)..<errors.count {
+                for j in (i + 1)..<errors.count {
                     #expect(errors[i] != errors[j])
                 }
             }
@@ -498,7 +498,7 @@ struct HandleIntegrationTests {
             let handle = try IO.File.open(path, options: options)
 
             let content = "Written content"
-            let bytesWritten = try content.withCString { ptr in
+            let bytesWritten = try content.withCString { _ in
                 try [UInt8](content.utf8).withUnsafeBytes { buffer in
                     try handle.write(from: buffer, at: 0)
                 }
@@ -601,7 +601,7 @@ struct DirectErrorTests {
         ]
 
         for i in 0..<errors.count {
-            for j in (i+1)..<errors.count {
+            for j in (i + 1)..<errors.count {
                 #expect(errors[i] != errors[j])
             }
         }

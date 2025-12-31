@@ -7,7 +7,6 @@
 
 @_exported public import IO_Events_Driver
 
-
 extension IO.Event {
     /// The central runtime for non-blocking I/O operations.
     ///
@@ -1029,8 +1028,7 @@ extension IO.Event.Selector {
             static func driver<T: ~Copyable>(
                 _ body: () throws(IO.Event.Error) -> T
             ) throws(IO.Event.Selector.Make.Error) -> T {
-                do { return try body() }
-                catch let e { throw .driver(e) }
+                do { return try body() } catch let e { throw .driver(e) }
             }
         }
     }
