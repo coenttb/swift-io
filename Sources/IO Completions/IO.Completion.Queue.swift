@@ -272,7 +272,9 @@ extension IO.Completion {
                 }
             } onCancel: {
                 waiter.cancel()
-                wakeup.wake()
+                // Resume immediately - submit() will see wasCancelled and return cancelled event.
+                // resume.id() is idempotent; if drain() already resumed, this is a no-op.
+                waiter.resume.id(id)
             }
 
             // Actor decides outcome after await - single removal point

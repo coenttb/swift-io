@@ -45,7 +45,10 @@ extension IO.Completion.Driver {
             /// Injectable completion events queue
             var completionQueue: [IO.Completion.Event] = []
 
-            /// Whether wakeup was called
+            /// Control flag: poll should wake and check for work
+            var wakeupSignaled: Bool = false
+
+            /// Observation flag: wakeup was called (for tests)
             var wakeupCalled: Bool = false
 
             /// Whether the fake is shutdown
@@ -142,10 +145,13 @@ extension IO.Completion.Driver {
         // MARK: - Test Helpers
 
         /// Records a submission (called by driver witness).
+        ///
+        /// Broadcasts to wake any waiters (e.g., `waitUntilSubmitted`).
         func recordSubmission(id: IO.Completion.ID, kind: IO.Completion.Kind) {
-            withLock { state in
-                state.submissions[id] = kind
-            }
+            lock()
+            state.submissions[id] = kind
+            broadcast()
+            unlock()
         }
 
         /// Injects a completion event and wakes the poll thread.
@@ -173,7 +179,8 @@ extension IO.Completion.Driver {
         /// Signals the poll thread to wake up (without injecting events).
         func signalWakeup() {
             lock()
-            state.wakeupCalled = true
+            state.wakeupSignaled = true  // Control flag for poll loop
+            state.wakeupCalled = true     // Observation flag for tests
             broadcast()
             unlock()
         }
@@ -206,15 +213,15 @@ extension IO.Completion.Driver {
             defer { unlock() }
 
             // Wait until we have events, wakeup, or shutdown
-            while state.completionQueue.isEmpty && !state.wakeupCalled && !state.isShutdown {
+            while state.completionQueue.isEmpty && !state.wakeupSignaled && !state.isShutdown {
                 if let deadline = deadline, deadline.hasExpired {
                     break
                 }
                 wait()
             }
 
-            // Clear wakeup flag
-            state.wakeupCalled = false
+            // Clear control flag only (observation flag preserved for tests)
+            state.wakeupSignaled = false
 
             // Drain events
             let events = state.completionQueue
@@ -251,6 +258,57 @@ extension IO.Completion.Driver {
             withLock { state in
                 state.wakeupCalled = false
             }
+        }
+
+        /// Blocks until a submission with the given ID is recorded.
+        ///
+        /// Uses condition variable for proper synchronization (no polling loops).
+        /// Call from a non-async context (e.g., detached Task or test thread).
+        ///
+        /// - Parameters:
+        ///   - id: The submission ID to wait for.
+        ///   - timeoutMs: Timeout in milliseconds (default 200ms).
+        /// - Returns: `true` if submission was recorded, `false` on timeout.
+        func waitForSubmission(id: IO.Completion.ID, timeoutMs: UInt32 = 200) -> Bool {
+            lock()
+            defer { unlock() }
+
+            #if os(Windows)
+            // Windows: single timed wait
+            while state.submissions[id] == nil {
+                if SleepConditionVariableSRW(&condvar, &srwlock, timeoutMs, 0) == 0 {
+                    // Timeout or error
+                    return state.submissions[id] != nil
+                }
+            }
+            return true
+            #else
+            // POSIX: compute absolute deadline once, then loop with timedwait
+            var deadline = timespec()
+            #if os(macOS) || os(iOS) || os(tvOS) || os(watchOS)
+            var now = timeval()
+            gettimeofday(&now, nil)
+            let deadlineNs = UInt64(now.tv_sec) * 1_000_000_000 + UInt64(now.tv_usec) * 1_000 + UInt64(timeoutMs) * 1_000_000
+            deadline.tv_sec = Int(deadlineNs / 1_000_000_000)
+            deadline.tv_nsec = Int(deadlineNs % 1_000_000_000)
+            #else
+            clock_gettime(CLOCK_MONOTONIC, &deadline)
+            deadline.tv_sec += Int(timeoutMs / 1000)
+            deadline.tv_nsec += Int((timeoutMs % 1000)) * 1_000_000
+            if deadline.tv_nsec >= 1_000_000_000 {
+                deadline.tv_sec += 1
+                deadline.tv_nsec -= 1_000_000_000
+            }
+            #endif
+
+            while state.submissions[id] == nil {
+                let result = pthread_cond_timedwait(&cond, &mutex, &deadline)
+                if result == ETIMEDOUT {
+                    return state.submissions[id] != nil
+                }
+            }
+            return true
+            #endif
         }
     }
 }
