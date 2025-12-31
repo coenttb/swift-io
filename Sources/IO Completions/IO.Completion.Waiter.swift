@@ -40,9 +40,10 @@ extension IO.Completion {
     ///
     /// ## Typed Continuation
     ///
-    /// Uses `CheckedContinuation<IO.Completion.Submit.Outcome, Never>` to maintain
-    /// typed error discipline without existential widening. The continuation is
-    /// non-throwing; errors are represented as `.failure` in the outcome enum.
+    /// Uses `CheckedContinuation<IO.Completion.ID, Never>` - a Copyable signal type.
+    /// The continuation carries only the operation ID; the actor extracts the buffer
+    /// and event from storage after await. This satisfies Swift's Copyable constraint
+    /// on continuation payloads.
     ///
     /// ## Thread Safety
     ///
@@ -73,8 +74,8 @@ extension IO.Completion {
 
         /// The continuation. Set once during arm(), cleared once during takeForResume().
         ///
-        /// Uses non-throwing continuation with typed outcome to avoid existential errors.
-        var continuation: CheckedContinuation<IO.Completion.Submit.Outcome, Never>?
+        /// Uses non-throwing continuation with Copyable ID to satisfy Swift's constraint.
+        var continuation: CheckedContinuation<IO.Completion.ID, Never>?
 
         /// The operation ID this waiter is waiting on.
         public let id: IO.Completion.ID
@@ -94,7 +95,7 @@ extension IO.Completion {
         /// resume the continuation with cancellation immediately.
         @discardableResult
         public func arm(
-            continuation: CheckedContinuation<IO.Completion.Submit.Outcome, Never>
+            continuation: CheckedContinuation<IO.Completion.ID, Never>
         ) -> Bool {
             let (exchanged, original) = _state.compareExchange(
                 expected: .unarmed,
@@ -157,6 +158,34 @@ extension IO.Completion {
         /// Namespace for take operations.
         public var take: Take { Take(waiter: self) }
 
+        /// Namespace for resume operations.
+        public var resume: Resume { Resume(waiter: self) }
+
+        /// Resume operations for the waiter.
+        ///
+        /// Provides a single point for resuming the waiter's continuation.
+        /// This ensures state consumption is centralized and prevents
+        /// double-resume bugs.
+        public struct Resume {
+            let waiter: Waiter
+
+            /// Resumes the waiter with the given ID.
+            ///
+            /// This method consumes the waiter state and resumes the continuation
+            /// exactly once. Safe to call from submit() for early completion handling.
+            ///
+            /// - Parameter id: The operation ID to resume with.
+            /// - Returns: `true` if resumed, `false` if already drained or not armed.
+            @discardableResult
+            public func id(_ id: IO.Completion.ID) -> Bool {
+                if let (cont, _) = waiter.take.forResume() {
+                    cont.resume(returning: id)
+                    return true
+                }
+                return false
+            }
+        }
+
         /// Take operations for draining the waiter.
         public struct Take {
             let waiter: Waiter
@@ -167,7 +196,7 @@ extension IO.Completion {
             ///
             /// - Returns: The continuation and whether it was cancelled, or nil if already drained.
             public func forResume() -> (
-                continuation: CheckedContinuation<IO.Completion.Submit.Outcome, Never>,
+                continuation: CheckedContinuation<IO.Completion.ID, Never>,
                 cancelled: Bool
             )? {
                 while true {

@@ -5,8 +5,26 @@
 //  Created by Coen ten Thije Boonkkamp on 31/12/2025.
 //
 
+// Import Kernel for Kernel.Error. We use @_silgen_name("kevent") to define
+// our own kevent wrapper (c_kevent) which avoids the symbol collision with
+// any Kernel module kevent wrapper at call sites.
+public import Kernel
+
 #if canImport(Darwin)
 import Darwin
+
+// Local kevent wrapper via @_silgen_name to avoid calling Kernel's kevent overlay.
+// By using a uniquely named function, we ensure we call the C function directly.
+@_silgen_name("kevent")
+private func c_kevent(
+    _ kq: Int32,
+    _ changelist: UnsafePointer<Darwin.kevent>?,
+    _ nchanges: Int32,
+    _ eventlist: UnsafeMutablePointer<Darwin.kevent>?,
+    _ nevents: Int32,
+    _ timeout: UnsafePointer<timespec>?
+) -> Int32
+
 #elseif canImport(Glibc)
 import Glibc
 #endif
@@ -143,7 +161,7 @@ extension IO.Completion.EventsAdapter {
         _ deadline: IO.Completion.Deadline?,
         _ buffer: inout [IO.Completion.Event]
     ) throws(IO.Completion.Error) -> Int {
-        var events = [kevent](repeating: kevent(), count: buffer.count)
+        var events = [Darwin.kevent](repeating: Darwin.kevent(), count: buffer.count)
 
         var timeout: timespec?
         if let deadline {
@@ -159,9 +177,9 @@ extension IO.Completion.EventsAdapter {
 
         let count: Int32
         if var ts = timeout {
-            count = kevent(handle.descriptor, nil, 0, &events, Int32(events.count), &ts)
+            count = c_kevent(handle.descriptor, nil, 0, &events, Int32(events.count), &ts)
         } else {
-            count = kevent(handle.descriptor, nil, 0, &events, Int32(events.count), nil)
+            count = c_kevent(handle.descriptor, nil, 0, &events, Int32(events.count), nil)
         }
 
         if count < 0 {
@@ -235,7 +253,7 @@ extension IO.Completion.EventsAdapter {
         let fd = handle.descriptor
 
         // Register user event
-        var event = kevent()
+        var event = Darwin.kevent()
         event.ident = 1  // Wakeup ident
         event.filter = Int16(EVFILT_USER)
         event.flags = UInt16(EV_ADD | EV_CLEAR)
@@ -243,7 +261,7 @@ extension IO.Completion.EventsAdapter {
         event.data = 0
         event.udata = nil
 
-        var result = kevent(fd, &event, 1, nil, 0, nil)
+        let result = c_kevent(fd, &event, 1, nil, 0, nil)
         if result < 0 {
             let error = errno
             throw .kernel(.platform(code: error, message: "kevent EVFILT_USER register failed"))
@@ -251,7 +269,7 @@ extension IO.Completion.EventsAdapter {
 
         return IO.Completion.Wakeup.Channel(
             wake: {
-                var triggerEvent = kevent()
+                var triggerEvent = Darwin.kevent()
                 triggerEvent.ident = 1
                 triggerEvent.filter = Int16(EVFILT_USER)
                 triggerEvent.flags = 0
@@ -259,7 +277,7 @@ extension IO.Completion.EventsAdapter {
                 triggerEvent.data = 0
                 triggerEvent.udata = nil
 
-                _ = Darwin.kevent(fd, &triggerEvent, 1, nil, 0, nil)
+                _ = c_kevent(fd, &triggerEvent, 1, nil, 0, nil)
             },
             close: nil
         )

@@ -56,14 +56,15 @@ extension IO.Completion {
     ///
     /// ## Typed Errors
     ///
-    /// Uses `throws(Failure)` with non-throwing continuations and typed
-    /// `Submit.Outcome` to maintain full type safety without existential errors.
+    /// Uses `throws(Failure)` with non-throwing continuations carrying Copyable IDs.
+    /// Buffer and event are extracted from storage after await, maintaining full
+    /// type safety without existential errors.
     ///
     /// ## Cancellation Invariant
     ///
     /// The actor is the only place that decides the final outcome.
     /// Poll thread delivers events; actor maps {event, waiter.state, storage.state}
-    /// → Submit.Outcome. This preserves the Bridge invariant.
+    /// → Submit.Result. Cancellation returns buffer via Pattern A preservation.
     ///
     /// ## Usage
     ///
@@ -123,10 +124,10 @@ extension IO.Completion {
         ///
         /// - Throws: If driver creation fails.
         public init() async throws(Failure) {
-            let driver: Driver
+            let driver: IO.Completion.Driver
             do {
-                driver = try Driver.bestAvailable()
-            } catch {
+                driver = try IO.Completion.Driver.bestAvailable()
+            } catch let error as IO.Completion.Error {
                 throw .failure(error)
             }
             try await self.init(driver: driver)
@@ -136,37 +137,29 @@ extension IO.Completion {
         ///
         /// - Parameter driver: The driver to use.
         /// - Throws: If handle or poll thread creation fails.
-        public init(driver: Driver) async throws(Failure) {
+        public init(driver: IO.Completion.Driver) async throws(Failure) {
             self.driver = driver
             self.bridge = Bridge()
 
-            let handle: Driver.Handle
+            let handle: IO.Completion.Driver.Handle
             do {
                 handle = try driver.create()
-            } catch {
+            } catch let error as IO.Completion.Error {
                 throw .failure(error)
             }
 
             let wakeupChannel: Wakeup.Channel
             do {
                 wakeupChannel = try driver.createWakeupChannel(handle)
-            } catch {
+            } catch let error as IO.Completion.Error {
                 throw .failure(error)
             }
             self.wakeupChannel = wakeupChannel
 
             // Start poll thread
             // Note: In a real implementation, this would properly transfer
-            // the handle to the poll thread
-            let pollThread: IO.Executor.Thread
-            do {
-                pollThread = try IO.Executor.Thread(name: "io-completion-poll") {
-                    // Poll loop would run here
-                }
-            } catch {
-                throw .failure(.lifecycle(.resourceExhausted))
-            }
-            self.pollThread = pollThread
+            // the handle to the poll thread and run the poll loop
+            self.pollThread = IO.Executor.Thread()
         }
 
         deinit {
@@ -187,13 +180,13 @@ extension IO.Completion {
 
         /// Submits an operation and awaits its completion.
         ///
-        /// Uses non-throwing continuation with typed `Submit.Outcome` to
-        /// maintain typed error discipline. The switch at the end converts
-        /// the outcome to a typed throw.
+        /// Uses typed throws for lifecycle errors only. Cancellation returns
+        /// a result with `event.outcome == .cancelled` to preserve Pattern A:
+        /// buffer is always returned to the caller.
         ///
         /// - Parameter operation: The operation to submit.
         /// - Returns: The submission result containing event and buffer.
-        /// - Throws: On submission failure, cancellation, or operation error.
+        /// - Throws: On lifecycle errors or invalid submission.
         public func submit(
             _ operation: consuming Operation
         ) async throws(Failure) -> IO.Completion.Submit.Result {
@@ -211,27 +204,80 @@ extension IO.Completion {
             // Capture wakeup for cancellation handler
             let wakeup = wakeupChannel
 
-            // Non-throwing continuation with typed outcome
-            let outcome: IO.Completion.Submit.Outcome = await withTaskCancellationHandler {
-                await withCheckedContinuation { continuation in
-                    let armed = waiter.arm(continuation: continuation)
-                    precondition(armed, "Waiter must arm exactly once")
+            // Continuation carries only ID (Copyable)
+            let _: IO.Completion.ID = await withTaskCancellationHandler {
+                await withCheckedContinuation { (c: CheckedContinuation<IO.Completion.ID, Never>) in
+                    let armed = waiter.arm(continuation: c)
 
-                    // Submit to driver would happen here
+                    if !armed {
+                        // Cancelled before arm - task was cancelled between Waiter creation
+                        // and arm(). Skip driver submission. Resume via Task {} hop to avoid
+                        // reentrancy hazards (resume before handler installation).
+                        Task { waiter.resume.id(id) }
+                        return
+                    }
+
+                    // Submit to driver
+                    // In a real implementation:
                     // driver.submit(handle, storage)
+
+                    // Early completion: If completion arrived before we armed,
+                    // drain() couldn't resume us (waiter wasn't armed).
+                    // Now that we're armed, resume via Task {} hop for safety.
+                    if storage.completion != nil {
+                        Task { waiter.resume.id(id) }
+                    }
                 }
             } onCancel: {
                 waiter.cancel()
                 wakeup.wake()
             }
 
-            // Convert outcome to typed throw
-            switch outcome {
-            case .success(let result):
-                return result
-            case .failure(let failure):
-                throw failure
+            // Actor decides outcome after await - single removal point
+            guard let entry = entries.removeValue(forKey: id) else {
+                throw .failure(.operation(.invalidSubmission))
             }
+
+            // Extract buffer first (Pattern A preservation)
+            var extractedBuffer: Buffer.Aligned? = nil
+            swap(&extractedBuffer, &entry.storage.buffer)
+
+            // Check for shutdown (takes priority over cancellation)
+            if isShutdown {
+                throw .failure(.lifecycle(.shutdownInProgress))
+            }
+
+            // === Cancellation Semantics: Completion-Wins (v1) ===
+            //
+            // If a kernel completion is recorded for an operation, deliver it even if
+            // the task was cancelled. Rationale:
+            // - Completed work should not be discarded
+            // - Returning valid data is more useful to callers
+            // - Simpler implementation (no completion suppression across platforms)
+            //
+            // The waiter.wasCancelled flag is only consulted when no completion arrived.
+            // Buffer is always returned (Pattern A preservation) regardless of outcome.
+            // Cancellation is best-effort; late kernel completions may arrive and will
+            // be drained/discarded safely if the submission has been logically concluded.
+
+            // Determine event: either from completion or synthesized for cancellation
+            let event: IO.Completion.Event
+            if let completedEvent = entry.storage.completion {
+                entry.storage.completion = nil
+                event = completedEvent
+            } else if entry.waiter.wasCancelled {
+                // Pattern A: Cancellation returns result with buffer, not throws.
+                // Channel layer can convert to throw if desired.
+                event = IO.Completion.Event(
+                    id: id,
+                    kind: entry.storage.kind,
+                    outcome: IO.Completion.Outcome.cancelled
+                )
+            } else {
+                throw .failure(.operation(.invalidSubmission))
+            }
+
+            return IO.Completion.Submit.Result(event: event, buffer: extractedBuffer)
         }
 
         /// Cancels a pending operation.
@@ -252,29 +298,24 @@ extension IO.Completion {
 
         /// Drains events from the bridge and resumes waiters.
         ///
+        /// drain() does NOT remove entries - that happens in submit() after await.
+        /// This ensures a single finalization point and proper early completion handling.
         /// The actor is the only place that decides the final outcome.
-        /// This preserves the Bridge invariant and ensures exactly-once
-        /// resumption semantics.
         func drain(_ events: [IO.Completion.Event]) {
             for event in events {
-                guard let entry = entries.removeValue(forKey: event.id) else {
-                    // Stale completion (already cancelled and drained)
+                // Look up entry but do NOT remove (submit() removes after await)
+                guard let entry = entries[event.id] else {
+                    // Stale completion (already finalized by submit())
                     continue
                 }
 
-                // Buffer is always from entry.storage
-                let buffer = entry.storage.buffer
-                entry.storage.buffer = nil  // Transfer ownership
+                // Store event in storage for submit() to consume
+                entry.storage.completion = event
 
-                // Actor decides final outcome based on waiter state
-                if let (continuation, wasCancelled) = entry.waiter.take.forResume() {
-                    if wasCancelled {
-                        continuation.resume(returning: .failure(.cancelled))
-                    } else {
-                        let result = IO.Completion.Submit.Result(event: event, buffer: buffer)
-                        continuation.resume(returning: .success(result))
-                    }
-                }
+                // Resume waiter if armed. Uses resume.id() for proper state consumption.
+                // If not armed yet, completion is stored in storage.
+                // submit() will see it when it arms and resume immediately.
+                entry.waiter.resume.id(event.id)
             }
         }
 
@@ -283,22 +324,28 @@ extension IO.Completion {
         /// Initiates graceful shutdown.
         ///
         /// All pending operations are cancelled and the poll thread is stopped.
+        /// Waiters will receive lifecycle(.shutdownInProgress) error after await.
+        ///
+        /// - Note: shutdown() should only be called when no new submits are in progress.
+        ///   Unarmed waiters will progress when they arm (submit sees isShutdown).
         public func shutdown() async throws(Failure) {
             guard !isShutdown else { return }
             isShutdown = true
 
-            // Cancel all pending operations
+            // Cancel all pending operations with the backend
             for (id, _) in entries {
                 try? cancel(id: id)
             }
 
-            // Drain all waiters with shutdown error
-            for (_, entry) in entries {
-                if let (continuation, _) = entry.waiter.take.forResume() {
-                    continuation.resume(returning: .failure(.failure(.lifecycle(.shutdownInProgress))))
-                }
+            // Resume all armed waiters - they will see isShutdown after await
+            // and throw lifecycle error. Use resume.id() for proper state consumption.
+            for (id, entry) in entries {
+                entry.waiter.resume.id(id)
             }
-            entries.removeAll()
+            // Note: entries are not removed here - submit() will remove them
+            // and throw lifecycle error when it sees isShutdown.
+            // Unarmed waiters: when they arm in submit(), they will proceed
+            // immediately (continuation resumes) and see isShutdown after await.
 
             // Signal bridge shutdown
             bridge.shutdown()
@@ -322,7 +369,7 @@ extension IO.Completion.Driver {
     /// - **Darwin**: EventsAdapter (kqueue)
     ///
     /// - Throws: If no driver can be created.
-    public static func bestAvailable() throws(IO.Completion.Error) -> Driver {
+    public static func bestAvailable() throws(IO.Completion.Error) -> IO.Completion.Driver {
         #if os(Windows)
         return IO.Completion.IOCP.driver()
         #elseif os(Linux)

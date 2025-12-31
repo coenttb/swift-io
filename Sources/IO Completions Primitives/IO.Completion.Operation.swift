@@ -69,13 +69,13 @@ extension IO.Completion.Operation {
     ///
     /// Storage is a reference type to allow:
     /// - Pointer-based correlation with kernel completions
-    /// - Atomic state machine for exactly-once completion
     /// - Shared access from poll thread and queue actor
+    /// - Early completion detection (completion event stored before waiter armed)
     ///
     /// ## Thread Safety
     ///
-    /// `@unchecked Sendable` because it provides internal synchronization.
-    /// State transitions use atomic operations.
+    /// `@unchecked Sendable` because access is coordinated through the Queue actor.
+    /// The Waiter provides the state machine for exactly-once completion semantics.
     public final class Storage: @unchecked Sendable {
         /// The operation ID.
         public let id: IO.Completion.ID
@@ -97,38 +97,12 @@ extension IO.Completion.Operation {
         /// File offset for positioned I/O (-1 for stream operations).
         public let offset: Int64
 
-        /// Operation state for exactly-once completion.
+        /// Completion event, stored by drain() for early completion support.
         ///
-        /// State machine:
-        /// ```
-        /// pending → completing → completed
-        ///    │                      │
-        ///    └──────► cancelled ◄───┘
-        /// ```
+        /// When a completion event arrives before the waiter is armed,
+        /// the event is stored here so submit() can resume immediately.
         @usableFromInline
-        package var state: State
-
-        /// Atomic state values.
-        public struct State: RawRepresentable, Sendable {
-            public let rawValue: UInt8
-
-            @inlinable
-            public init(rawValue: UInt8) {
-                self.rawValue = rawValue
-            }
-
-            /// Operation is pending submission or in-flight.
-            public static let pending = State(rawValue: 0)
-
-            /// Completion is being processed.
-            public static let completing = State(rawValue: 1)
-
-            /// Operation completed successfully or with error.
-            public static let completed = State(rawValue: 2)
-
-            /// Operation was cancelled.
-            public static let cancelled = State(rawValue: 3)
-        }
+        package var completion: IO.Completion.Event?
 
         #if os(Linux)
         /// io_uring user_data for pointer recovery.
@@ -149,7 +123,7 @@ extension IO.Completion.Operation {
             self.descriptor = descriptor
             self.buffer = buffer
             self.offset = offset
-            self.state = .pending
+            self.completion = nil
             self.userData = UInt64(UInt(bitPattern: Unmanaged.passUnretained(self).toOpaque()))
         }
         #else
@@ -167,7 +141,7 @@ extension IO.Completion.Operation {
             self.descriptor = descriptor
             self.buffer = buffer
             self.offset = offset
-            self.state = .pending
+            self.completion = nil
         }
         #endif
     }

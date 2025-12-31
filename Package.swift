@@ -160,6 +160,13 @@ let package = Package(
             ]
         ),
         .testTarget(
+            name: "IO Completions Tests",
+            dependencies: [
+                "IO Completions",
+                .product(name: "StandardsTestSupport", package: "swift-standards"),
+            ]
+        ),
+        .testTarget(
             name: "IO Benchmarks",
             dependencies: [
                 "IO",
