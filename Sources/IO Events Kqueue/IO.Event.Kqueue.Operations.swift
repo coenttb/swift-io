@@ -38,6 +38,12 @@ private let registry = Mutex<[Int32: [IO.Event.ID: RegistrationEntry]]>([:])
 /// Internal implementation of kqueue operations.
 enum KqueueOperations {
     /// Counter for generating unique registration IDs.
+    ///
+    /// ## Global State (PATTERN REQUIREMENTS §6.6)
+    /// This is an intentional process-global atomic counter. Rationale:
+    /// - Each registration needs a unique ID across all kqueue instances
+    /// - Atomic increment is lock-free and thread-safe
+    /// - Wrapping at UInt64.max is acceptable (would require ~600 years at 1M/sec)
     private static let nextID = Atomic<UInt64>(0)
 
     /// Creates a new kqueue handle.

@@ -47,7 +47,7 @@ extension IO.File.Direct {
         case invalidHandle
 
         /// Platform-specific error with error code.
-        case platform(code: Int32, message: String)
+        case platform(code: Int32, operation: Operation)
     }
 }
 
@@ -68,8 +68,13 @@ extension IO.File.Direct.Error: CustomStringConvertible {
             return "Failed to change cache mode"
         case .invalidHandle:
             return "Invalid file handle"
-        case .platform(let code, let message):
-            return "Platform error \(code): \(message)"
+        case .platform(let code, let operation):
+            #if !os(Windows)
+            let message = String(cString: strerror(code))
+            return "Platform error \(code) during \(operation): \(message)"
+            #else
+            return "Platform error \(code) during \(operation)"
+            #endif
         }
     }
 }
@@ -78,7 +83,7 @@ extension IO.File.Direct.Error: CustomStringConvertible {
 
 extension IO.File.Direct.Error {
     /// Direct I/O operation types for syscall error context.
-    package enum Operation: String, Sendable, Equatable {
+    public enum Operation: String, Sendable, Equatable {
         case open
         case setNoCache
         case clearNoCache
@@ -110,7 +115,7 @@ extension IO.File.Direct.Error {
         case invalidDescriptor(operation: Operation)
 
         /// Alignment validation failed.
-        case alignmentViolation(operation: Operation, details: String)
+        case alignmentViolation(operation: Operation)
 
         /// Operation not supported on this platform/filesystem.
         case notSupported(operation: Operation)
@@ -126,10 +131,9 @@ extension IO.File.Direct.Error {
         case .invalidDescriptor:
             self = .invalidHandle
 
-        case .alignmentViolation(_, let details):
-            // Parse details to determine which alignment failed
-            // For now, treat as generic not supported
-            self = .platform(code: -1, message: details)
+        case .alignmentViolation(let operation):
+            // Alignment violation during the operation
+            self = .platform(code: -1, operation: operation)
 
         case .notSupported:
             self = .notSupported
@@ -152,16 +156,15 @@ extension IO.File.Direct.Error {
         switch errno {
         case EINVAL:
             // EINVAL from O_DIRECT often means alignment violation
-            return .platform(code: errno, message: "\(operation): Invalid argument (check alignment)")
+            return .platform(code: errno, operation: operation)
         case EBADF:
             return .invalidHandle
         case ENOTSUP, EOPNOTSUPP:
             return .notSupported
         case EACCES, EPERM:
-            return .platform(code: errno, message: "\(operation): Permission denied")
+            return .platform(code: errno, operation: operation)
         default:
-            let message = String(cString: strerror(errno))
-            return .platform(code: errno, message: "\(operation): \(message)")
+            return .platform(code: errno, operation: operation)
         }
     }
     #endif
@@ -171,15 +174,15 @@ extension IO.File.Direct.Error {
     private static func fromWindowsError(_ error: UInt32, operation: Operation) -> Self {
         switch error {
         case DWORD(ERROR_INVALID_PARAMETER):
-            return .platform(code: Int32(error), message: "\(operation): Invalid parameter (check alignment)")
+            return .platform(code: Int32(error), operation: operation)
         case DWORD(ERROR_INVALID_HANDLE):
             return .invalidHandle
         case DWORD(ERROR_NOT_SUPPORTED):
             return .notSupported
         case DWORD(ERROR_ACCESS_DENIED):
-            return .platform(code: Int32(error), message: "\(operation): Access denied")
+            return .platform(code: Int32(error), operation: operation)
         default:
-            return .platform(code: Int32(error), message: "\(operation): Windows error")
+            return .platform(code: Int32(error), operation: operation)
         }
     }
     #endif

@@ -107,149 +107,173 @@ extension IO.Blocking.Threads {
             #endif
         }
 
-        // MARK: - Worker Condition Operations
+        // MARK: - Worker Condition Accessor
 
-        /// Wait on the worker condition. Must be called while holding the lock.
-        func waitWorker() {
-            #if os(Windows)
-                _ = SleepConditionVariableSRW(&workerCondvar, &srwlock, INFINITE, 0)
-            #else
-                pthread_cond_wait(&workerCond, &mutex)
-            #endif
+        /// Namespace for worker condition variable operations.
+        struct Worker {
+            unowned let lock: Lock
+
+            init(_ lock: Lock) {
+                self.lock = lock
+            }
+
+            /// Wait on the worker condition. Must be called while holding the lock.
+            func wait() {
+                #if os(Windows)
+                    _ = SleepConditionVariableSRW(&lock.workerCondvar, &lock.srwlock, INFINITE, 0)
+                #else
+                    pthread_cond_wait(&lock.workerCond, &lock.mutex)
+                #endif
+            }
+
+            /// Wait on the worker condition with a timeout. Must be called while holding the lock.
+            ///
+            /// - Parameter nanoseconds: Maximum wait time in nanoseconds.
+            /// - Returns: `true` if signaled, `false` if timed out.
+            func wait(timeout nanoseconds: UInt64) -> Bool {
+                #if os(Windows)
+                    // Ceiling division to avoid under-waiting; clamp to DWORD.max
+                    let milliseconds = (nanoseconds + 999_999) / 1_000_000
+                    let result = SleepConditionVariableSRW(
+                        &lock.workerCondvar,
+                        &lock.srwlock,
+                        DWORD(min(milliseconds, UInt64(DWORD.max))),
+                        0
+                    )
+                    return result
+                #elseif os(macOS) || os(iOS) || os(tvOS) || os(watchOS)
+                    // Darwin: use relative timed wait (immune to wall-clock changes)
+                    var ts = timespec()
+                    ts.tv_sec = Int(nanoseconds / 1_000_000_000)
+                    ts.tv_nsec = Int(nanoseconds % 1_000_000_000)
+                    let result = pthread_cond_timedwait_relative_np(&lock.workerCond, &lock.mutex, &ts)
+                    return result == 0
+                #else
+                    // Linux: condvar configured with CLOCK_MONOTONIC
+                    var ts = timespec()
+                    clock_gettime(CLOCK_MONOTONIC, &ts)
+                    let seconds = nanoseconds / 1_000_000_000
+                    let remainingNanos = nanoseconds % 1_000_000_000
+                    ts.tv_sec += Int(seconds)
+                    ts.tv_nsec += Int(remainingNanos)
+                    if ts.tv_nsec >= 1_000_000_000 {
+                        ts.tv_sec += 1
+                        ts.tv_nsec -= 1_000_000_000
+                    }
+                    let result = pthread_cond_timedwait(&lock.workerCond, &lock.mutex, &ts)
+                    return result == 0
+                #endif
+            }
+
+            /// Signal one worker thread.
+            func signal() {
+                #if os(Windows)
+                    WakeConditionVariable(&lock.workerCondvar)
+                #else
+                    pthread_cond_signal(&lock.workerCond)
+                #endif
+            }
+
+            /// Signal all worker threads.
+            func broadcast() {
+                #if os(Windows)
+                    WakeAllConditionVariable(&lock.workerCondvar)
+                #else
+                    pthread_cond_broadcast(&lock.workerCond)
+                #endif
+            }
         }
 
-        /// Wait on the worker condition with a timeout. Must be called while holding the lock.
-        ///
-        /// - Parameter nanoseconds: Maximum wait time in nanoseconds.
-        /// - Returns: `true` if signaled, `false` if timed out.
-        func waitWorker(timeoutNanoseconds nanoseconds: UInt64) -> Bool {
-            #if os(Windows)
-                // Ceiling division to avoid under-waiting; clamp to DWORD.max
-                let milliseconds = (nanoseconds + 999_999) / 1_000_000
-                let result = SleepConditionVariableSRW(
-                    &workerCondvar,
-                    &srwlock,
-                    DWORD(min(milliseconds, UInt64(DWORD.max))),
-                    0
-                )
-                return result
-            #elseif os(macOS) || os(iOS) || os(tvOS) || os(watchOS)
-                // Darwin: use relative timed wait (immune to wall-clock changes)
-                var ts = timespec()
-                ts.tv_sec = Int(nanoseconds / 1_000_000_000)
-                ts.tv_nsec = Int(nanoseconds % 1_000_000_000)
-                let result = pthread_cond_timedwait_relative_np(&workerCond, &mutex, &ts)
-                return result == 0
-            #else
-                // Linux: condvar configured with CLOCK_MONOTONIC
-                var ts = timespec()
-                clock_gettime(CLOCK_MONOTONIC, &ts)
-                let seconds = nanoseconds / 1_000_000_000
-                let remainingNanos = nanoseconds % 1_000_000_000
-                ts.tv_sec += Int(seconds)
-                ts.tv_nsec += Int(remainingNanos)
-                if ts.tv_nsec >= 1_000_000_000 {
-                    ts.tv_sec += 1
-                    ts.tv_nsec -= 1_000_000_000
-                }
-                let result = pthread_cond_timedwait(&workerCond, &mutex, &ts)
-                return result == 0
-            #endif
+        /// Access worker condition variable operations.
+        var worker: Worker { Worker(self) }
+
+        // MARK: - Deadline Condition Accessor
+
+        /// Namespace for deadline condition variable operations.
+        struct Deadline {
+            unowned let lock: Lock
+
+            init(_ lock: Lock) {
+                self.lock = lock
+            }
+
+            /// Wait on the deadline condition. Must be called while holding the lock.
+            func wait() {
+                #if os(Windows)
+                    _ = SleepConditionVariableSRW(&lock.deadlineCondvar, &lock.srwlock, INFINITE, 0)
+                #else
+                    pthread_cond_wait(&lock.deadlineCond, &lock.mutex)
+                #endif
+            }
+
+            /// Wait on the deadline condition with a timeout. Must be called while holding the lock.
+            ///
+            /// - Parameter nanoseconds: Maximum wait time in nanoseconds.
+            /// - Returns: `true` if signaled, `false` if timed out.
+            func wait(timeout nanoseconds: UInt64) -> Bool {
+                #if os(Windows)
+                    // Ceiling division to avoid under-waiting; clamp to DWORD.max
+                    let milliseconds = (nanoseconds + 999_999) / 1_000_000
+                    let result = SleepConditionVariableSRW(
+                        &lock.deadlineCondvar,
+                        &lock.srwlock,
+                        DWORD(min(milliseconds, UInt64(DWORD.max))),
+                        0
+                    )
+                    return result
+                #elseif os(macOS) || os(iOS) || os(tvOS) || os(watchOS)
+                    // Darwin: use relative timed wait (immune to wall-clock changes)
+                    var ts = timespec()
+                    ts.tv_sec = Int(nanoseconds / 1_000_000_000)
+                    ts.tv_nsec = Int(nanoseconds % 1_000_000_000)
+                    let result = pthread_cond_timedwait_relative_np(&lock.deadlineCond, &lock.mutex, &ts)
+                    return result == 0
+                #else
+                    // Linux: condvar configured with CLOCK_MONOTONIC
+                    var ts = timespec()
+                    clock_gettime(CLOCK_MONOTONIC, &ts)
+                    let seconds = nanoseconds / 1_000_000_000
+                    let remainingNanos = nanoseconds % 1_000_000_000
+                    ts.tv_sec += Int(seconds)
+                    ts.tv_nsec += Int(remainingNanos)
+                    if ts.tv_nsec >= 1_000_000_000 {
+                        ts.tv_sec += 1
+                        ts.tv_nsec -= 1_000_000_000
+                    }
+                    let result = pthread_cond_timedwait(&lock.deadlineCond, &lock.mutex, &ts)
+                    return result == 0
+                #endif
+            }
+
+            /// Signal the deadline manager thread.
+            func signal() {
+                #if os(Windows)
+                    WakeConditionVariable(&lock.deadlineCondvar)
+                #else
+                    pthread_cond_signal(&lock.deadlineCond)
+                #endif
+            }
+
+            /// Signal all deadline waiters (used for shutdown).
+            func broadcast() {
+                #if os(Windows)
+                    WakeAllConditionVariable(&lock.deadlineCondvar)
+                #else
+                    pthread_cond_broadcast(&lock.deadlineCond)
+                #endif
+            }
         }
 
-        /// Signal one worker thread.
-        func signalWorker() {
-            #if os(Windows)
-                WakeConditionVariable(&workerCondvar)
-            #else
-                pthread_cond_signal(&workerCond)
-            #endif
-        }
-
-        /// Signal all worker threads.
-        func broadcastWorker() {
-            #if os(Windows)
-                WakeAllConditionVariable(&workerCondvar)
-            #else
-                pthread_cond_broadcast(&workerCond)
-            #endif
-        }
-
-        // MARK: - Deadline Condition Operations
-
-        /// Wait on the deadline condition. Must be called while holding the lock.
-        func waitDeadline() {
-            #if os(Windows)
-                _ = SleepConditionVariableSRW(&deadlineCondvar, &srwlock, INFINITE, 0)
-            #else
-                pthread_cond_wait(&deadlineCond, &mutex)
-            #endif
-        }
-
-        /// Wait on the deadline condition with a timeout. Must be called while holding the lock.
-        ///
-        /// - Parameter nanoseconds: Maximum wait time in nanoseconds.
-        /// - Returns: `true` if signaled, `false` if timed out.
-        func waitDeadline(timeoutNanoseconds nanoseconds: UInt64) -> Bool {
-            #if os(Windows)
-                // Ceiling division to avoid under-waiting; clamp to DWORD.max
-                let milliseconds = (nanoseconds + 999_999) / 1_000_000
-                let result = SleepConditionVariableSRW(
-                    &deadlineCondvar,
-                    &srwlock,
-                    DWORD(min(milliseconds, UInt64(DWORD.max))),
-                    0
-                )
-                return result
-            #elseif os(macOS) || os(iOS) || os(tvOS) || os(watchOS)
-                // Darwin: use relative timed wait (immune to wall-clock changes)
-                var ts = timespec()
-                ts.tv_sec = Int(nanoseconds / 1_000_000_000)
-                ts.tv_nsec = Int(nanoseconds % 1_000_000_000)
-                let result = pthread_cond_timedwait_relative_np(&deadlineCond, &mutex, &ts)
-                return result == 0
-            #else
-                // Linux: condvar configured with CLOCK_MONOTONIC
-                var ts = timespec()
-                clock_gettime(CLOCK_MONOTONIC, &ts)
-                let seconds = nanoseconds / 1_000_000_000
-                let remainingNanos = nanoseconds % 1_000_000_000
-                ts.tv_sec += Int(seconds)
-                ts.tv_nsec += Int(remainingNanos)
-                if ts.tv_nsec >= 1_000_000_000 {
-                    ts.tv_sec += 1
-                    ts.tv_nsec -= 1_000_000_000
-                }
-                let result = pthread_cond_timedwait(&deadlineCond, &mutex, &ts)
-                return result == 0
-            #endif
-        }
-
-        /// Signal the deadline manager thread.
-        func signalDeadline() {
-            #if os(Windows)
-                WakeConditionVariable(&deadlineCondvar)
-            #else
-                pthread_cond_signal(&deadlineCond)
-            #endif
-        }
-
-        /// Signal all deadline waiters (used for shutdown).
-        func broadcastDeadline() {
-            #if os(Windows)
-                WakeAllConditionVariable(&deadlineCondvar)
-            #else
-                pthread_cond_broadcast(&deadlineCond)
-            #endif
-        }
+        /// Access deadline condition variable operations.
+        var deadline: Deadline { Deadline(self) }
 
         // MARK: - Shutdown Helper
 
         /// Broadcast to both worker and deadline condition variables.
         /// Used during shutdown to wake all waiting threads.
-        func broadcastAll() {
-            broadcastWorker()
-            broadcastDeadline()
+        func broadcast(all: Void = ()) {
+            worker.broadcast()
+            deadline.broadcast()
         }
     }
 }

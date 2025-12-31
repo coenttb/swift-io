@@ -12,7 +12,7 @@ extension IO.Blocking.Threads {
     /// Each worker:
     /// 1. Waits for jobs on the shared queue (via condition variable)
     /// 2. Executes jobs to completion
-    /// 3. Calls `job.context.tryComplete()` directly (no dictionary lookup)
+    /// 3. Calls `job.context.complete()` directly (no dictionary lookup)
     /// 4. Promotes acceptance waiters when capacity available
     /// 5. Exits when shutdown flag is set and queue is drained
     struct Worker {
@@ -42,7 +42,7 @@ extension IO.Blocking.Threads.Worker {
             // Wait for job or shutdown, tracking sleepers
             while state.queue.isEmpty && !state.isShutdown {
                 state.sleepers += 1
-                state.lock.waitWorker()
+                state.lock.worker.wait()
                 state.sleepers -= 1
             }
 
@@ -70,7 +70,7 @@ extension IO.Blocking.Threads.Worker {
                 state.lock.unlock()
 
                 // Execute job outside lock
-                // Job.run() calls context.tryComplete() directly
+                // Job.run() calls context.complete() directly
                 job.run()
 
                 drained += 1
@@ -81,7 +81,7 @@ extension IO.Blocking.Threads.Worker {
 
                 // Check shutdown condition
                 if state.isShutdown && state.queue.isEmpty && state.inFlightCount == 0 {
-                    state.lock.broadcastWorker()
+                    state.lock.worker.broadcast()
                     state.lock.unlock()
                     return
                 }

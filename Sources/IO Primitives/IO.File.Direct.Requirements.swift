@@ -138,60 +138,84 @@ extension IO.File.Direct {
     }
 }
 
-// MARK: - Validation
+// MARK: - Validation Accessors
 
 extension IO.File.Direct.Requirements.Alignment {
-    /// Validates that a buffer address is properly aligned.
-    ///
-    /// - Parameter address: The memory address to validate.
-    /// - Returns: `true` if the address is aligned to `bufferAlignment`.
-    public func isBufferAligned(_ address: UnsafeRawPointer) -> Bool {
-        Int(bitPattern: address) % bufferAlignment == 0
+    /// Accessor for buffer alignment validation.
+    public struct Buffer: Sendable {
+        let alignment: IO.File.Direct.Requirements.Alignment
+
+        /// Validates that a buffer address is properly aligned.
+        ///
+        /// - Parameter address: The memory address to validate.
+        /// - Returns: `true` if the address is aligned to `bufferAlignment`.
+        public func isAligned(_ address: UnsafeRawPointer) -> Bool {
+            Int(bitPattern: address) % alignment.bufferAlignment == 0
+        }
     }
 
-    /// Validates that a file offset is properly aligned.
-    ///
-    /// - Parameter offset: The file offset to validate.
-    /// - Returns: `true` if the offset is a multiple of `offsetAlignment`.
-    public func isOffsetAligned(_ offset: Int64) -> Bool {
-        Int(offset) % offsetAlignment == 0
+    /// Accessor for buffer alignment validation.
+    public var buffer: Buffer { Buffer(alignment: self) }
+
+    /// Accessor for offset alignment validation.
+    public struct Offset: Sendable {
+        let alignment: IO.File.Direct.Requirements.Alignment
+
+        /// Validates that a file offset is properly aligned.
+        ///
+        /// - Parameter offset: The file offset to validate.
+        /// - Returns: `true` if the offset is a multiple of `offsetAlignment`.
+        public func isAligned(_ offset: Int64) -> Bool {
+            Int(offset) % alignment.offsetAlignment == 0
+        }
     }
 
-    /// Validates that an I/O length is a valid multiple.
-    ///
-    /// - Parameter length: The transfer length to validate.
-    /// - Returns: `true` if the length is a multiple of `lengthMultiple`.
-    public func isLengthValid(_ length: Int) -> Bool {
-        length % lengthMultiple == 0
+    /// Accessor for offset alignment validation.
+    public var offset: Offset { Offset(alignment: self) }
+
+    /// Accessor for length validation.
+    public struct Length: Sendable {
+        let alignment: IO.File.Direct.Requirements.Alignment
+
+        /// Validates that an I/O length is a valid multiple.
+        ///
+        /// - Parameter length: The transfer length to validate.
+        /// - Returns: `true` if the length is a multiple of `lengthMultiple`.
+        public func isValid(_ length: Int) -> Bool {
+            length % alignment.lengthMultiple == 0
+        }
     }
+
+    /// Accessor for length validation.
+    public var length: Length { Length(alignment: self) }
 
     /// Validates all alignment requirements for an I/O operation.
     ///
     /// - Parameters:
-    ///   - buffer: The buffer address.
-    ///   - offset: The file offset.
-    ///   - length: The transfer length.
+    ///   - bufferAddress: The buffer address.
+    ///   - fileOffset: The file offset.
+    ///   - transferLength: The transfer length.
     /// - Returns: The first validation failure, or `nil` if all pass.
     public func validate(
-        buffer: UnsafeRawPointer,
-        offset: Int64,
-        length: Int
+        buffer bufferAddress: UnsafeRawPointer,
+        offset fileOffset: Int64,
+        length transferLength: Int
     ) -> IO.File.Direct.Error? {
-        if !isBufferAligned(buffer) {
+        if !buffer.isAligned(bufferAddress) {
             return .misalignedBuffer(
-                address: Int(bitPattern: buffer),
+                address: Int(bitPattern: bufferAddress),
                 required: bufferAlignment
             )
         }
-        if !isOffsetAligned(offset) {
+        if !offset.isAligned(fileOffset) {
             return .misalignedOffset(
-                offset: offset,
+                offset: fileOffset,
                 required: offsetAlignment
             )
         }
-        if !isLengthValid(length) {
+        if !length.isValid(transferLength) {
             return .invalidLength(
-                length: length,
+                length: transferLength,
                 requiredMultiple: lengthMultiple
             )
         }

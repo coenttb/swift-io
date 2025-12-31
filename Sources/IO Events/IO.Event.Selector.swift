@@ -720,7 +720,7 @@ extension IO.Event {
                 if let waiter = waiters.removeValue(forKey: key) {
                     // Bump generation to invalidate any stale heap entries
                     bumpGeneration(for: key)
-                    if let (continuation, _) = waiter.takeForResume() {
+                    if let (continuation, _) = waiter.take(forResume: ()) {
                         continuation.resume(returning: .failure(.failure(.deregistered)))
                     }
                 }
@@ -822,7 +822,7 @@ extension IO.Event {
             for (key, waiter) in waiters where waiter.wasCancelled {
                 waiters.removeValue(forKey: key)
                 bumpGeneration(for: key)
-                if let (continuation, _) = waiter.takeForResume() {
+                if let (continuation, _) = waiter.take(forResume: ()) {
                     continuation.resume(returning: .failure(.cancelled))
                 }
             }
@@ -869,7 +869,7 @@ extension IO.Event {
                 _ = waiters.removeValue(forKey: entry.key)
                 bumpGeneration(for: entry.key)
 
-                if let (continuation, wasCancelled) = waiter.takeForResume() {
+                if let (continuation, wasCancelled) = waiter.take(forResume: ()) {
                     if wasCancelled {
                         // Cancellation already happened - honour it
                         continuation.resume(returning: .failure(.cancelled))
@@ -936,7 +936,7 @@ extension IO.Event {
                     }
 
                     // Armed waiter: drain via the state machine.
-                    if let (continuation, wasCancelled) = waiter.takeForResume() {
+                    if let (continuation, wasCancelled) = waiter.take(forResume: ()) {
                         if wasCancelled {
                             continuation.resume(returning: .failure(.cancelled))
                         } else {
@@ -970,7 +970,7 @@ extension IO.Event {
 
             // Drain all waiters with shutdown error using state machine
             for (_, waiter) in waiters {
-                if let (continuation, _) = waiter.takeForResume() {
+                if let (continuation, _) = waiter.take(forResume: ()) {
                     // Regardless of cancellation status, shutdown takes precedence
                     continuation.resume(returning: .failure(.shutdownInProgress))
                 }

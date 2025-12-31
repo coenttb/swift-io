@@ -173,7 +173,7 @@ extension IO.Handle.Waiter {
     ///
     /// - Returns: The continuation if available, along with cancellation status.
     ///   Returns `nil` if not yet armed or already drained.
-    public func takeForResume() -> (continuation: CheckedContinuation<Void, Never>, wasCancelled: Bool)? {
+    public func take(forResume: Void = ()) -> (continuation: CheckedContinuation<Void, Never>, wasCancelled: Bool)? {
         guard
             let previous = transition({ current in
                 guard current.isArmed && !current.isDrained else { return nil }

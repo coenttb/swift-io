@@ -19,7 +19,7 @@ extension IO.Event.Registration {
     /// ## Pattern
     /// - Selector enqueues requests via `enqueue(_:)`
     /// - Poll thread dequeues via `dequeue()`
-    /// - Shutdown drains remaining requests via `dequeueAll()`
+    /// - Shutdown drains remaining requests via `dequeue(all:)`
     public final class Queue: @unchecked Sendable {
         let state: Mutex<State>
 

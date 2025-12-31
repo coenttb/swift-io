@@ -33,7 +33,7 @@ extension IO.Event.Waiter.Test.Unit {
             #expect(waiter.arm(continuation: continuation) == true)
             #expect(waiter.isArmed)
             // Drain to avoid leak
-            if let result = waiter.takeForResume() {
+            if let result = waiter.take(forResume: ()) {
                 result.continuation.resume(returning: .failure(.cancelled))
             }
         }
@@ -47,7 +47,7 @@ extension IO.Event.Waiter.Test.Unit {
             #expect(waiter.cancel() == true)
             #expect(waiter.wasCancelled == true)
             // Drain to avoid leak
-            if let result = waiter.takeForResume() {
+            if let result = waiter.take(forResume: ()) {
                 result.continuation.resume(returning: .failure(.cancelled))
             }
         }
@@ -58,7 +58,7 @@ extension IO.Event.Waiter.Test.Unit {
         await withCheckedContinuation { (continuation: CheckedContinuation<Result<IO.Event, IO.Event.Failure>, Never>) in
             let waiter = IO.Event.Waiter(id: IO.Event.ID(raw: 1))
             waiter.arm(continuation: continuation)
-            if let result = waiter.takeForResume() {
+            if let result = waiter.take(forResume: ()) {
                 #expect(!result.wasCancelled)
                 result.continuation.resume(returning: .failure(.cancelled))
             } else {
@@ -73,7 +73,7 @@ extension IO.Event.Waiter.Test.Unit {
             let waiter = IO.Event.Waiter(id: IO.Event.ID(raw: 1))
             waiter.arm(continuation: continuation)
             waiter.cancel()
-            if let result = waiter.takeForResume() {
+            if let result = waiter.take(forResume: ()) {
                 #expect(result.wasCancelled == true)
                 result.continuation.resume(returning: .failure(.cancelled))
             } else {
@@ -98,7 +98,7 @@ extension IO.Event.Waiter.Test.EdgeCase {
             #expect(waiter.arm(continuation: continuation) == true)
             #expect(waiter.isArmed)
             // Drain - should indicate cancelled
-            if let result = waiter.takeForResume() {
+            if let result = waiter.take(forResume: ()) {
                 #expect(result.wasCancelled == true)
                 result.continuation.resume(returning: .failure(.cancelled))
             } else {
@@ -116,7 +116,7 @@ extension IO.Event.Waiter.Test.EdgeCase {
             #expect(waiter.cancel() == false) // Second cancel fails (already cancelled)
             #expect(waiter.wasCancelled == true)
             // Drain
-            if let result = waiter.takeForResume() {
+            if let result = waiter.take(forResume: ()) {
                 result.continuation.resume(returning: .failure(.cancelled))
             }
         }
@@ -133,7 +133,7 @@ extension IO.Event.Waiter.Test.EdgeCase {
             #expect(waiter.isArmed)
 
             // Drain immediately to resume
-            if let result = waiter.takeForResume() {
+            if let result = waiter.take(forResume: ()) {
                 result.continuation.resume(returning: .failure(.cancelled))
             }
         }
@@ -159,9 +159,9 @@ extension IO.Event.Waiter.Test.EdgeCase {
         await withCheckedContinuation { (continuation: CheckedContinuation<Result<IO.Event, IO.Event.Failure>, Never>) in
             let waiter = IO.Event.Waiter(id: IO.Event.ID(raw: 1))
             waiter.arm(continuation: continuation)
-            let first = waiter.takeForResume()
+            let first = waiter.take(forResume: ())
             #expect(first != nil)
-            let second = waiter.takeForResume()
+            let second = waiter.take(forResume: ())
             #expect(second == nil)
             #expect(waiter.isDrained == true)
             first?.continuation.resume(returning: .failure(.cancelled))
@@ -171,7 +171,7 @@ extension IO.Event.Waiter.Test.EdgeCase {
     @Test("takeForResume on unarmed waiter returns nil")
     func takeForResumeUnarmed() async {
         let waiter = IO.Event.Waiter(id: IO.Event.ID(raw: 1))
-        #expect(waiter.takeForResume() == nil)
+        #expect(waiter.take(forResume: ()) == nil)
         #expect(!waiter.isDrained) // Should not mark as drained
     }
 
@@ -180,7 +180,7 @@ extension IO.Event.Waiter.Test.EdgeCase {
         await withCheckedContinuation { (continuation: CheckedContinuation<Result<IO.Event, IO.Event.Failure>, Never>) in
             let waiter = IO.Event.Waiter(id: IO.Event.ID(raw: 1))
             waiter.arm(continuation: continuation)
-            if let result = waiter.takeForResume() {
+            if let result = waiter.take(forResume: ()) {
                 result.continuation.resume(returning: .failure(.cancelled))
             }
             #expect(waiter.cancel() == false) // Already drained
@@ -212,7 +212,7 @@ extension IO.Event.Waiter.Test.Invariants {
             // But it shouldn't be, because we need to drain manually
 
             // Now drain properly
-            if let result = waiter.takeForResume() {
+            if let result = waiter.take(forResume: ()) {
                 resumed = true
                 result.continuation.resume(returning: .failure(.cancelled))
             }
@@ -235,7 +235,7 @@ extension IO.Event.Waiter.Test.Invariants {
             waiter.arm(continuation: continuation)
 
             // Drain should show cancelled
-            if let result = waiter.takeForResume() {
+            if let result = waiter.take(forResume: ()) {
                 wasCancelledOnDrain = result.wasCancelled
                 result.continuation.resume(returning: .failure(.cancelled))
             }
@@ -253,7 +253,7 @@ extension IO.Event.Waiter.Test.Invariants {
             waiter.arm(continuation: continuation)
 
             // Simulate actor drain with typed failure
-            if let (cont, _) = waiter.takeForResume() {
+            if let (cont, _) = waiter.take(forResume: ()) {
                 cont.resume(returning: .failure(.cancelled))
             }
         }

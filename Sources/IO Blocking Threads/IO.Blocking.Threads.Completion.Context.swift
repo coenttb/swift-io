@@ -24,9 +24,9 @@ extension IO.Blocking.Threads.Completion {
     /// ## State Machine
     /// ```
     /// ┌─────────┐
-    /// │ pending │ ──tryComplete──> [completed] ──resume(returning: .success(box))
-    /// │   (0)   │ ──tryCancel────> [cancelled] ──resume(returning: .failure(.cancellationRequested))
-    /// │         │ ──tryFail──────> [failed]    ──resume(returning: .failure(error))
+    /// │ pending │ ──complete()──> [completed] ──resume(returning: .success(box))
+    /// │   (0)   │ ──cancel()────> [cancelled] ──resume(returning: .failure(.cancellationRequested))
+    /// │         │ ──fail()──────> [failed]    ──resume(returning: .failure(error))
     /// └─────────┘
     /// ```
     ///
@@ -36,7 +36,7 @@ extension IO.Blocking.Threads.Completion {
     /// - And the state transition is visible to all racing paths
     ///
     /// ## Exactly-Once Guarantee
-    /// Only one of tryComplete/tryCancel/tryFail can succeed.
+    /// Only one of complete/cancel/fail can succeed.
     /// All others return false and perform no action.
     final class Context: @unchecked Sendable {
         /// The continuation to resume with typed result.
@@ -56,10 +56,10 @@ extension IO.Blocking.Threads.Completion {
             self.state = Atomic(Self.pending)
         }
 
-        /// Try to complete with success. Returns true if this call resumed.
+        /// Attempt to complete with success. Returns true if this call resumed.
         ///
         /// Called by the worker after job execution.
-        func tryComplete(with box: IO.Blocking.Box.Pointer) -> Bool {
+        func complete(with box: IO.Blocking.Box.Pointer) -> Bool {
             let (exchanged, _) = state.compareExchange(
                 expected: Self.pending,
                 desired: Self.completed,
@@ -72,10 +72,10 @@ extension IO.Blocking.Threads.Completion {
             return false
         }
 
-        /// Try to cancel. Returns true if this call resumed.
+        /// Attempt to cancel. Returns true if this call resumed.
         ///
         /// Called by the cancellation handler.
-        func tryCancel() -> Bool {
+        func cancel() -> Bool {
             let (exchanged, _) = state.compareExchange(
                 expected: Self.pending,
                 desired: Self.cancelled,
@@ -88,14 +88,14 @@ extension IO.Blocking.Threads.Completion {
             return false
         }
 
-        /// Try to fail with an error. Returns true if this call resumed.
+        /// Attempt to fail with an error. Returns true if this call resumed.
         ///
         /// Called when the operation cannot proceed:
         /// - `.shutdown`: Lane is shutting down
         /// - `.queueFull`: Queue is full and strategy is `.failFast`
         /// - `.overloaded`: Acceptance waiter queue is full
         /// - `.deadlineExceeded`: Acceptance deadline expired
-        func tryFail(_ error: IO.Blocking.Failure) -> Bool {
+        func fail(_ error: IO.Blocking.Failure) -> Bool {
             let (exchanged, _) = state.compareExchange(
                 expected: Self.pending,
                 desired: Self.failed,

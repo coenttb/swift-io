@@ -116,7 +116,7 @@ extension IO.File.Clone {
             if errno == ENOENT {
                 throw Error.sourceNotFound
             }
-            throw Error.platform(code: errno, message: String(cString: strerror(errno)))
+            throw Error.platform(code: errno, operation: .ficlone)
         }
         defer { close(srcFd) }
 
@@ -126,7 +126,7 @@ extension IO.File.Clone {
             if errno == EEXIST {
                 throw Error.destinationExists
             }
-            throw Error.platform(code: errno, message: String(cString: strerror(errno)))
+            throw Error.platform(code: errno, operation: .ficlone)
         }
         defer { close(dstFd) }
 
@@ -190,14 +190,14 @@ extension IO.File.Clone {
             if errno == ENOENT {
                 throw Error.sourceNotFound
             }
-            throw Error.platform(code: errno, message: String(cString: strerror(errno)))
+            throw Error.platform(code: errno, operation: .copyFileRange)
         }
         defer { close(srcFd) }
 
         // Get file size for copy_file_range
         var statBuf = stat()
         guard fstat(srcFd, &statBuf) == 0 else {
-            throw Error.platform(code: errno, message: String(cString: strerror(errno)))
+            throw Error.platform(code: errno, operation: .stat)
         }
         let size = Int(statBuf.st_size)
 
@@ -207,7 +207,7 @@ extension IO.File.Clone {
             if errno == EEXIST {
                 throw Error.destinationExists
             }
-            throw Error.platform(code: errno, message: String(cString: strerror(errno)))
+            throw Error.platform(code: errno, operation: .copyFileRange)
         }
         defer { close(dstFd) }
 
@@ -264,13 +264,13 @@ extension IO.File.Clone {
             if errno == ENOENT {
                 throw Error.sourceNotFound
             }
-            throw Error.platform(code: errno, message: String(cString: strerror(errno)))
+            throw Error.platform(code: errno, operation: .copy)
         }
         defer { close(srcFd) }
 
         var statBuf = Glibc.stat()
         guard fstat(srcFd, &statBuf) == 0 else {
-            throw Error.platform(code: errno, message: String(cString: strerror(errno)))
+            throw Error.platform(code: errno, operation: .stat)
         }
         let size = Int(statBuf.st_size)
 
@@ -279,7 +279,7 @@ extension IO.File.Clone {
             if errno == EEXIST {
                 throw Error.destinationExists
             }
-            throw Error.platform(code: errno, message: String(cString: strerror(errno)))
+            throw Error.platform(code: errno, operation: .copy)
         }
         defer { close(dstFd) }
 

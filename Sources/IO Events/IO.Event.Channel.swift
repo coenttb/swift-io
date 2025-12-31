@@ -172,12 +172,12 @@ extension IO.Event {
 
                 case .eof:
                     // True EOF - transition state
-                    await lifecycle.transitionToReadClosed()
+                    await lifecycle.close(read: ())
                     return 0
 
                 case .wouldBlock:
                     // Arm for read readiness, restoring token on error
-                    try await armForRead()
+                    try await arm(forRead: ())
                     // Continue loop to retry read
 
                 case .error(let err):
@@ -247,7 +247,7 @@ extension IO.Event {
 
                 case .wouldBlock:
                     // Arm for write readiness, restoring token on error
-                    try await armForWrite()
+                    try await arm(forWrite: ())
                     // Continue loop to retry write
 
                 case .error(let err):
@@ -262,7 +262,7 @@ extension IO.Event {
         ///
         /// Uses `armPreservingToken` to ensure the token is always restored on failure.
         /// This keeps the channel in a consistent state even after cancellation or shutdown.
-        private mutating func armForRead() async throws(Failure) {
+        private mutating func arm(forRead: Void) async throws(Failure) {
             // Try registering token first (swap to extract)
             var takenRegistering: Token<Registering>? = nil
             swap(&registering, &takenRegistering)
@@ -314,7 +314,7 @@ extension IO.Event {
         ///
         /// Uses `armPreservingToken` to ensure the token is always restored on failure.
         /// This keeps the channel in a consistent state even after cancellation or shutdown.
-        private mutating func armForWrite() async throws(Failure) {
+        private mutating func arm(forWrite: Void) async throws(Failure) {
             // Try registering token first (swap to extract)
             var takenRegistering: Token<Registering>? = nil
             swap(&registering, &takenRegistering)
@@ -425,7 +425,7 @@ extension IO.Event {
             if await lifecycle.isReadClosed {
                 return
             }
-            await lifecycle.transitionToReadClosed()
+            await lifecycle.close(read: ())
 
             // Perform syscall, normalize errors for idempotence
             let result = systemShutdown(descriptor, SHUT_RD)
@@ -452,7 +452,7 @@ extension IO.Event {
             if await lifecycle.isWriteClosed {
                 return
             }
-            await lifecycle.transitionToWriteClosed()
+            await lifecycle.close(write: ())
 
             // Perform syscall, normalize errors for idempotence
             let result = systemShutdown(descriptor, SHUT_WR)
@@ -478,7 +478,7 @@ extension IO.Event {
         /// - Throws: `Failure` on error.
         public consuming func close() async throws(Failure) {
             // Transition to closed first - makes operation idempotent
-            let alreadyClosed = await lifecycle.transitionToClosed()
+            let alreadyClosed = await lifecycle.close()
             if alreadyClosed {
                 return
             }
@@ -568,7 +568,8 @@ extension IO.Event.Channel {
             state == .closed
         }
 
-        func transitionToReadClosed() {
+        /// Transition to read-closed state.
+        func close(read: Void) {
             switch state {
             case .open:
                 state = .readClosed
@@ -579,7 +580,8 @@ extension IO.Event.Channel {
             }
         }
 
-        func transitionToWriteClosed() {
+        /// Transition to write-closed state.
+        func close(write: Void) {
             switch state {
             case .open:
                 state = .writeClosed
@@ -590,9 +592,9 @@ extension IO.Event.Channel {
             }
         }
 
-        /// Transition to closed state.
+        /// Transition to fully closed state.
         /// - Returns: `true` if already closed (no-op), `false` if transition occurred.
-        func transitionToClosed() -> Bool {
+        func close() -> Bool {
             if state == .closed {
                 return true
             }
@@ -640,43 +642,21 @@ extension IO.Event.Channel {
 }
 
 // MARK: - Platform Syscall Shims
+// Moved to IO.Event.Syscalls.swift for centralized platform abstraction.
+// Local aliases for backwards compatibility within this file.
 
-/// Platform-agnostic read syscall.
-@usableFromInline
-func systemRead(_ fd: Int32, _ buf: UnsafeMutableRawPointer?, _ count: Int) -> Int {
-    #if canImport(Darwin)
-    return Darwin.read(fd, buf, count)
-    #else
-    return Glibc.read(fd, buf, count)
-    #endif
+private func systemRead(_ fd: Int32, _ buf: UnsafeMutableRawPointer?, _ count: Int) -> Int {
+    IO.Event.Syscalls.read(fd, buf, count)
 }
 
-/// Platform-agnostic write syscall.
-@usableFromInline
-func systemWrite(_ fd: Int32, _ buf: UnsafeRawPointer?, _ count: Int) -> Int {
-    #if canImport(Darwin)
-    return Darwin.write(fd, buf, count)
-    #else
-    return Glibc.write(fd, buf, count)
-    #endif
+private func systemWrite(_ fd: Int32, _ buf: UnsafeRawPointer?, _ count: Int) -> Int {
+    IO.Event.Syscalls.write(fd, buf, count)
 }
 
-/// Platform-agnostic shutdown syscall.
-@usableFromInline
-func systemShutdown(_ fd: Int32, _ how: Int32) -> Int32 {
-    #if canImport(Darwin)
-    return Darwin.shutdown(fd, how)
-    #else
-    return Glibc.shutdown(fd, how)
-    #endif
+private func systemShutdown(_ fd: Int32, _ how: Int32) -> Int32 {
+    IO.Event.Syscalls.shutdown(fd, how)
 }
 
-/// Platform-agnostic close syscall.
-@usableFromInline
-func systemClose(_ fd: Int32) -> Int32 {
-    #if canImport(Darwin)
-    return Darwin.close(fd)
-    #else
-    return Glibc.close(fd)
-    #endif
+private func systemClose(_ fd: Int32) -> Int32 {
+    IO.Event.Syscalls.close(fd)
 }

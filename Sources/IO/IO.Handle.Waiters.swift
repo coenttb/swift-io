@@ -166,7 +166,7 @@ extension IO.Handle.Waiters {
             head = (head + 1) % capacity
             _count -= 1
 
-            if let waiter = waiter, let result = waiter.takeForResume() {
+            if let waiter = waiter, let result = waiter.take(forResume: ()) {
                 // Resume on actor executor - waiter.wasCancelled tells if cancelled
                 result.continuation.resume()
                 return
@@ -183,7 +183,7 @@ extension IO.Handle.Waiters {
     /// MUST be called on the actor executor.
     public mutating func resumeAll() {
         while _count > 0 {
-            if let waiter = storage[head], let result = waiter.takeForResume() {
+            if let waiter = storage[head], let result = waiter.take(forResume: ()) {
                 result.continuation.resume()
             }
             storage[head] = nil

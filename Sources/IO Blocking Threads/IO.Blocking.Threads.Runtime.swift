@@ -32,7 +32,7 @@ extension IO.Blocking.Threads {
             )
         }
 
-        func startIfNeeded() {
+        func start(ifNeeded: Void = ()) {
             state.lock.lock()
             defer { state.lock.unlock() }
 

@@ -53,7 +53,7 @@ extension IO.Blocking.Threads.Job {
             return job
         }
 
-        mutating func drainAll() -> [Instance] {
+        mutating func drain(all: Void = ()) -> [Instance] {
             var result: [Instance] = []
             result.reserveCapacity(_count)
             while let job = dequeue() {

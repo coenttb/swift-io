@@ -56,14 +56,14 @@ extension IO.File.Handle {
         /// **Note:** This error may occur even if pre-validation passed, because
         /// alignment requirements are not always reliably discoverable, especially
         /// on Linux. See `IO.File.Direct.requirements(for:)` documentation.
-        case alignmentViolation(operation: String)
+        case alignmentViolation(operation: Operation)
 
         /// Platform-specific error.
-        case platform(code: Int32, message: String)
+        case platform(code: Int32, operation: Operation)
     }
 
     /// Operation type for error context.
-    package enum Operation: String, Sendable {
+    public enum Operation: String, Sendable {
         case read
         case write
         case seek
@@ -87,10 +87,9 @@ extension IO.File.Handle.Error {
         case EINVAL:
             // EINVAL during I/O typically means alignment violation for Direct I/O
             // or unsupported operation. Map to semantic error for stable diagnostics.
-            self = .alignmentViolation(operation: operation.rawValue)
+            self = .alignmentViolation(operation: operation)
         default:
-            let message = String(cString: strerror(posixErrno))
-            self = .platform(code: posixErrno, message: "\(operation): \(message)")
+            self = .platform(code: posixErrno, operation: operation)
         }
     }
     #endif
@@ -106,9 +105,9 @@ extension IO.File.Handle.Error {
         case DWORD(ERROR_INVALID_PARAMETER):
             // ERROR_INVALID_PARAMETER during I/O typically means alignment violation
             // for FILE_FLAG_NO_BUFFERING. Map to semantic error.
-            self = .alignmentViolation(operation: operation.rawValue)
+            self = .alignmentViolation(operation: operation)
         default:
-            self = .platform(code: Int32(windowsError), message: "\(operation): Windows error")
+            self = .platform(code: Int32(windowsError), operation: operation)
         }
     }
     #endif
@@ -129,11 +128,21 @@ extension IO.File.Handle.Error {
         case .invalidLength(let length, let requiredMultiple):
             self = .invalidLength(length: length, requiredMultiple: requiredMultiple)
         case .modeChangeFailed:
-            self = .platform(code: -1, message: "Failed to change cache mode")
+            self = .platform(code: -1, operation: .sync)
         case .invalidHandle:
             self = .invalidHandle
-        case .platform(let code, let message):
-            self = .platform(code: code, message: message)
+        case .platform(let code, let operation):
+            // Map Direct.Error operation to Handle.Error operation
+            switch operation {
+            case .open:
+                self = .platform(code: code, operation: .read)
+            case .setNoCache, .clearNoCache, .getSectorSize:
+                self = .platform(code: code, operation: .sync)
+            case .read:
+                self = .platform(code: code, operation: .read)
+            case .write:
+                self = .platform(code: code, operation: .write)
+            }
         }
     }
 }
@@ -154,16 +163,16 @@ extension IO.File.Handle.Error {
             self = .interrupted
 
         case .blocking:
-            self = .platform(code: -1, message: "\(operation): Would block")
+            self = .platform(code: -1, operation: operation)
 
         case .io:
-            self = .platform(code: -1, message: "\(operation): I/O error")
+            self = .platform(code: -1, operation: operation)
 
         case .memory:
-            self = .alignmentViolation(operation: operation.rawValue)
+            self = .alignmentViolation(operation: operation)
 
-        case .platform(let platformError):
-            self = .platform(code: -1, message: "\(operation): \(platformError)")
+        case .platform:
+            self = .platform(code: -1, operation: operation)
         }
     }
 }
@@ -184,10 +193,10 @@ extension IO.File.Handle.Error {
             self = .interrupted
 
         case .blocking:
-            self = .platform(code: -1, message: "\(operation): Would block")
+            self = .platform(code: -1, operation: operation)
 
         case .io:
-            self = .platform(code: -1, message: "\(operation): I/O error")
+            self = .platform(code: -1, operation: operation)
 
         case .space(let spaceError):
             switch spaceError {
@@ -196,10 +205,10 @@ extension IO.File.Handle.Error {
             }
 
         case .memory:
-            self = .alignmentViolation(operation: operation.rawValue)
+            self = .alignmentViolation(operation: operation)
 
-        case .platform(let platformError):
-            self = .platform(code: -1, message: "\(operation): \(platformError)")
+        case .platform:
+            self = .platform(code: -1, operation: operation)
         }
     }
 }
@@ -226,9 +235,14 @@ extension IO.File.Handle.Error: CustomStringConvertible {
         case .requirementsUnknown:
             return "Direct I/O requirements unknown"
         case .alignmentViolation(let operation):
-            return "Alignment violation or Direct I/O not supported during \(operation)"
-        case .platform(let code, let message):
-            return "Platform error \(code): \(message)"
+            return "Alignment violation or Direct I/O not supported during \(operation.rawValue)"
+        case .platform(let code, let operation):
+            #if !os(Windows)
+            let message = String(cString: strerror(code))
+            return "Platform error \(code) during \(operation.rawValue): \(message)"
+            #else
+            return "Platform error \(code) during \(operation.rawValue)"
+            #endif
         }
     }
 }

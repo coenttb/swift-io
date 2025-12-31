@@ -10,7 +10,7 @@ extension IO.Blocking.Threads.Job {
     ///
     /// ## Design
     /// The context is bundled with the job, eliminating dictionary lookups.
-    /// The worker calls `context.tryComplete()` directly after execution.
+    /// The worker calls `context.complete()` directly after execution.
     ///
     /// ## Safety Invariant (for @unchecked Sendable)
     /// - Jobs are created and consumed under the Worker.State lock
@@ -18,7 +18,7 @@ extension IO.Blocking.Threads.Job {
     /// - The context is Sendable (uses atomic state for thread-safe resumption)
     ///
     /// ## Exactly-Once Completion
-    /// - If `context.tryComplete()` returns false, the context was already cancelled
+    /// - If `context.complete()` returns false, the context was already cancelled
     /// - In that case, the box is destroyed to prevent leaks
     struct Instance: @unchecked Sendable {
         /// The ticket identifying this job (for debugging/logging).
@@ -54,7 +54,7 @@ extension IO.Blocking.Threads.Job {
         /// 3. If cancelled, destroy the box to prevent leaks
         func run() {
             let box = operation()
-            if !context.tryComplete(with: IO.Blocking.Box.Pointer(box)) {
+            if !context.complete(with: IO.Blocking.Box.Pointer(box)) {
                 // Context was already cancelled - destroy the box
                 IO.Blocking.Box.destroy(box)
             }

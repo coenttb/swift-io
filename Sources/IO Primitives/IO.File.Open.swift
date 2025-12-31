@@ -82,8 +82,21 @@ extension IO.File.Open {
         /// Direct I/O is not supported.
         case directNotSupported
 
-        /// Platform-specific error.
-        case platform(code: Int32, message: String)
+        /// Platform-specific error with structured reason.
+        case platform(code: Int32, reason: Reason)
+
+        /// Structured reason for platform errors.
+        public enum Reason: Sendable, Equatable {
+            case loop
+            case nameTooLong
+            case notEmpty
+            case crossDevice
+            case invalidHandle
+            case interrupted
+            case noSpace
+            case ioError
+            case other
+        }
     }
 }
 
@@ -107,8 +120,7 @@ extension IO.File.Open.Error {
         case EINVAL:
             self = .directNotSupported
         default:
-            let message = String(cString: strerror(posixErrno))
-            self = .platform(code: posixErrno, message: message)
+            self = .platform(code: posixErrno, reason: .other)
         }
     }
     #endif
@@ -128,7 +140,7 @@ extension IO.File.Open.Error {
         case DWORD(ERROR_INVALID_PARAMETER):
             self = .directNotSupported
         default:
-            self = .platform(code: Int32(windowsError), message: "Windows error \(windowsError)")
+            self = .platform(code: Int32(windowsError), reason: .other)
         }
     }
     #endif
@@ -151,11 +163,13 @@ extension IO.File.Open.Error {
             case .exists:
                 self = .alreadyExists(path: path)
             case .loop:
-                self = .platform(code: -1, message: "Symbolic link loop")
+                self = .platform(code: -1, reason: .loop)
             case .nameTooLong:
-                self = .platform(code: -1, message: "Path too long")
-            case .notEmpty, .crossDevice:
-                self = .platform(code: -1, message: "\(pathError)")
+                self = .platform(code: -1, reason: .nameTooLong)
+            case .notEmpty:
+                self = .platform(code: -1, reason: .notEmpty)
+            case .crossDevice:
+                self = .platform(code: -1, reason: .crossDevice)
             }
 
         case .permission(let permError):
@@ -167,25 +181,22 @@ extension IO.File.Open.Error {
         case .handle(let handleError):
             switch handleError {
             case .invalid:
-                self = .platform(code: -1, message: "Invalid handle")
+                self = .platform(code: -1, reason: .invalidHandle)
             case .processLimit, .systemLimit:
                 self = .tooManyOpenFiles
             }
 
         case .signal:
-            self = .platform(code: -1, message: "Interrupted by signal")
+            self = .platform(code: -1, reason: .interrupted)
 
-        case .space(let spaceError):
-            switch spaceError {
-            case .exhausted, .quota:
-                self = .platform(code: -1, message: "No space")
-            }
+        case .space:
+            self = .platform(code: -1, reason: .noSpace)
 
-        case .io(let ioError):
-            self = .platform(code: -1, message: "I/O error: \(ioError)")
+        case .io:
+            self = .platform(code: -1, reason: .ioError)
 
-        case .platform(let platformError):
-            self = .platform(code: -1, message: "\(platformError)")
+        case .platform:
+            self = .platform(code: -1, reason: .other)
         }
     }
 }
@@ -207,8 +218,29 @@ extension IO.File.Open.Error: CustomStringConvertible {
             return "Too many open files"
         case .directNotSupported:
             return "Direct I/O not supported"
-        case .platform(let code, let message):
-            return "Platform error \(code): \(message)"
+        case .platform(let code, let reason):
+            let reasonDescription: String
+            switch reason {
+            case .loop: reasonDescription = "Symbolic link loop"
+            case .nameTooLong: reasonDescription = "Path too long"
+            case .notEmpty: reasonDescription = "Directory not empty"
+            case .crossDevice: reasonDescription = "Cross-device operation"
+            case .invalidHandle: reasonDescription = "Invalid handle"
+            case .interrupted: reasonDescription = "Interrupted by signal"
+            case .noSpace: reasonDescription = "No space left"
+            case .ioError: reasonDescription = "I/O error"
+            case .other:
+                #if !os(Windows)
+                if code >= 0 {
+                    reasonDescription = String(cString: strerror(code))
+                } else {
+                    reasonDescription = "Unknown error"
+                }
+                #else
+                reasonDescription = "Windows error"
+                #endif
+            }
+            return "Platform error \(code): \(reasonDescription)"
         }
     }
 }

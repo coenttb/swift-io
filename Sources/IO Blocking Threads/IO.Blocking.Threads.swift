@@ -40,7 +40,7 @@ extension IO.Blocking {
                 runtime.state.lock.withLock {
                     runtime.state.isShutdown = true
                 }
-                runtime.state.lock.broadcastAll()
+                runtime.state.lock.broadcast(all: ())
                 runtime.joinAllThreads()
             }
         }
@@ -71,18 +71,18 @@ extension IO.Blocking.Threads {
     /// 1. Create context with continuation
     /// 2. Create job with bundled context
     /// 3. Enqueue job (or wait in acceptance queue)
-    /// 4. Worker executes and calls `context.tryComplete()` directly
+    /// 4. Worker executes and calls `context.complete()` directly
     ///
     /// ## Cancellation Semantics
-    /// - All cancellation paths use `context.tryCancel()`
+    /// - All cancellation paths use `context.cancel()`
     /// - Atomic state ensures exactly-once resumption
     /// - If job completes after cancellation, box is destroyed
     ///
     /// ## Exactly-Once Guarantees
     /// Every path completes the context exactly once:
-    /// - Success: worker calls `context.tryComplete(box)`
-    /// - Cancel: handler calls `context.tryCancel()`
-    /// - Failure: error path calls `context.tryFail(error)`
+    /// - Success: worker calls `context.complete(box)`
+    /// - Cancel: handler calls `context.cancel()`
+    /// - Failure: error path calls `context.fail(error)`
     public func runBoxed(
         deadline: IO.Blocking.Deadline?,
         _ operation: @Sendable @escaping () -> UnsafeMutableRawPointer
@@ -93,7 +93,7 @@ extension IO.Blocking.Threads {
         }
 
         // Lazy start workers
-        runtime.startIfNeeded()
+        runtime.start(ifNeeded: ())
 
         let state = runtime.state
         let options = runtime.options
@@ -116,7 +116,7 @@ extension IO.Blocking.Threads {
 
                 // Check cancellation inside continuation (handles race with onCancel)
                 if Task.isCancelled {
-                    _ = context.tryFail(.cancellationRequested)
+                    _ = context.fail(.cancellationRequested)
                     return
                 }
 
@@ -132,7 +132,7 @@ extension IO.Blocking.Threads {
                 // Check shutdown
                 if state.isShutdown {
                     state.lock.unlock()
-                    _ = context.tryFail(.shutdown)
+                    _ = context.fail(.shutdown)
                     return
                 }
 
@@ -141,7 +141,7 @@ extension IO.Blocking.Threads {
                 if state.tryEnqueue(job) {
                     // Signal only on empty→non-empty transition AND if someone is sleeping
                     if wasEmpty && state.sleepers > 0 {
-                        state.lock.signalWorker()
+                        state.lock.worker.signal()
                     }
                     state.lock.unlock()
                     // Job enqueued - worker will complete via context
@@ -152,7 +152,7 @@ extension IO.Blocking.Threads {
                 switch options.strategy {
                 case .failFast:
                     state.lock.unlock()
-                    _ = context.tryFail(.queueFull)
+                    _ = context.fail(.queueFull)
 
                 case .wait:
                     // Register acceptance waiter (job already has context)
@@ -164,12 +164,12 @@ extension IO.Blocking.Threads {
                     // Bounded queue - fail fast if full
                     guard state.acceptanceWaiters.enqueue(waiter) else {
                         state.lock.unlock()
-                        _ = context.tryFail(.overloaded)
+                        _ = context.fail(.overloaded)
                         return
                     }
                     // Signal deadline manager if waiter has a deadline
                     if deadline != nil {
-                        state.lock.signalDeadline()
+                        state.lock.deadline.signal()
                     }
                     state.lock.unlock()
                 // Waiter registered - will be promoted when capacity available
@@ -180,7 +180,7 @@ extension IO.Blocking.Threads {
             // May fail if already completed/failed - that's fine
             contextHolder.withLock { context in
                 if let context = context {
-                    _ = context.tryCancel()
+                    _ = context.cancel()
                 }
             }
 
@@ -188,7 +188,7 @@ extension IO.Blocking.Threads {
             // This prevents it from being promoted after cancellation
             state.lock.lock()
             if let waiter = state.removeAcceptanceWaiter(ticket: ticket) {
-                // Waiter found and marked - context.tryCancel() above handles resumption
+                // Waiter found and marked - context.cancel() above handles resumption
                 // The waiter's job won't be enqueued during promotion
                 _ = waiter  // Suppress unused warning
             }
@@ -228,18 +228,18 @@ extension IO.Blocking.Threads {
         state.isShutdown = true
 
         // Drain acceptance waiters
-        waitersToFail = state.acceptanceWaiters.drainAll()
+        waitersToFail = state.acceptanceWaiters.drain(all: ())
 
         state.lock.unlock()
 
         // Wake all workers and deadline manager
-        state.lock.broadcastAll()
+        state.lock.broadcast(all: ())
 
         // Fail acceptance waiters via their contexts (outside lock)
         for waiter in waitersToFail {
             if !waiter.resumed {
                 // Use context's atomic tryFail - exactly-once guaranteed
-                _ = waiter.job.context.tryFail(.shutdown)
+                _ = waiter.job.context.fail(.shutdown)
             }
         }
 
@@ -255,7 +255,7 @@ extension IO.Blocking.Threads {
                 // Use condvar wait instead of polling
                 state.lock.lock()
                 while !(state.inFlightCount == 0 && state.queue.isEmpty) {
-                    state.lock.waitWorker()
+                    state.lock.worker.wait()
                 }
                 state.lock.unlock()
                 continuation.resume()

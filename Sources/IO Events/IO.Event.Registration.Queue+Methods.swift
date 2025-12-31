@@ -37,7 +37,7 @@ extension IO.Event.Registration.Queue {
     /// Used during shutdown to process remaining requests.
     ///
     /// - Returns: All pending requests.
-    public func dequeueAll() -> [IO.Event.Registration.Request] {
+    public func dequeue(all: Void = ()) -> [IO.Event.Registration.Request] {
         state.withLock { state in
             let requests = state.requests
             state.requests.removeAll()

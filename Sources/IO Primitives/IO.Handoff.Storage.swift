@@ -40,7 +40,6 @@ extension IO.Handoff {
         let _box: _Box<T>
 
         /// Creates empty storage.
-        @inlinable
         public init() {
             _box = _Box()
         }
@@ -80,7 +79,6 @@ extension IO.Handoff.Storage where T: ~Copyable {
         /// - Parameter value: The value to store.
         /// - Precondition: Must be called exactly once across all token copies.
         ///   Second call traps with a clear error message.
-        @inlinable
         public func store(_ value: consuming T) {
             _box.store(value)
         }
@@ -94,7 +92,6 @@ extension IO.Handoff.Storage where T: ~Copyable {
     ///
     /// The token must be consumed by calling `store(_:)` exactly once.
     /// This does NOT consume the storage - you still call `take()` afterward.
-    @inlinable
     public var token: Token {
         Token(_box)
     }
@@ -103,7 +100,6 @@ extension IO.Handoff.Storage where T: ~Copyable {
     ///
     /// - Returns: The stored value.
     /// - Precondition: `store()` must have been called exactly once.
-    @inlinable
     public consuming func take() -> T {
         _box.take()
     }
@@ -113,7 +109,6 @@ extension IO.Handoff.Storage where T: ~Copyable {
     /// Use this for cleanup paths where storage may or may not have been filled.
     ///
     /// - Returns: The stored value if `store()` was called, nil otherwise.
-    @inlinable
     public consuming func takeIfStored() -> T? {
         _box.takeIfPresent()
     }

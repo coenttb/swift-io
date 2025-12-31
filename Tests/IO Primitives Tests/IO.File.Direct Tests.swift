@@ -292,30 +292,30 @@ struct DirectRequirementsTests {
     @Suite("Alignment Validation")
     struct AlignmentValidationTests {
 
-        @Test("isOffsetAligned checks offset alignment")
-        func isOffsetAligned() {
+        @Test("offset.isAligned checks offset alignment")
+        func offsetIsAligned() {
             let alignment = IO.File.Direct.Requirements.Alignment(uniform: 4096)
 
-            #expect(alignment.isOffsetAligned(0))
-            #expect(alignment.isOffsetAligned(4096))
-            #expect(alignment.isOffsetAligned(8192))
+            #expect(alignment.offset.isAligned(0))
+            #expect(alignment.offset.isAligned(4096))
+            #expect(alignment.offset.isAligned(8192))
 
-            #expect(!alignment.isOffsetAligned(1))
-            #expect(!alignment.isOffsetAligned(512))
-            #expect(!alignment.isOffsetAligned(4095))
+            #expect(!alignment.offset.isAligned(1))
+            #expect(!alignment.offset.isAligned(512))
+            #expect(!alignment.offset.isAligned(4095))
         }
 
-        @Test("isLengthValid checks length multiple")
-        func isLengthValid() {
+        @Test("length.isValid checks length multiple")
+        func lengthIsValid() {
             let alignment = IO.File.Direct.Requirements.Alignment(uniform: 512)
 
-            #expect(alignment.isLengthValid(512))
-            #expect(alignment.isLengthValid(1024))
-            #expect(alignment.isLengthValid(4096))
+            #expect(alignment.length.isValid(512))
+            #expect(alignment.length.isValid(1024))
+            #expect(alignment.length.isValid(4096))
 
-            #expect(!alignment.isLengthValid(1))
-            #expect(!alignment.isLengthValid(100))
-            #expect(!alignment.isLengthValid(513))
+            #expect(!alignment.length.isValid(1))
+            #expect(!alignment.length.isValid(100))
+            #expect(!alignment.length.isValid(513))
         }
     }
 
@@ -355,8 +355,8 @@ struct HandleErrorTests {
                 .misalignedOffset(offset: 0, required: 4096),
                 .invalidLength(length: 0, requiredMultiple: 4096),
                 .requirementsUnknown,
-                .alignmentViolation(operation: "read"),
-                .platform(code: 0, message: "test"),
+                .alignmentViolation(operation: .read),
+                .platform(code: 0, operation: .read),
             ]
 
             for i in 0..<errors.count {
@@ -377,8 +377,8 @@ struct HandleErrorTests {
                 .misalignedOffset(offset: 100, required: 4096),
                 .invalidLength(length: 100, requiredMultiple: 4096),
                 .requirementsUnknown,
-                .alignmentViolation(operation: "write"),
-                .platform(code: 42, message: "test error"),
+                .alignmentViolation(operation: .write),
+                .platform(code: 42, operation: .write),
             ]
 
             for error in errors {
@@ -389,7 +389,7 @@ struct HandleErrorTests {
             // Check specific content
             #expect(IO.File.Handle.Error.invalidHandle.description.contains("Invalid"))
             #expect(IO.File.Handle.Error.endOfFile.description.contains("End"))
-            #expect(IO.File.Handle.Error.alignmentViolation(operation: "read").description.contains("read"))
+            #expect(IO.File.Handle.Error.alignmentViolation(operation: .read).description.contains("read"))
         }
     }
 
@@ -420,7 +420,7 @@ struct HandleErrorTests {
             let error = IO.File.Handle.Error(posixErrno: EINVAL, operation: .read)
 
             if case .alignmentViolation(let op) = error {
-                #expect(op == "read")
+                #expect(op == .read)
             } else {
                 Issue.record("Expected alignmentViolation, got \(error)")
             }
@@ -597,7 +597,7 @@ struct DirectErrorTests {
             .invalidLength(length: 0, requiredMultiple: 4096),
             .modeChangeFailed,
             .invalidHandle,
-            .platform(code: 0, message: "test"),
+            .platform(code: 0, operation: .read),
         ]
 
         for i in 0..<errors.count {

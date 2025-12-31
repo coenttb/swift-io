@@ -32,7 +32,6 @@ extension IO.Handoff {
         /// Creates a cell containing the given value.
         ///
         /// - Parameter value: The value to store (ownership transferred).
-        @inlinable
         public init(_ value: consuming T) {
             _box = _Box(value)
         }
@@ -72,7 +71,6 @@ extension IO.Handoff.Cell where T: ~Copyable {
         /// - Returns: The stored value.
         /// - Precondition: Must be called exactly once across all token copies.
         ///   Second call traps with a clear error message.
-        @inlinable
         public func take() -> T {
             _box.take()
         }
@@ -89,7 +87,6 @@ extension IO.Handoff.Cell where T: ~Copyable {
     /// and must be consumed by calling `take()` exactly once.
     ///
     /// - Returns: A Sendable token.
-    @inlinable
     public consuming func token() -> Token {
         Token(_box)
     }

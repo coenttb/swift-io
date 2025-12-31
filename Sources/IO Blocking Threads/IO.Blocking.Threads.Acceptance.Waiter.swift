@@ -15,7 +15,7 @@ extension IO.Blocking.Threads.Acceptance {
     /// 2. Worker will complete the job's context directly
     ///
     /// When cancelled or expired:
-    /// - Call `job.context.tryCancel()` or `job.context.tryFail()`
+    /// - Call `job.context.cancel()` or `job.context.fail()`
     /// - The atomic context ensures exactly-once resumption
     struct Waiter {
         /// The job to enqueue when capacity is available.

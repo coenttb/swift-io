@@ -117,7 +117,7 @@ struct IOFileCloneTests {
                 .destinationExists,
                 .permissionDenied,
                 .isDirectory,
-                .platform(code: 42, message: "test"),
+                .platform(code: 42, operation: .copy),
             ]
 
             for error in errors {
@@ -134,9 +134,9 @@ struct IOFileCloneTests {
             #expect(IO.File.Clone.Error.notSupported == .notSupported)
             #expect(IO.File.Clone.Error.crossDevice != .notSupported)
 
-            let p1 = IO.File.Clone.Error.platform(code: 1, message: "a")
-            let p2 = IO.File.Clone.Error.platform(code: 1, message: "a")
-            let p3 = IO.File.Clone.Error.platform(code: 2, message: "a")
+            let p1 = IO.File.Clone.Error.platform(code: 1, operation: .copy)
+            let p2 = IO.File.Clone.Error.platform(code: 1, operation: .copy)
+            let p3 = IO.File.Clone.Error.platform(code: 2, operation: .copy)
 
             #expect(p1 == p2)
             #expect(p1 != p3)

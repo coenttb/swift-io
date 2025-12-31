@@ -35,7 +35,19 @@ extension IO.File.Clone {
         case isDirectory
 
         /// A platform-specific error occurred.
-        case platform(code: Int32, message: String)
+        case platform(code: Int32, operation: Operation)
+
+        /// Operation types for error context.
+        public enum Operation: String, Sendable, Equatable {
+            case clonefile
+            case copyfile
+            case ficlone
+            case copyFileRange
+            case duplicateExtents
+            case statfs
+            case stat
+            case copy
+        }
 
         public var description: String {
             switch self {
@@ -51,8 +63,13 @@ extension IO.File.Clone {
                 return "Permission denied"
             case .isDirectory:
                 return "Source is a directory"
-            case .platform(let code, let message):
-                return "Platform error \(code): \(message)"
+            case .platform(let code, let operation):
+                #if !os(Windows)
+                let message = String(cString: strerror(code))
+                return "Platform error \(code) during \(operation): \(message)"
+                #else
+                return "Platform error \(code) during \(operation)"
+                #endif
             }
         }
     }
@@ -88,6 +105,22 @@ extension IO.File.Clone {
 
 // MARK: - Error Conversion
 
+extension IO.File.Clone.Error.Operation {
+    /// Creates a public operation from an internal syscall operation.
+    package init(from syscallOp: IO.File.Clone.SyscallError.Operation) {
+        switch syscallOp {
+        case .clonefile: self = .clonefile
+        case .copyfile: self = .copyfile
+        case .ficlone: self = .ficlone
+        case .copyFileRange: self = .copyFileRange
+        case .duplicateExtents: self = .duplicateExtents
+        case .statfs: self = .statfs
+        case .stat: self = .stat
+        case .copy: self = .copy
+        }
+    }
+}
+
 extension IO.File.Clone.Error {
     /// Creates a public error from a syscall error.
     package init(from syscallError: IO.File.Clone.SyscallError) {
@@ -96,7 +129,7 @@ extension IO.File.Clone.Error {
             self = .notSupported
 
         #if !os(Windows)
-        case .posix(let errno, _):
+        case .posix(let errno, let operation):
             switch errno {
             case ENOENT:
                 self = .sourceNotFound
@@ -111,12 +144,12 @@ extension IO.File.Clone.Error {
             case ENOTSUP, EOPNOTSUPP:
                 self = .notSupported
             default:
-                self = .platform(code: errno, message: String(cString: strerror(errno)))
+                self = .platform(code: errno, operation: Operation(from: operation))
             }
         #endif
 
         #if os(Windows)
-        case .windows(let code, _):
+        case .windows(let code, let operation):
             switch code {
             case 2: // ERROR_FILE_NOT_FOUND
                 self = .sourceNotFound
@@ -127,7 +160,7 @@ extension IO.File.Clone.Error {
             case 17: // ERROR_NOT_SAME_DEVICE
                 self = .crossDevice
             default:
-                self = .platform(code: Int32(code), message: "Windows error \(code)")
+                self = .platform(code: Int32(code), operation: Operation(from: operation))
             }
         #endif
         }

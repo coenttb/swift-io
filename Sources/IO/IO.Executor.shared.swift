@@ -16,7 +16,15 @@ extension IO.Executor {
     /// via round-robin assignment at creation time.
     ///
     /// ## Lifecycle
-    /// The shared pool is a process-global singleton. It should generally
-    /// not be shut down during normal operation.
+    /// - **Process-scoped singleton**: Lives for the entire process lifetime.
+    /// - **No shutdown required**: The pool cleans up automatically on process exit.
+    /// - **Thread-safe**: Access from any thread is safe via `@unchecked Sendable`.
+    ///
+    /// ## Global State (PATTERN REQUIREMENTS §6.6)
+    /// This is an intentional process-global singleton. Rationale:
+    /// - Executor threads are expensive resources (kernel threads)
+    /// - Sharing executors across Pool actors reduces resource waste
+    /// - Round-robin assignment provides load balancing
+    /// - Testable: Create a separate `Threads` instance for isolated tests
     public static let shared: Threads = Threads()
 }

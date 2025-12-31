@@ -24,8 +24,16 @@ extension IO.Blocking.Lane {
     /// ```
     ///
     /// ## Lifecycle
-    /// The shared lane is a process-global singleton. It should generally
-    /// not be shut down during normal operation.
+    /// - **Process-scoped singleton**: Lives for the entire process lifetime.
+    /// - **No shutdown required**: Worker threads clean up on process exit.
+    /// - **Lazy start**: Worker threads spawn on first `.run()` call.
+    ///
+    /// ## Global State (PATTERN REQUIREMENTS §6.6)
+    /// This is an intentional process-global singleton. Rationale:
+    /// - Thread pools are expensive resources (kernel threads)
+    /// - Sharing the lane across file operations reduces resource waste
+    /// - Default options suit most use cases (processorCount workers)
+    /// - Testable: Create a separate lane via `.threads(options)` for isolated tests
     ///
     /// For advanced use cases (custom thread count, explicit lifecycle),
     /// create your own lane with `IO.Blocking.Lane.threads(options)`.

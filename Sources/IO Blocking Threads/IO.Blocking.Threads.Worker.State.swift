@@ -16,17 +16,17 @@ extension IO.Blocking.Threads.Worker {
     ///
     /// ## Design (Unified Single-Stage)
     /// Jobs carry their completion context, eliminating dictionary lookups:
-    /// - Workers call `job.context.tryComplete()` directly
-    /// - Cancellation calls `job.context.tryCancel()` directly
+    /// - Workers call `job.context.complete()` directly
+    /// - Cancellation calls `job.context.cancel()` directly
     /// - Atomic state ensures exactly-once resumption
     ///
     /// ## Invariants (must hold under lock)
     /// 1. **Acceptance invariant**: A job is either waiting in acceptanceWaiters,
     ///    or accepted (in queue or being executed).
     /// 2. **Completion invariant**: Each context is resumed exactly once by:
-    ///    - Worker calling `tryComplete()`
-    ///    - Cancellation calling `tryCancel()`
-    ///    - Error path calling `tryFail()`
+    ///    - Worker calling `complete()`
+    ///    - Cancellation calling `cancel()`
+    ///    - Error path calling `fail()`
     /// 3. **Drain invariant**: After shutdown, no worker can touch shared state.
     final class State: @unchecked Sendable {
         let lock: IO.Blocking.Threads.Lock
@@ -81,7 +81,7 @@ extension IO.Blocking.Threads.Worker {
         /// This prevents wasted kernel round-trips when workers are already active.
         ///
         /// ## Lazy Expiry
-        /// Expired waiters are failed via `context.tryFail(.deadlineExceeded)`.
+        /// Expired waiters are failed via `context.fail(.deadlineExceeded)`.
         ///
         /// Must be called under lock.
         func promoteAcceptanceWaiters() {
@@ -96,7 +96,7 @@ extension IO.Blocking.Threads.Worker {
                 // Check deadline (lazy expiry)
                 if let deadline = waiter.deadline, deadline.hasExpired {
                     // Fail via context - atomic, exactly-once
-                    _ = waiter.job.context.tryFail(.deadlineExceeded)
+                    _ = waiter.job.context.fail(.deadlineExceeded)
                     continue
                 }
 
@@ -111,14 +111,14 @@ extension IO.Blocking.Threads.Worker {
                     // Job enqueued - worker will complete via context
                 } else {
                     // Shouldn't happen since we checked !queue.isFull
-                    _ = waiter.job.context.tryFail(.queueFull)
+                    _ = waiter.job.context.fail(.queueFull)
                     break
                 }
             }
 
             // Signal once if we transitioned from empty and someone is sleeping
             if didTransitionFromEmpty && sleepers > 0 {
-                lock.signalWorker()
+                lock.worker.signal()
             }
         }
 

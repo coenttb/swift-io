@@ -107,7 +107,7 @@ extension IO.Blocking.Threads.Acceptance {
         }
 
         /// Drain all remaining waiters. Used during shutdown.
-        mutating func drainAll() -> [Waiter] {
+        mutating func drain(all: Void = ()) -> [Waiter] {
             var result: [Waiter] = []
             result.reserveCapacity(_count)
             while _count > 0 {
