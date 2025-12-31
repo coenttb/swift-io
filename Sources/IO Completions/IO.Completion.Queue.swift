@@ -323,7 +323,11 @@ extension IO.Completion {
             return IO.Completion.Submit.Result(event: event, buffer: extractedBuffer)
         }
 
-        /// Cancels a pending operation.
+        /// Cancels a pending operation (Phase 1 stub).
+        ///
+        /// In Phase 1, this is a no-op. Task cancellation is handled locally
+        /// via `onCancel` handler; backend cancellation (CancelIoEx, io_uring
+        /// IORING_OP_ASYNC_CANCEL) arrives in Phase 2.
         ///
         /// - Parameter id: The ID of the operation to cancel.
         public func cancel(id: IO.Completion.ID) throws(Failure) {
@@ -331,8 +335,7 @@ extension IO.Completion {
                 throw .failure(.lifecycle(.shutdownInProgress))
             }
 
-            // Submit cancel operation to backend
-            // In a real implementation:
+            // Phase 2: Submit cancel operation to backend
             // - IOCP: CancelIoEx
             // - io_uring: IORING_OP_ASYNC_CANCEL
         }
@@ -466,16 +469,16 @@ extension IO.Completion {
             // Wake poll thread to exit
             wakeupChannel.wake()
 
-            // Close wakeup channel
-            wakeupChannel.close()
-
             // Cancel drain task
             drainTask?.cancel()
 
-            // Wait for poll thread to exit
+            // Wait for poll thread to exit (must complete before closing wakeup)
             if let handle = pollThreadHandle._take() {
                 handle.join()
             }
+
+            // Close wakeup channel (after join to ensure poll thread exited cleanly)
+            wakeupChannel.close()
         }
     }
 }
