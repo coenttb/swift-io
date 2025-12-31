@@ -24,26 +24,30 @@ extension IO.Completion.IOCP {
     ///   overlapped: OVERLAPPED  ← returned by GetQueuedCompletionStatus
     ///   id: ID
     ///   kind: Kind
-    ///   bytes: UInt32
-    ///   error: UInt32
     /// ```
     ///
     /// ## Usage
     ///
     /// ```swift
     /// // On completion:
-    /// let header = Header.from(overlapped: entry.lpOverlapped)
-    /// let operationID = header.id
+    /// let headerPtr = Header.from(overlapped: entry.lpOverlapped)
+    /// let operationID = headerPtr.pointee.id
     /// ```
+    ///
+    /// ## Important
+    ///
+    /// The kernel does NOT populate custom fields in this struct. Bytes
+    /// transferred come from `OVERLAPPED_ENTRY.dwNumberOfBytesTransferred`.
+    /// Error status must be obtained via `GetOverlappedResult`.
     ///
     /// ## Thread Safety
     ///
-    /// Headers are created by the submission path and read by the poll path.
-    /// The poll thread has exclusive read access after completion.
+    /// Headers are heap-allocated during submission (poll thread) and
+    /// deallocated on completion (also poll thread). Single-threaded access.
     public struct Header {
         /// OVERLAPPED must be the FIRST field for container-of to work.
         ///
-        /// Windows kernel writes completion status here.
+        /// Windows kernel uses this for async I/O state.
         public var overlapped: OVERLAPPED
 
         /// The operation ID for correlation.
@@ -52,19 +56,11 @@ extension IO.Completion.IOCP {
         /// The operation kind.
         public let kind: IO.Completion.Kind
 
-        /// Number of bytes transferred (set by kernel).
-        public var bytes: UInt32
-
-        /// Error code (0 = success, set by kernel/driver).
-        public var error: UInt32
-
         /// Creates a header for an operation.
         public init(id: IO.Completion.ID, kind: IO.Completion.Kind) {
             self.overlapped = OVERLAPPED()
             self.id = id
             self.kind = kind
-            self.bytes = 0
-            self.error = 0
         }
 
         /// Recovers a Header pointer from an OVERLAPPED pointer.
