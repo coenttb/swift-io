@@ -498,9 +498,15 @@ extension IO.Completion.Queue.Test.Integration {
         fake.complete(id: id, kind: .nop, outcome: .success(.bytes(42)))
 
         // Wait until completion is RECORDED by the actor (critical barrier)
-        try await queue._waitUntilRecorded(id)
+        // Accept either:
+        // - .recorded: completion stored, entry still exists (can still cancel)
+        // - .finalizedWithoutRecord: submit() already returned with completion (too fast to cancel)
+        // Both prove completion-wins - the completion was delivered, not cancelled
+        let recordResult = await queue._waitUntilRecorded(id)
+        #expect(recordResult == .recorded || recordResult == .finalizedWithoutRecord,
+               "completion must be recorded or already finalized. Got: \(recordResult)")
 
-        // NOW cancel - completion is already recorded, must win
+        // Cancel - if entry still exists, completion must still win
         resultTask.cancel()
 
         // Must get the real completion, NOT cancelled
@@ -546,14 +552,21 @@ extension IO.Completion.Queue.Test.Integration {
         #expect(event.outcome == .cancelled,
                "cancel-first should result in cancelled outcome")
 
+        // Capture current drain count
+        let drainCountBefore = await queue._drainedEventCount
+
         // NOW inject a late completion - must be safely ignored
         fake.complete(id: id, kind: .nop, outcome: .success(.bytes(99)))
 
-        // Give drain a chance to process (if there's a bug, it would crash here)
-        await Task.yield()
-        await Task.yield()
+        // Wait for drain to process the late completion (proves it traversed the pipeline)
+        let drained = await queue._waitUntilDrained(atLeast: drainCountBefore + 1)
+        #expect(drained, "late completion should be processed by drain")
 
-        // If we get here without crash, late completion was safely ignored
+        // Entry should still be absent (not resurrected)
+        let recordResult = await queue._waitUntilRecorded(id, timeout: .milliseconds(10))
+        #expect(recordResult == .finalizedWithoutRecord,
+               "entry should remain finalized after late completion")
+
         await queue.shutdown()
     }
 

@@ -253,9 +253,9 @@ extension IO.Completion {
 
                     if !armed {
                         // Cancelled before arm - task was cancelled between Waiter creation
-                        // and arm(). Skip driver submission. Resume directly since waiter
-                        // state machine handles idempotency.
-                        waiter.resume.now()
+                        // and arm(). Skip driver submission. Resume via Task {} hop to avoid
+                        // reentrancy hazards (resuming before handler fully installed).
+                        Task { waiter.resume.now() }
                         return
                     }
 
@@ -265,14 +265,14 @@ extension IO.Completion {
 
                     // Early completion: If completion arrived before we armed,
                     // drain() couldn't resume us (waiter wasn't armed).
-                    // Now that we're armed, resume directly.
+                    // Now that we're armed, resume via Task {} hop for timing safety.
                     if storage.completion != nil {
-                        waiter.resume.now()
+                        Task { waiter.resume.now() }
                     }
                 }
             } onCancel: {
                 waiter.cancel()
-                // Resume immediately - submit() will see wasCancelled and return cancelled event.
+                // Resume immediately - outside continuation closure, safe to call directly.
                 // resume.now() is idempotent; if drain() already resumed, this is a no-op.
                 waiter.resume.now()
             }
@@ -339,7 +339,19 @@ extension IO.Completion {
 
         // MARK: - Test Probes
 
-        #if DEBUG
+        /// Result of waiting for a completion to be recorded.
+        enum _RecordedResult {
+            /// Completion was recorded in storage.
+            case recorded
+            /// Entry was finalized (removed) before completion was recorded.
+            case finalizedWithoutRecord
+            /// Timeout expired.
+            case timeout
+        }
+
+        /// Counter of events processed by drain(). Test-only.
+        var _drainedEventCount: UInt64 = 0
+
         /// Waits until a completion is recorded for the given ID.
         ///
         /// Test-only probe for synchronizing on "completion recorded" state.
@@ -350,30 +362,41 @@ extension IO.Completion {
         /// - Parameters:
         ///   - id: The operation ID to wait for.
         ///   - timeout: Maximum time to wait.
-        /// - Throws: If timeout expires before completion is recorded.
-        public func _waitUntilRecorded(
+        /// - Returns: The outcome of the wait.
+        func _waitUntilRecorded(
             _ id: IO.Completion.ID,
             timeout: Duration = .milliseconds(500)
-        ) async throws {
+        ) async -> _RecordedResult {
             let deadline = ContinuousClock.now + timeout
             while ContinuousClock.now < deadline {
-                // Check if completion is recorded
                 if let entry = entries[id] {
                     if entry.storage.completion != nil {
-                        return  // Completion recorded
+                        return .recorded
                     }
                 } else {
-                    // Entry removed = already finalized
-                    return
+                    return .finalizedWithoutRecord
                 }
                 await Task.yield()
             }
-            throw _TestTimeoutError()
+            return .timeout
         }
 
-        /// Test-only timeout error.
-        public struct _TestTimeoutError: Swift.Error {}
-        #endif
+        /// Waits until drain has processed at least the given number of events.
+        ///
+        /// Test-only probe for proving late completions traverse the pipeline.
+        func _waitUntilDrained(
+            atLeast count: UInt64,
+            timeout: Duration = .milliseconds(500)
+        ) async -> Bool {
+            let deadline = ContinuousClock.now + timeout
+            while ContinuousClock.now < deadline {
+                if _drainedEventCount >= count {
+                    return true
+                }
+                await Task.yield()
+            }
+            return false
+        }
 
         // MARK: - Event Processing
 
@@ -386,6 +409,8 @@ extension IO.Completion {
         /// Late completions for already-removed entries are safely ignored (not an error).
         func drain(_ events: [IO.Completion.Event]) {
             for event in events {
+                _drainedEventCount += 1  // Test probe: track events processed
+
                 // Look up entry but do NOT remove (submit() removes after await)
                 guard let entry = entries[event.id] else {
                     // Late completion - entry already finalized by submit().
