@@ -15,10 +15,10 @@ let package = Package(
         .library(name: "IO Primitives", targets: ["IO Primitives"]),
         .library(name: "IO Blocking", targets: ["IO Blocking"]),
         .library(name: "IO Blocking Threads", targets: ["IO Blocking Threads"]),
-        .library(name: "IO NonBlocking Primitives", targets: ["IO NonBlocking Primitives"]),
-        .library(name: "IO NonBlocking Driver", targets: ["IO NonBlocking Driver"]),
-        .library(name: "IO NonBlocking Kqueue", targets: ["IO NonBlocking Kqueue"]),
-        .library(name: "IO NonBlocking", targets: ["IO NonBlocking"]),
+        .library(name: "IO Events Primitives", targets: ["IO Events Primitives"]),
+        .library(name: "IO Events Driver", targets: ["IO Events Driver"]),
+        .library(name: "IO Events Kqueue", targets: ["IO Events Kqueue"]),
+        .library(name: "IO Events", targets: ["IO Events"]),
     ],
     traits: [
         .trait(name: "Codable", description: "Enable Codable conformances for Handle.ID and other types"),
@@ -60,27 +60,27 @@ let package = Package(
             ]
         ),
         .target(
-            name: "IO NonBlocking Primitives",
+            name: "IO Events Primitives",
             dependencies: ["IO Primitives"]
         ),
         .target(
-            name: "IO NonBlocking Driver",
-            dependencies: ["IO NonBlocking Primitives"]
+            name: "IO Events Driver",
+            dependencies: ["IO Events Primitives"]
         ),
         .target(
-            name: "IO NonBlocking Kqueue",
-            dependencies: ["IO NonBlocking Driver"]
+            name: "IO Events Kqueue",
+            dependencies: ["IO Events Driver"]
         ),
         .target(
-            name: "IO NonBlocking Epoll",
-            dependencies: ["IO NonBlocking Driver"]
+            name: "IO Events Epoll",
+            dependencies: ["IO Events Driver"]
         ),
         .target(
-            name: "IO NonBlocking",
+            name: "IO Events",
             dependencies: [
-                "IO NonBlocking Driver",
-                .target(name: "IO NonBlocking Kqueue", condition: .when(platforms: [.macOS, .iOS, .tvOS, .watchOS])),
-                .target(name: "IO NonBlocking Epoll", condition: .when(platforms: [.linux])),
+                "IO Events Driver",
+                .target(name: "IO Events Kqueue", condition: .when(platforms: [.macOS, .iOS, .tvOS, .watchOS])),
+                .target(name: "IO Events Epoll", condition: .when(platforms: [.linux])),
                 .product(name: "Binary", package: "swift-standards"),
             ]
         ),
@@ -113,16 +113,16 @@ let package = Package(
             ]
         ),
         .testTarget(
-            name: "IO NonBlocking Primitives Tests",
+            name: "IO Events Primitives Tests",
             dependencies: [
-                "IO NonBlocking Primitives",
+                "IO Events Primitives",
                 .product(name: "StandardsTestSupport", package: "swift-standards"),
             ]
         ),
         .testTarget(
-            name: "IO NonBlocking Tests",
+            name: "IO Events Tests",
             dependencies: [
-                "IO NonBlocking",
+                "IO Events",
                 .product(name: "StandardsTestSupport", package: "swift-standards"),
             ]
         ),
@@ -137,21 +137,14 @@ let package = Package(
             path: "Tests/IO Benchmarks"
         ),
         .testTarget(
-            name: "IO NonBlocking Benchmarks",
+            name: "IO Events Benchmarks",
             dependencies: [
-                "IO NonBlocking",
+                "IO Events",
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
                 .product(name: "StandardsTestSupport", package: "swift-standards"),
             ],
-            path: "Tests/IO NonBlocking Benchmarks"
-        ),
-        .executableTarget(
-            name: "_Lock Test Process",
-            dependencies: [
-                .product(name: "Kernel", package: "swift-kernel"),
-            ],
-            path: "Sources/_Lock Test Process"
+            path: "Tests/IO Events Benchmarks"
         ),
     ]
 )
