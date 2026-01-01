@@ -5,6 +5,8 @@
 //  Created by Coen ten Thije Boonkkamp on 30/12/2025.
 //
 
+import SystemPackage
+
 extension IO.File.Direct {
     /// Alignment requirements for Direct I/O operations.
     ///
@@ -222,3 +224,104 @@ extension IO.File.Direct.Requirements.Alignment {
         return nil
     }
 }
+
+// MARK: - Platform-Specific Initialization
+
+#if os(macOS)
+extension IO.File.Direct.Requirements {
+    /// Creates requirements for a path.
+    ///
+    /// On macOS, true Direct I/O is not supported. Only `.uncached` mode
+    /// (F_NOCACHE hint) is available, which has no alignment requirements.
+    public init(_ path: FilePath) {
+        self = .unknown(reason: .platformUnsupported)
+    }
+}
+#endif
+
+#if os(Linux)
+import Glibc
+import CLinuxShim
+
+extension IO.File.Direct.Requirements {
+    /// Creates requirements for a path.
+    ///
+    /// On Linux, O_DIRECT alignment constraints are not reliably discoverable.
+    /// Returns `.unknown` to fail closed. Callers should use
+    /// `.auto(.fallbackToBuffered)` for best-effort operation.
+    public init(_ path: FilePath) {
+        // Linux O_DIRECT alignment is not reliably discoverable.
+        // statfs.f_bsize is the optimal transfer size, NOT the alignment requirement.
+        // Actual requirements depend on device sector size, filesystem, and driver.
+        self = .unknown(reason: .sectorSizeUndetermined)
+    }
+}
+#endif
+
+#if os(Windows)
+import WinSDK
+
+extension IO.File.Direct.Requirements {
+    /// Creates requirements for a path.
+    ///
+    /// Uses GetDiskFreeSpaceW to determine sector size.
+    /// This is the minimal safe alignment for FILE_FLAG_NO_BUFFERING.
+    public init(_ path: FilePath) {
+        // Extract the root path (e.g., "C:\" from "C:\Users\...")
+        guard let rootPath = Self.extractRootPath(from: path.string) else {
+            self = .unknown(reason: .sectorSizeUndetermined)
+            return
+        }
+
+        var sectorsPerCluster: DWORD = 0
+        var bytesPerSector: DWORD = 0
+        var numberOfFreeClusters: DWORD = 0
+        var totalNumberOfClusters: DWORD = 0
+
+        let result = rootPath.withCString(encodedAs: UTF16.self) { root in
+            GetDiskFreeSpaceW(
+                root,
+                &sectorsPerCluster,
+                &bytesPerSector,
+                &numberOfFreeClusters,
+                &totalNumberOfClusters
+            )
+        }
+
+        guard result != 0, bytesPerSector > 0 else {
+            self = .unknown(reason: .sectorSizeUndetermined)
+            return
+        }
+
+        self = .known(Alignment(uniform: Int(bytesPerSector)))
+    }
+
+    /// Extracts the root path from a file path.
+    private static func extractRootPath(from path: String) -> String? {
+        // Handle UNC paths
+        if path.hasPrefix("\\\\") {
+            let components = path.dropFirst(2).split(separator: "\\", maxSplits: 2)
+            if components.count >= 2 {
+                return "\\\\" + components[0] + "\\" + components[1] + "\\"
+            }
+            return nil
+        }
+
+        // Handle extended-length paths
+        if path.hasPrefix("\\\\?\\") {
+            let rest = path.dropFirst(4)
+            if rest.count >= 2 && rest.dropFirst().hasPrefix(":") {
+                return String(path.prefix(7))
+            }
+            return nil
+        }
+
+        // Handle standard drive paths
+        if path.count >= 2 && path.dropFirst().hasPrefix(":") {
+            return String(path.prefix(3))
+        }
+
+        return nil
+    }
+}
+#endif

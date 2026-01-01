@@ -13,6 +13,7 @@
 //
 
 import Kernel
+import SystemPackage
 
 #if canImport(Darwin)
 import Darwin
@@ -52,7 +53,7 @@ extension IO.File.Direct {
     ///
     /// On macOS, only `.uncached` mode (F_NOCACHE) is available.
     /// True Direct I/O with alignment requirements is not supported.
-    package static func probeCapability(at path: String) throws(Error.Syscall) -> Capability {
+    package static func probeCapability(at path: FilePath) -> Capability {
         // macOS doesn't have true Direct I/O, only F_NOCACHE hint
         // We always return .uncachedOnly since F_NOCACHE is universally available
         return .uncachedOnly
@@ -87,15 +88,15 @@ extension IO.File.Direct {
     ///
     /// On Linux, Direct I/O is filesystem-dependent but widely supported.
     /// The main exceptions are network filesystems and some FUSE implementations.
-    package static func probeCapability(at path: String) throws(Error.Syscall) -> Capability {
+    package static func probeCapability(at path: FilePath) -> Capability {
         // Get filesystem type via statfs
         var statfsBuf = CLinuxShim.statfs()
-        let result = path.withCString { p in
+        let result = path.withPlatformString { p in
             CLinuxShim.statfs(p, &statfsBuf)
         }
 
         guard result == 0 else {
-            throw .posix(errno: errno, operation: .getSectorSize)
+            return .bufferedOnly
         }
 
         // Known filesystems that DON'T support O_DIRECT well
@@ -111,13 +112,12 @@ extension IO.File.Direct {
             return .bufferedOnly
         }
 
-        // For supported filesystems, get alignment requirements
-        do {
-            let alignment = try getAlignmentFromStatfs(statfsBuf)
+        // For supported filesystems, check requirements
+        let requirements = Requirements(path)
+        if case .known(let alignment) = requirements {
             return .directSupported(alignment)
-        } catch {
-            return .bufferedOnly
         }
+        return .bufferedOnly
     }
 
     /// Gets alignment requirements for a file descriptor.
@@ -147,17 +147,6 @@ extension IO.File.Direct {
         // Fail closed: return unknown rather than guess wrong.
         return .unknown(reason: .sectorSizeUndetermined)
     }
-
-    /// Gets alignment requirements for a path.
-    ///
-    /// See `getRequirements(descriptor:)` for important notes about Linux
-    /// alignment discovery limitations.
-    package static func getRequirements(
-        at path: String
-    ) throws(Error.Syscall) -> Requirements {
-        // Fail closed - see getRequirements(descriptor:) for rationale
-        return .unknown(reason: .sectorSizeUndetermined)
-    }
 }
 #endif
 
@@ -178,61 +167,12 @@ extension IO.File.Direct {
     /// On Windows, NO_BUFFERING is widely supported but requires knowing
     /// the sector size for alignment. If we can't determine sector size,
     /// we report buffered-only.
-    package static func probeCapability(at path: String) throws(Error.Syscall) -> Capability {
-        do {
-            let requirements = try getRequirements(at: path)
-            if case .known(let alignment) = requirements {
-                return .directSupported(alignment)
-            }
-            return .bufferedOnly
-        } catch {
-            return .bufferedOnly
+    package static func probeCapability(at path: FilePath) -> Capability {
+        let requirements = Requirements(path)
+        if case .known(let alignment) = requirements {
+            return .directSupported(alignment)
         }
-    }
-
-    /// Gets alignment requirements for a path.
-    ///
-    /// Uses GetDiskFreeSpaceW to determine sector size.
-    /// This is the minimal safe alignment for FILE_FLAG_NO_BUFFERING.
-    package static func getRequirements(
-        at path: String
-    ) throws(Error.Syscall) -> Requirements {
-        // Extract the root path (e.g., "C:\" from "C:\Users\...")
-        guard let rootPath = extractRootPath(from: path) else {
-            return .unknown(reason: .sectorSizeUndetermined)
-        }
-
-        var sectorsPerCluster: DWORD = 0
-        var bytesPerSector: DWORD = 0
-        var numberOfFreeClusters: DWORD = 0
-        var totalNumberOfClusters: DWORD = 0
-
-        let result = rootPath.withCString(encodedAs: UTF16.self) { root in
-            GetDiskFreeSpaceW(
-                root,
-                &sectorsPerCluster,
-                &bytesPerSector,
-                &numberOfFreeClusters,
-                &totalNumberOfClusters
-            )
-        }
-
-        guard result != 0 else {
-            let error = GetLastError()
-            // Network paths and some special filesystems may fail
-            // Return unknown rather than throwing
-            return .unknown(reason: .sectorSizeUndetermined)
-        }
-
-        guard bytesPerSector > 0 else {
-            return .unknown(reason: .sectorSizeUndetermined)
-        }
-
-        // Windows FILE_FLAG_NO_BUFFERING requires:
-        // - Buffer address aligned to sector boundary
-        // - File offset aligned to sector boundary
-        // - Transfer size is multiple of sector size
-        return .known(Requirements.Alignment(uniform: Int(bytesPerSector)))
+        return .bufferedOnly
     }
 
     /// Gets alignment requirements for a file handle.
@@ -254,42 +194,6 @@ extension IO.File.Direct {
         // We'll use 4096 as a safe default, but callers should prefer
         // querying with a path when possible.
         return .known(Requirements.Alignment(uniform: 4096))
-    }
-
-    /// Extracts the root path from a file path.
-    ///
-    /// Examples:
-    /// - "C:\Users\file.txt" -> "C:\"
-    /// - "\\?\C:\file.txt" -> "\\?\C:\"
-    /// - "\\server\share\file" -> "\\server\share\"
-    private static func extractRootPath(from path: String) -> String? {
-        // Handle UNC paths
-        if path.hasPrefix("\\\\") {
-            // UNC path: \\server\share\...
-            let components = path.dropFirst(2).split(separator: "\\", maxSplits: 2)
-            if components.count >= 2 {
-                return "\\\\" + components[0] + "\\" + components[1] + "\\"
-            }
-            return nil
-        }
-
-        // Handle extended-length paths
-        if path.hasPrefix("\\\\?\\") {
-            let rest = path.dropFirst(4)
-            if rest.count >= 2 && rest.dropFirst().hasPrefix(":") {
-                // \\?\C:\... -> \\?\C:\
-                return String(path.prefix(7))
-            }
-            return nil
-        }
-
-        // Handle standard drive paths
-        if path.count >= 2 && path.dropFirst().hasPrefix(":") {
-            // C:\... -> C:\
-            return String(path.prefix(3))
-        }
-
-        return nil
     }
 }
 #endif

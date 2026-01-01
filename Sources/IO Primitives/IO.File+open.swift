@@ -31,16 +31,7 @@ extension IO.File {
         options: Open.Options = .init()
     ) throws(Kernel.Open.Error) -> Handle {
         // 1. Discover requirements
-        let requirements: IO.File.Direct.Requirements
-        #if os(macOS)
-        requirements = .unknown(reason: .platformUnsupported)
-        #else
-        do {
-            requirements = try IO.File.Direct.getRequirements(at: path.string)
-        } catch {
-            requirements = .unknown(reason: .sectorSizeUndetermined)
-        }
-        #endif
+        let requirements = IO.File.Direct.Requirements(path)
 
         // 2. Resolve cache mode
         let resolved: IO.File.Direct.Mode.Resolved
