@@ -192,7 +192,7 @@ extension IO.File.Clone {
     package static func probeCapability(at path: String) throws(SyscallError) -> Capability {
         var statfsBuf = CLinuxShim.statfs()
         let result = path.withCString { p in
-            Glibc.statfs(p, &statfsBuf)
+            CLinuxShim.swift_statfs(p, &statfsBuf)
         }
 
         guard result == 0 else {
