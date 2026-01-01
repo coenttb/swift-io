@@ -27,7 +27,7 @@ extension IO.Completion.Driver {
     ///
     /// The handle is opaque to users. Platform backends access the underlying
     /// value via conditional package accessors.
-    public struct Handle: ~Copyable, Sendable {
+    public struct Handle: ~Copyable, @unchecked Sendable {
         // MARK: - Platform-Conditional Storage
 
         #if os(Windows)
