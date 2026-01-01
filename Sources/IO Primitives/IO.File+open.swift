@@ -36,7 +36,7 @@ extension IO.File {
         requirements = .unknown(reason: .platformUnsupported)
         #else
         do {
-            requirements = try IO.File.Direct.getRequirements(for: path)
+            requirements = try IO.File.Direct.getRequirements(at: path)
         } catch {
             requirements = .unknown(reason: .sectorSizeUndetermined)
         }

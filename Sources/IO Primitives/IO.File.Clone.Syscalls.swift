@@ -11,6 +11,7 @@
 import Darwin
 #elseif canImport(Glibc)
 import Glibc
+import CLinuxShim
 #elseif os(Windows)
 import WinSDK
 #endif
@@ -169,7 +170,7 @@ extension IO.File.Clone {
         var dstOffset: off_t = 0
 
         while remaining > 0 {
-            let copied = copy_file_range(
+            let copied = swift_copy_file_range(
                 sourceFd, &srcOffset,
                 destFd, &dstOffset,
                 remaining, 0
@@ -189,9 +190,9 @@ extension IO.File.Clone {
 
     /// Probes whether the filesystem at the given path supports cloning.
     package static func probeCapability(at path: String) throws(SyscallError) -> Capability {
-        var statfsBuf = statfs()
+        var statfsBuf = CLinuxShim.statfs()
         let result = path.withCString { p in
-            Glibc.statfs(p, &statfsBuf)
+            CLinuxShim.statfs(p, &statfsBuf)
         }
 
         guard result == 0 else {

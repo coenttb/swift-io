@@ -13,11 +13,13 @@
 //
 
 import Kernel
+import SystemPackage
 
 #if canImport(Darwin)
 import Darwin
 #elseif canImport(Glibc)
 import Glibc
+import CLinuxShim
 #elseif os(Windows)
 import WinSDK
 #endif
@@ -88,9 +90,9 @@ extension IO.File.Direct {
     /// The main exceptions are network filesystems and some FUSE implementations.
     package static func probeCapability(at path: String) throws(Error.Syscall) -> Capability {
         // Get filesystem type via statfs
-        var statfsBuf = statfs()
+        var statfsBuf = CLinuxShim.statfs()
         let result = path.withCString { p in
-            Glibc.statfs(p, &statfsBuf)
+            CLinuxShim.statfs(p, &statfsBuf)
         }
 
         guard result == 0 else {
@@ -156,6 +158,13 @@ extension IO.File.Direct {
     ) throws(Error.Syscall) -> Requirements {
         // Fail closed - see getRequirements(descriptor:) for rationale
         return .unknown(reason: .sectorSizeUndetermined)
+    }
+
+    /// Gets alignment requirements for a FilePath.
+    package static func getRequirements(
+        at path: FilePath
+    ) throws(Error.Syscall) -> Requirements {
+        try getRequirements(at: path.string)
     }
 }
 #endif
@@ -289,6 +298,13 @@ extension IO.File.Direct {
         }
 
         return nil
+    }
+
+    /// Gets alignment requirements for a FilePath.
+    package static func getRequirements(
+        at path: FilePath
+    ) throws(Error.Syscall) -> Requirements {
+        try getRequirements(at: path.string)
     }
 }
 #endif
