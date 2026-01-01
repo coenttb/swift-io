@@ -13,7 +13,6 @@
 //
 
 import Kernel
-import SystemPackage
 
 #if canImport(Darwin)
 import Darwin
@@ -159,13 +158,6 @@ extension IO.File.Direct {
         // Fail closed - see getRequirements(descriptor:) for rationale
         return .unknown(reason: .sectorSizeUndetermined)
     }
-
-    /// Gets alignment requirements for a FilePath.
-    package static func getRequirements(
-        at path: FilePath
-    ) throws(Error.Syscall) -> Requirements {
-        try getRequirements(at: path.string)
-    }
 }
 #endif
 
@@ -298,13 +290,6 @@ extension IO.File.Direct {
         }
 
         return nil
-    }
-
-    /// Gets alignment requirements for a FilePath.
-    package static func getRequirements(
-        at path: FilePath
-    ) throws(Error.Syscall) -> Requirements {
-        try getRequirements(at: path.string)
     }
 }
 #endif
