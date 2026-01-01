@@ -264,7 +264,7 @@ extension IO.Completion.Operation {
         let storage = Storage(
             id: id,
             kind: IO.Completion.Kind.nop,
-            descriptor: Kernel.invalidDescriptor,
+            descriptor: Kernel.Descriptor.invalid,
             buffer: Optional<Buffer.Aligned>.none,
             offset: -1
         )
@@ -287,7 +287,7 @@ extension IO.Completion.Operation {
         let storage = Storage(
             id: id,
             kind: IO.Completion.Kind.cancel,
-            descriptor: Kernel.invalidDescriptor,
+            descriptor: Kernel.Descriptor.invalid,
             buffer: Optional<Buffer.Aligned>.none,
             offset: Int64(targetID.raw)  // Encode target ID in offset
         )

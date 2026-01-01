@@ -12,6 +12,8 @@
 //  - macOS: fcntl(F_NOCACHE) can be toggled after open
 //
 
+import Kernel
+
 #if canImport(Darwin)
 import Darwin
 #elseif canImport(Glibc)
@@ -35,10 +37,10 @@ extension IO.File.Direct {
     ///   - enabled: `true` to enable no-cache, `false` to disable.
     /// - Throws: `Error.Syscall` if fcntl fails.
     package static func setNoCache(
-        descriptor: Int32,
+        descriptor: IO.File.Descriptor,
         enabled: Bool
     ) throws(Error.Syscall) {
-        let result = fcntl(descriptor, F_NOCACHE, enabled ? 1 : 0)
+        let result = fcntl(descriptor.rawValue, F_NOCACHE, enabled ? 1 : 0)
         guard result != -1 else {
             let operation: Error.Operation = enabled ? .setNoCache : .clearNoCache
             throw .posix(errno: errno, operation: operation)
