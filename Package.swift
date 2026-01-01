@@ -32,7 +32,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-nio", from: "2.70.0"),
         .package(url: "https://github.com/coenttb/swift-kernel.git", from: "0.1.7"),
         .package(url: "https://github.com/coenttb/swift-buffer.git", from: "0.1.0"),
-        .package(url: "https://github.com/coenttb/swift-mmap.git", from: "0.1.3"),
+        .package(url: "https://github.com/coenttb/swift-mmap.git", from: "0.1.4"),
     ],
     targets: [
         .target(
