@@ -76,7 +76,10 @@ let package = Package(
         ),
         .target(
             name: "IO Events Epoll",
-            dependencies: ["IO Events Driver"]
+            dependencies: [
+                "IO Events Driver",
+                .product(name: "Kernel", package: "swift-kernel"),
+            ]
         ),
         .target(
             name: "IO Events",
