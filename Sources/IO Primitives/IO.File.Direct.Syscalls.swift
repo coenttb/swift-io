@@ -92,7 +92,7 @@ extension IO.File.Direct {
         // Get filesystem type via statfs
         var statfsBuf = CLinuxShim.statfs()
         let result = path.withPlatformString { p in
-            CLinuxShim.statfs(p, &statfsBuf)
+            Glibc.statfs(p, &statfsBuf)
         }
 
         guard result == 0 else {
