@@ -124,6 +124,8 @@ extension IO.Completion.Operation {
             self.buffer = buffer
             self.offset = offset
             self.completion = nil
+            self.userData = 0
+            // Now that all properties are initialized, set userData to self pointer
             self.userData = UInt64(UInt(bitPattern: Unmanaged.passUnretained(self).toOpaque()))
         }
         #else
