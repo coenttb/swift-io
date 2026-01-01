@@ -13,7 +13,7 @@
 //
 
 import Kernel
-import SystemPackage
+public import SystemPackage
 
 #if canImport(Darwin)
 import Darwin

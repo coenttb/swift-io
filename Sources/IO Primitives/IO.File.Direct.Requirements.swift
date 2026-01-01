@@ -5,7 +5,7 @@
 //  Created by Coen ten Thije Boonkkamp on 30/12/2025.
 //
 
-import SystemPackage
+public import SystemPackage
 
 extension IO.File.Direct {
     /// Alignment requirements for Direct I/O operations.
