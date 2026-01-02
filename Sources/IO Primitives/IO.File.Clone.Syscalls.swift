@@ -7,11 +7,13 @@
 //  Platform-specific syscall wrappers for file cloning.
 //
 
+public import Kernel
+public import SystemPackage
+
 #if canImport(Darwin)
     import Darwin
 #elseif canImport(Glibc)
     import Glibc
-    import CLinuxShim
 #elseif os(Windows)
     import WinSDK
 #endif
@@ -166,20 +168,20 @@
             length: Int
         ) throws(SyscallError) {
             var remaining = length
-            var srcOffset: off_t = 0
-            var dstOffset: off_t = 0
+            var srcOffset: Int64 = 0
+            var dstOffset: Int64 = 0
 
             while remaining > 0 {
-                let copied = swift_copy_file_range(
-                    sourceFd,
-                    &srcOffset,
-                    destFd,
-                    &dstOffset,
-                    remaining,
-                    0
-                )
-
-                if copied < 0 {
+                let copied: Int
+                do {
+                    copied = try Kernel.Copy.copyFileRange(
+                        from: Kernel.Descriptor(rawValue: sourceFd),
+                        sourceOffset: &srcOffset,
+                        to: Kernel.Descriptor(rawValue: destFd),
+                        destOffset: &dstOffset,
+                        length: remaining
+                    )
+                } catch {
                     throw .posix(errno: errno, operation: .copyFileRange)
                 }
 
@@ -187,18 +189,16 @@
                     break  // EOF
                 }
 
-                remaining -= Int(copied)
+                remaining -= copied
             }
         }
 
         /// Probes whether the filesystem at the given path supports cloning.
         package static func probeCapability(at path: String) throws(SyscallError) -> Capability {
-            var statfsBuf = CLinuxShim.statfs()
-            let result = path.withCString { p in
-                CLinuxShim.swift_statfs(p, &statfsBuf)
-            }
-
-            guard result == 0 else {
+            let statfsBuf: Kernel.Statfs
+            do {
+                statfsBuf = try Kernel.Statfs.get(path: FilePath(path))
+            } catch {
                 throw .posix(errno: errno, operation: .statfs)
             }
 
@@ -206,10 +206,10 @@
             // Btrfs: 0x9123683E
             // XFS: 0x58465342 (with reflink enabled)
             // OCFS2: 0x7461636f
-            let btrfsMagic: UInt = 0x9123_683E
-            let xfsMagic: UInt = 0x5846_5342
+            let btrfsMagic: UInt64 = 0x9123_683E
+            let xfsMagic: UInt64 = 0x5846_5342
 
-            let fsMagic = UInt(statfsBuf.f_type)
+            let fsMagic = statfsBuf.type
             if fsMagic == btrfsMagic || fsMagic == xfsMagic {
                 return .reflink
             }

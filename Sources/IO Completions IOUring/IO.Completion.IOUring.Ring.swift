@@ -7,9 +7,8 @@
 
 #if os(Linux)
 
-    import Kernel
+    public import Kernel
     import MMap
-    import CLinuxShim  // For io_uring_sqe/cqe C types
 
     extension IO.Completion.IOUring {
         /// Poll-thread-confined ring state for io_uring.

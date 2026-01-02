@@ -7,9 +7,8 @@
 
 #if os(Linux)
 
-    import Kernel
+    public import Kernel
     import MMap
-    import CLinuxShim  // For io_uring_sqe/cqe C types
     @_exported public import IO_Completions_Driver
 
     extension IO.Completion {

@@ -12,14 +12,13 @@
 //  - macOS: fcntl(F_NOCACHE) can be toggled after open
 //
 
-import Kernel
+public import Kernel
 public import SystemPackage
 
 #if canImport(Darwin)
     import Darwin
 #elseif canImport(Glibc)
     import Glibc
-    import CLinuxShim
 #elseif os(Windows)
     import WinSDK
 #endif
@@ -90,12 +89,10 @@ public import SystemPackage
         /// The main exceptions are network filesystems and some FUSE implementations.
         package static func probeCapability(at path: FilePath) -> Capability {
             // Get filesystem type via statfs
-            var statfsBuf = CLinuxShim.statfs()
-            let result = path.withPlatformString { p in
-                CLinuxShim.swift_statfs(p, &statfsBuf)
-            }
-
-            guard result == 0 else {
+            let statfsBuf: Kernel.Statfs
+            do {
+                statfsBuf = try Kernel.Statfs.get(path: path)
+            } catch {
                 return .bufferedOnly
             }
 
@@ -103,11 +100,11 @@ public import SystemPackage
             // NFS: 0x6969
             // CIFS: 0xFF534D42
             // tmpfs: 0x01021994
-            let nfsMagic: UInt = 0x6969
-            let cifsMagic: UInt = 0xFF53_4D42
-            let tmpfsMagic: UInt = 0x0102_1994
+            let nfsMagic: UInt64 = 0x6969
+            let cifsMagic: UInt64 = 0xFF53_4D42
+            let tmpfsMagic: UInt64 = 0x0102_1994
 
-            let fsMagic = UInt(statfsBuf.f_type)
+            let fsMagic = statfsBuf.type
             if fsMagic == nfsMagic || fsMagic == cifsMagic || fsMagic == tmpfsMagic {
                 return .bufferedOnly
             }

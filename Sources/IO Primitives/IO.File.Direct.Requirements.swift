@@ -241,7 +241,6 @@ extension IO.File.Direct.Requirements.Alignment {
 
 #if os(Linux)
     import Glibc
-    import CLinuxShim
 
     extension IO.File.Direct.Requirements {
         /// Creates requirements for a path.

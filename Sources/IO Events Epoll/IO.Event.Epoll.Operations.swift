@@ -8,7 +8,6 @@
 #if canImport(Glibc)
 
     import Glibc
-    import CLinuxShim
     import Synchronization
 
     // MARK: - Registration Mapping
