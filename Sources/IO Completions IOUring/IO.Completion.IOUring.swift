@@ -7,343 +7,371 @@
 
 #if os(Linux)
 
-import Glibc
-@_exported public import IO_Completions_Driver
+    import Kernel
+    import MMap
+    import CLinuxShim  // For io_uring_sqe/cqe C types
+    @_exported public import IO_Completions_Driver
 
-extension IO.Completion {
-    /// Linux io_uring backend.
-    ///
-    /// io_uring is Linux's modern async I/O interface (kernel 5.1+).
-    /// It provides:
-    /// - True async I/O at the kernel level
-    /// - Batched submission and completion
-    /// - Zero-copy with registered buffers
-    /// - Multishot operations (5.19+)
-    ///
-    /// ## Runtime Detection
-    ///
-    /// The `isSupported` property checks if io_uring is available at runtime.
-    /// If not available, `Driver.bestAvailable()` throws `.capability(.backendUnavailable)`.
-    ///
-    /// ## Design
-    ///
-    /// Uses the SQ/CQ ring buffer model:
-    /// - SQ (Submission Queue): Client fills SQEs, kernel consumes
-    /// - CQ (Completion Queue): Kernel fills CQEs, client consumes
-    ///
-    /// ## Thread Safety
-    ///
-    /// - SQ access: Single producer (poll thread)
-    /// - CQ access: Single consumer (poll thread)
-    /// - Ring memory: Shared with kernel via mmap
-    public enum IOUring {}
-}
-
-// MARK: - Runtime Detection
-
-extension IO.Completion.IOUring {
-    /// Whether io_uring is available on this system.
-    ///
-    /// Checks by attempting `io_uring_setup` with minimal parameters.
-    /// Result is cached after first call.
-    public static var isSupported: Bool {
-        _isSupported
+    extension IO.Completion {
+        /// Linux io_uring backend.
+        ///
+        /// io_uring is Linux's modern async I/O interface (kernel 5.1+).
+        /// It provides:
+        /// - True async I/O at the kernel level
+        /// - Batched submission and completion
+        /// - Zero-copy with registered buffers
+        /// - Multishot operations (5.19+)
+        ///
+        /// ## Runtime Detection
+        ///
+        /// The `isSupported` property checks if io_uring is available at runtime.
+        /// If not available, `Driver.bestAvailable()` throws `.capability(.backendUnavailable)`.
+        ///
+        /// ## Design
+        ///
+        /// Uses the SQ/CQ ring buffer model:
+        /// - SQ (Submission Queue): Client fills SQEs, kernel consumes
+        /// - CQ (Completion Queue): Kernel fills CQEs, client consumes
+        ///
+        /// ## Thread Safety
+        ///
+        /// - SQ access: Single producer (poll thread)
+        /// - CQ access: Single consumer (poll thread)
+        /// - Ring memory: Shared with kernel via mmap
+        public enum IOUring {}
     }
 
-    /// Cached support check.
-    private static let _isSupported: Bool = {
-        // Try to set up a minimal ring to check support
-        var params = io_uring_params()
-        let fd = io_uring_setup(1, &params)
-        if fd >= 0 {
-            close(fd)
-            return true
-        }
-        // Check if disabled via environment
-        if let env = getenv("IO_URING_DISABLED"), String(cString: env) == "1" {
-            return false
-        }
-        return false
-    }()
-}
+    // MARK: - Runtime Detection
 
-// MARK: - Driver Factory
-
-extension IO.Completion.IOUring {
-    /// Creates an io_uring driver instance.
-    ///
-    /// - Parameter entries: Ring size (power of 2, typically 128-4096).
-    /// - Returns: A configured driver for io_uring.
-    /// - Throws: If io_uring setup fails.
-    public static func driver(entries: UInt32 = 256) throws(IO.Completion.Error) -> IO.Completion.Driver {
-        guard isSupported else {
-            throw .capability(.backendUnavailable)
-        }
-
-        return IO.Completion.Driver(
-            capabilities: capabilities(entries: entries),
-            create: { try create(entries: entries) },
-            submitStorage: submitStorage,
-            flush: flush,
-            poll: poll,
-            close: close,
-            createWakeupChannel: createWakeupChannel
-        )
-    }
-
-    /// io_uring capabilities for a given ring size.
-    public static func capabilities(entries: UInt32) -> IO.Completion.Driver.Capabilities {
-        IO.Completion.Driver.Capabilities(
-            maxSubmissions: Int(entries),
-            maxCompletions: Int(entries * 2),  // CQ is typically 2x SQ
-            supportedKinds: .iouring,
-            batchedSubmission: true,
-            registeredBuffers: true,  // IORING_REGISTER_BUFFERS
-            multishot: kernelSupportsMultishot
-        )
-    }
-
-    /// Whether kernel supports multishot operations.
-    private static let kernelSupportsMultishot: Bool = {
-        // Multishot accept was added in kernel 5.19
-        // This would require checking kernel version or probing
-        // For now, assume not supported
-        false
-    }()
-}
-
-// MARK: - io_uring Syscalls (Raw)
-
-// These are the raw syscall numbers and structures.
-// In production, you'd use liburing or a Swift wrapper.
-
-/// io_uring_setup syscall number.
-private let SYS_io_uring_setup: Int = 425
-
-/// io_uring_enter syscall number.
-private let SYS_io_uring_enter: Int = 426
-
-/// io_uring_register syscall number.
-private let SYS_io_uring_register: Int = 427
-
-/// io_uring_params structure.
-struct io_uring_params {
-    var sq_entries: UInt32 = 0
-    var cq_entries: UInt32 = 0
-    var flags: UInt32 = 0
-    var sq_thread_cpu: UInt32 = 0
-    var sq_thread_idle: UInt32 = 0
-    var features: UInt32 = 0
-    var wq_fd: UInt32 = 0
-    var resv: (UInt32, UInt32, UInt32) = (0, 0, 0)
-    var sq_off: io_sqring_offsets = io_sqring_offsets()
-    var cq_off: io_cqring_offsets = io_cqring_offsets()
-}
-
-/// SQ ring offsets.
-struct io_sqring_offsets {
-    var head: UInt32 = 0
-    var tail: UInt32 = 0
-    var ring_mask: UInt32 = 0
-    var ring_entries: UInt32 = 0
-    var flags: UInt32 = 0
-    var dropped: UInt32 = 0
-    var array: UInt32 = 0
-    var resv1: UInt32 = 0
-    var resv2: UInt64 = 0
-}
-
-/// CQ ring offsets.
-struct io_cqring_offsets {
-    var head: UInt32 = 0
-    var tail: UInt32 = 0
-    var ring_mask: UInt32 = 0
-    var ring_entries: UInt32 = 0
-    var overflow: UInt32 = 0
-    var cqes: UInt32 = 0
-    var flags: UInt32 = 0
-    var resv1: UInt32 = 0
-    var resv2: UInt64 = 0
-}
-
-/// io_uring_setup wrapper.
-private func io_uring_setup(_ entries: UInt32, _ params: inout io_uring_params) -> Int32 {
-    Int32(syscall(SYS_io_uring_setup, entries, &params))
-}
-
-/// io_uring_enter wrapper.
-private func io_uring_enter(
-    _ fd: Int32,
-    _ toSubmit: UInt32,
-    _ minComplete: UInt32,
-    _ flags: UInt32
-) -> Int32 {
-    Int32(syscall(SYS_io_uring_enter, fd, toSubmit, minComplete, flags, nil, 0))
-}
-
-// MARK: - Driver Implementation
-
-extension IO.Completion.IOUring {
-    /// Creates an io_uring handle.
-    static func create(entries: UInt32) throws(IO.Completion.Error) -> IO.Completion.Driver.Handle {
-        var params = io_uring_params()
-
-        let fd = io_uring_setup(entries, &params)
-        guard fd >= 0 else {
-            let error = errno
-            throw .kernel(.platform(code: error, message: "io_uring_setup failed"))
-        }
-
-        // Map the ring memory
-        // In production, this would properly map SQ and CQ rings
-        // For now, this is a placeholder
-
-        return IO.Completion.Driver.Handle(
-            descriptor: fd,
-            ringPtr: nil  // Would be the mmap'd ring memory
-        )
-    }
-
-    /// Submits operation storage to io_uring.
-    static func submitStorage(
-        _ handle: borrowing IO.Completion.Driver.Handle,
-        _ storage: IO.Completion.Operation.Storage
-    ) throws(IO.Completion.Error) {
-        guard handle.isIOUring else {
-            throw .capability(.backendUnavailable)
-        }
-
-        // Fill an SQE based on operation kind
-        // This is a placeholder - actual implementation would:
-        // 1. Get next SQE from SQ ring
-        // 2. Fill fields based on storage.kind
-        // 3. Set user_data to storage.userData (pointer recovery)
-        // 4. Advance SQ tail
-
-        switch storage.kind {
-        case .read:
-            // IORING_OP_READ
-            break
-        case .write:
-            // IORING_OP_WRITE
-            break
-        case .accept:
-            // IORING_OP_ACCEPT
-            break
-        case .connect:
-            // IORING_OP_CONNECT
-            break
-        case .send:
-            // IORING_OP_SEND
-            break
-        case .recv:
-            // IORING_OP_RECV
-            break
-        case .fsync:
-            // IORING_OP_FSYNC
-            break
-        case .close:
-            // IORING_OP_CLOSE
-            break
-        case .cancel:
-            // IORING_OP_ASYNC_CANCEL
-            break
-        case .nop, .wakeup:
-            // IORING_OP_NOP
-            break
+    extension IO.Completion.IOUring {
+        /// Whether io_uring is available on this system.
+        ///
+        /// Delegates to `Kernel.IOUring.isSupported`.
+        public static var isSupported: Bool {
+            Kernel.IOUring.isSupported
         }
     }
 
-    /// Flushes pending submissions.
-    static func flush(_ handle: borrowing IO.Completion.Driver.Handle) throws(IO.Completion.Error) -> Int {
-        guard handle.isIOUring else {
-            return 0
-        }
+    // MARK: - Driver Factory
 
-        // Call io_uring_enter to submit pending SQEs
-        let submitted = io_uring_enter(
-            handle.descriptor,
-            0,  // Would be count of pending SQEs
-            0,  // Don't wait for completions
-            0   // No flags
-        )
-
-        if submitted < 0 {
-            let error = errno
-            throw .kernel(.platform(code: error, message: "io_uring_enter failed"))
-        }
-
-        return Int(submitted)
-    }
-
-    /// Polls for completion events.
-    static func poll(
-        _ handle: borrowing IO.Completion.Driver.Handle,
-        _ deadline: IO.Completion.Deadline?,
-        _ buffer: inout [IO.Completion.Event]
-    ) throws(IO.Completion.Error) -> Int {
-        guard handle.isIOUring else {
-            return 0
-        }
-
-        // In production, this would:
-        // 1. Call io_uring_enter with IORING_ENTER_GETEVENTS
-        // 2. Read CQEs from CQ ring
-        // 3. Convert to IO.Completion.Event
-        // 4. Advance CQ head
-
-        // Placeholder implementation
-        let minComplete: UInt32 = deadline == nil ? 1 : 0
-
-        let result = io_uring_enter(
-            handle.descriptor,
-            0,  // No new submissions
-            minComplete,
-            1   // IORING_ENTER_GETEVENTS
-        )
-
-        if result < 0 {
-            let error = errno
-            if error == EINTR {
-                return 0  // Interrupted, retry
+    extension IO.Completion.IOUring {
+        /// Creates an io_uring driver instance.
+        ///
+        /// - Parameter entries: Ring size (power of 2, typically 128-4096).
+        /// - Returns: A configured driver for io_uring.
+        /// - Throws: If io_uring setup fails.
+        public static func driver(entries: UInt32 = 256) throws(IO.Completion.Error) -> IO.Completion.Driver {
+            guard isSupported else {
+                throw .capability(.backendUnavailable)
             }
-            throw .kernel(.platform(code: error, message: "io_uring_enter poll failed"))
+
+            return IO.Completion.Driver(
+                capabilities: capabilities(entries: entries),
+                create: { try create(entries: entries) },
+                submitStorage: submitStorage,
+                flush: flush,
+                poll: poll,
+                close: close,
+                createWakeupChannel: createWakeupChannel
+            )
         }
 
-        // Would read CQEs here
-        return 0
-    }
-
-    /// Closes the io_uring handle.
-    static func close(_ handle: consuming IO.Completion.Driver.Handle) {
-        // Unmap ring memory if present
-        // if let ringPtr = handle.ringPtr {
-        //     munmap(ringPtr, ringSize)
-        // }
-        Glibc.close(handle.descriptor)
-    }
-
-    /// Creates a wakeup channel for io_uring.
-    static func createWakeupChannel(
-        _ handle: borrowing IO.Completion.Driver.Handle
-    ) throws(IO.Completion.Error) -> IO.Completion.Wakeup.Channel {
-        // Use eventfd for wakeup
-        let efd = eventfd(0, Int32(EFD_NONBLOCK | EFD_CLOEXEC))
-        guard efd >= 0 else {
-            let error = errno
-            throw .kernel(.platform(code: error, message: "eventfd failed"))
+        /// io_uring capabilities for a given ring size.
+        public static func capabilities(entries: UInt32) -> IO.Completion.Driver.Capabilities {
+            IO.Completion.Driver.Capabilities(
+                maxSubmissions: Int(entries),
+                maxCompletions: Int(entries * 2),  // CQ is typically 2x SQ
+                supportedKinds: .iouring,
+                batchedSubmission: true,
+                registeredBuffers: true,  // IORING_REGISTER_BUFFERS
+                multishot: kernelSupportsMultishot
+            )
         }
 
-        return IO.Completion.Wakeup.Channel(
-            wake: {
-                var value: UInt64 = 1
-                _ = write(efd, &value, 8)
-            },
-            close: {
-                Glibc.close(efd)
+        /// Whether kernel supports multishot operations.
+        private static let kernelSupportsMultishot: Bool = {
+            // Multishot accept was added in kernel 5.19
+            // This would require checking kernel version or probing
+            // For now, assume not supported
+            false
+        }()
+    }
+
+    // MARK: - Driver Implementation
+
+    extension IO.Completion.IOUring {
+        /// Creates an io_uring handle.
+        static func create(entries: UInt32) throws(IO.Completion.Error) -> IO.Completion.Driver.Handle {
+            var params = Kernel.IOUring.Params()
+
+            let fd: Kernel.Descriptor
+            do {
+                fd = try Kernel.IOUring.setup(entries: entries, params: &params)
+            } catch let error as Kernel.IOUring.Error {
+                throw .kernel(error.asKernelError)
             }
-        )
-    }
-}
 
-#endif // os(Linux)
+            // Create ring state with mmap'd memory
+            let ring: Ring
+            do {
+                ring = try Ring(fd: fd, params: params)
+            } catch {
+                Kernel.IOUring.close(fd)
+                throw error
+            }
+
+            // Store ring pointer in handle
+            let ringPtr = Unmanaged.passRetained(ring).toOpaque()
+
+            return IO.Completion.Driver.Handle(
+                descriptor: fd.rawValue,
+                ringPtr: ringPtr
+            )
+        }
+
+        /// Gets the Ring from a handle.
+        @inline(__always)
+        private static func getRing(from handle: borrowing IO.Completion.Driver.Handle) -> Ring {
+            Unmanaged<Ring>.fromOpaque(handle.ringPtr!).takeUnretainedValue()
+        }
+
+        /// Submits operation storage to io_uring.
+        static func submitStorage(
+            _ handle: borrowing IO.Completion.Driver.Handle,
+            _ storage: IO.Completion.Operation.Storage
+        ) throws(IO.Completion.Error) {
+            guard handle.ringPtr != nil else {
+                throw .capability(.backendUnavailable)
+            }
+
+            let ring = getRing(from: handle)
+
+            // Get next SQE slot
+            guard let sqePtr = ring.getNextSQE() else {
+                throw .operation(.queueFull)
+            }
+
+            // Zero the SQE first
+            sqePtr.pointee = io_uring_sqe()
+
+            // Fill based on operation kind
+            switch storage.kind {
+            case .read:
+                sqePtr.pointee.opcode = Kernel.IOUring.Opcode.read.rawValue
+                sqePtr.pointee.fd = storage.descriptor.rawValue
+                if storage.offset >= 0 {
+                    sqePtr.pointee.off = UInt64(bitPattern: storage.offset)
+                } else {
+                    sqePtr.pointee.off = UInt64.max  // Use current file position
+                }
+                if let buffer = storage.buffer {
+                    sqePtr.pointee.addr = UInt64(UInt(bitPattern: buffer.baseAddress))
+                    sqePtr.pointee.len = UInt32(buffer.count)
+                }
+                sqePtr.pointee.user_data = storage.userData
+
+            case .write:
+                sqePtr.pointee.opcode = Kernel.IOUring.Opcode.write.rawValue
+                sqePtr.pointee.fd = storage.descriptor.rawValue
+                if storage.offset >= 0 {
+                    sqePtr.pointee.off = UInt64(bitPattern: storage.offset)
+                } else {
+                    sqePtr.pointee.off = UInt64.max
+                }
+                if let buffer = storage.buffer {
+                    sqePtr.pointee.addr = UInt64(UInt(bitPattern: buffer.baseAddress))
+                    sqePtr.pointee.len = UInt32(buffer.count)
+                }
+                sqePtr.pointee.user_data = storage.userData
+
+            case .fsync:
+                sqePtr.pointee.opcode = Kernel.IOUring.Opcode.fsync.rawValue
+                sqePtr.pointee.fd = storage.descriptor.rawValue
+                sqePtr.pointee.user_data = storage.userData
+
+            case .close:
+                sqePtr.pointee.opcode = Kernel.IOUring.Opcode.close.rawValue
+                sqePtr.pointee.fd = storage.descriptor.rawValue
+                sqePtr.pointee.user_data = storage.userData
+
+            case .cancel:
+                sqePtr.pointee.opcode = Kernel.IOUring.Opcode.asyncCancel.rawValue
+                // Target user_data is stored in offset field for cancel operations
+                sqePtr.pointee.addr = UInt64(bitPattern: storage.offset)
+                sqePtr.pointee.user_data = storage.userData
+
+            case .nop, .wakeup:
+                sqePtr.pointee.opcode = Kernel.IOUring.Opcode.nop.rawValue
+                sqePtr.pointee.user_data = storage.userData
+
+            case .accept, .connect, .send, .recv:
+                // Socket operations deferred to swift-sockets
+                throw .capability(.unsupportedKind(storage.kind))
+            }
+
+            // Advance the SQ tail
+            ring.advanceSQTail()
+        }
+
+        /// Flushes pending submissions.
+        static func flush(_ handle: borrowing IO.Completion.Driver.Handle) throws(IO.Completion.Error) -> Int {
+            guard handle.ringPtr != nil else {
+                return 0
+            }
+
+            let ring = getRing(from: handle)
+
+            let toSubmit = ring.pendingSubmissions
+            guard toSubmit > 0 else { return 0 }
+
+            // Write memory barrier then update kernel-visible tail
+            Kernel.Atomic.store(ring.sqTail, ring.localSqTail, ordering: .releasing)
+
+            // Call io_uring_enter to submit
+            do {
+                let submitted = try Kernel.IOUring.enter(
+                    ring.fd,
+                    toSubmit: toSubmit,
+                    minComplete: 0,
+                    flags: []
+                )
+                return submitted
+            } catch let error as Kernel.IOUring.Error {
+                if case .interrupted = error {
+                    return 0  // Interrupted, caller should retry
+                }
+                throw .kernel(error.asKernelError)
+            }
+        }
+
+        /// Polls for completion events.
+        static func poll(
+            _ handle: borrowing IO.Completion.Driver.Handle,
+            _ deadline: IO.Completion.Deadline?,
+            _ buffer: inout [IO.Completion.Event]
+        ) throws(IO.Completion.Error) -> Int {
+            guard handle.ringPtr != nil else {
+                return 0
+            }
+
+            let ring = getRing(from: handle)
+
+            // Read CQ head/tail with memory barriers
+            var head = Kernel.Atomic.load(ring.cqHead, ordering: .acquiring)
+            var tail = Kernel.Atomic.load(ring.cqTail, ordering: .acquiring)
+
+            if head == tail {
+                // No completions available, wait via io_uring_enter
+                let minComplete: UInt32 = deadline == nil ? 1 : 0
+
+                do {
+                    _ = try Kernel.IOUring.enter(
+                        ring.fd,
+                        toSubmit: 0,
+                        minComplete: minComplete,
+                        flags: .getEvents
+                    )
+                } catch let error as Kernel.IOUring.Error {
+                    if case .interrupted = error {
+                        return 0  // Interrupted, caller should retry
+                    }
+                    throw .kernel(error.asKernelError)
+                }
+
+                // Re-read tail after waiting
+                tail = Kernel.Atomic.load(ring.cqTail, ordering: .acquiring)
+            }
+
+            // Read CQEs
+            var count = 0
+            let maxEvents = buffer.capacity - buffer.count
+
+            while head != tail && count < maxEvents {
+                let index = head & ring.cqMask
+                let cqe = Kernel.IOUring.CQE(ring.cqes[Int(index)])
+
+                // Convert CQE to Event
+                let userData = cqe.userData
+                let res = cqe.res
+
+                // Recover Storage from user_data pointer to get operation details
+                guard let storagePtr = UnsafeRawPointer(bitPattern: UInt(userData)) else {
+                    // Invalid user_data, skip
+                    head &+= 1
+                    continue
+                }
+                let storage = Unmanaged<IO.Completion.Operation.Storage>.fromOpaque(storagePtr).takeUnretainedValue()
+
+                let outcome: IO.Completion.Outcome
+                if cqe.isSuccess {
+                    switch storage.kind {
+                    case .read, .write, .send, .recv:
+                        outcome = .success(.bytes(Int(res)))
+                    case .connect:
+                        outcome = .success(.connected)
+                    case .accept:
+                        // For accept, res contains the new fd
+                        outcome = .success(.accepted(descriptor: Kernel.Descriptor(rawValue: res)))
+                    default:
+                        outcome = .success(.completed)
+                    }
+                } else if cqe.isCancelled {
+                    outcome = .cancelled
+                } else {
+                    outcome = .failure(.platform(code: -res, message: "io_uring operation failed"))
+                }
+
+                buffer.append(
+                    IO.Completion.Event(
+                        id: storage.id,
+                        kind: storage.kind,
+                        outcome: outcome,
+                        userData: userData
+                    )
+                )
+
+                head &+= 1
+                count += 1
+            }
+
+            // Update CQ head with memory barrier
+            Kernel.Atomic.store(ring.cqHead, head, ordering: .releasing)
+
+            return count
+        }
+
+        /// Closes the io_uring handle.
+        static func close(_ handle: consuming IO.Completion.Driver.Handle) {
+            if let ringPtr = handle.ringPtr {
+                // Take retained value - this will trigger Ring deinit which closes fd and unmaps memory
+                _ = Unmanaged<Ring>.fromOpaque(ringPtr).takeRetainedValue()
+            } else {
+                // No ring, just close the fd
+                try? Kernel.Close.close(Kernel.Descriptor(rawValue: handle.descriptor))
+            }
+        }
+
+        /// Creates a wakeup channel for io_uring.
+        static func createWakeupChannel(
+            _ handle: borrowing IO.Completion.Driver.Handle
+        ) throws(IO.Completion.Error) -> IO.Completion.Wakeup.Channel {
+            // Use eventfd for wakeup
+            let efd: Kernel.Descriptor
+            do {
+                efd = try Kernel.Eventfd.create(flags: .cloexec | .nonblock)
+            } catch let error as Kernel.Eventfd.Error {
+                throw .kernel(error.asKernelError)
+            }
+
+            return IO.Completion.Wakeup.Channel(
+                wake: {
+                    Kernel.Eventfd.signal(efd)
+                },
+                close: {
+                    try? Kernel.Close.close(efd)
+                }
+            )
+        }
+    }
+
+#endif  // os(Linux)

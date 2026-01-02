@@ -128,78 +128,78 @@ extension IO.File.Direct.Mode {
         given requirements: IO.File.Direct.Requirements
     ) throws(IO.File.Direct.Error) -> Resolved {
         #if os(macOS)
-        return try resolveMacOS()
+            return try resolveMacOS()
         #else
-        return try resolveLinuxWindows(requirements: requirements)
+            return try resolveLinuxWindows(requirements: requirements)
         #endif
     }
 
     #if os(macOS)
-    /// macOS resolution: .uncached is the only cache bypass available.
-    private func resolveMacOS() throws(IO.File.Direct.Error) -> Resolved {
-        switch self {
-        case .direct:
-            // Strict Direct I/O not available on macOS
-            throw .notSupported
+        /// macOS resolution: .uncached is the only cache bypass available.
+        private func resolveMacOS() throws(IO.File.Direct.Error) -> Resolved {
+            switch self {
+            case .direct:
+                // Strict Direct I/O not available on macOS
+                throw .notSupported
 
-        case .uncached:
-            return .uncached
+            case .uncached:
+                return .uncached
 
-        case .buffered:
-            return .buffered
+            case .buffered:
+                return .buffered
 
-        case .auto:
-            // On macOS, .auto always resolves to .uncached
-            // (matches intent: avoid cache pollution)
-            return .uncached
+            case .auto:
+                // On macOS, .auto always resolves to .uncached
+                // (matches intent: avoid cache pollution)
+                return .uncached
+            }
         }
-    }
     #endif
 
     #if !os(macOS)
-    /// Linux/Windows resolution: .direct requires known requirements.
-    private func resolveLinuxWindows(
-        requirements: IO.File.Direct.Requirements
-    ) throws(IO.File.Direct.Error) -> Resolved {
-        switch self {
-        case .direct:
-            // .direct requires known requirements
-            guard case .known = requirements else {
+        /// Linux/Windows resolution: .direct requires known requirements.
+        private func resolveLinuxWindows(
+            requirements: IO.File.Direct.Requirements
+        ) throws(IO.File.Direct.Error) -> Resolved {
+            switch self {
+            case .direct:
+                // .direct requires known requirements
+                guard case .known = requirements else {
+                    throw .notSupported
+                }
+                return .direct
+
+            case .uncached:
+                // .uncached (F_NOCACHE) is macOS-only
                 throw .notSupported
-            }
-            return .direct
 
-        case .uncached:
-            // .uncached (F_NOCACHE) is macOS-only
-            throw .notSupported
-
-        case .buffered:
-            return .buffered
-
-        case .auto(let policy):
-            return try resolveAutoLinuxWindows(policy: policy, requirements: requirements)
-        }
-    }
-
-    /// Resolves .auto policy on Linux/Windows.
-    private func resolveAutoLinuxWindows(
-        policy: Policy,
-        requirements: IO.File.Direct.Requirements
-    ) throws(IO.File.Direct.Error) -> Resolved {
-        switch requirements {
-        case .known:
-            // Requirements known: use .direct
-            return .direct
-
-        case .unknown:
-            // Requirements unknown: policy determines behavior
-            switch policy {
-            case .fallbackToBuffered:
+            case .buffered:
                 return .buffered
-            case .errorOnViolation:
-                throw .notSupported
+
+            case .auto(let policy):
+                return try resolveAutoLinuxWindows(policy: policy, requirements: requirements)
             }
         }
-    }
+
+        /// Resolves .auto policy on Linux/Windows.
+        private func resolveAutoLinuxWindows(
+            policy: Policy,
+            requirements: IO.File.Direct.Requirements
+        ) throws(IO.File.Direct.Error) -> Resolved {
+            switch requirements {
+            case .known:
+                // Requirements known: use .direct
+                return .direct
+
+            case .unknown:
+                // Requirements unknown: policy determines behavior
+                switch policy {
+                case .fallbackToBuffered:
+                    return .buffered
+                case .errorOnViolation:
+                    throw .notSupported
+                }
+            }
+        }
     #endif
 }

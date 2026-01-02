@@ -5,56 +5,57 @@
 //  Created by Coen ten Thije Boonkkamp on 30/12/2025.
 //
 
-import Testing
-@testable import IO_Primitives
+import Binary
 import Buffer
 import Kernel
-import Binary
+import Testing
+
+@testable import IO_Primitives
 
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #elseif canImport(Glibc)
-import Glibc
+    import Glibc
 #elseif os(Windows)
-import WinSDK
+    import WinSDK
 #endif
 
 // MARK: - Test Helpers
 
 #if !os(Windows)
-/// Creates a temporary file with content and returns its path
-private func makeTempFile(prefix: String, content: String) -> String {
-    let path = "/tmp/\(prefix)-\(getpid())-\(Int.random(in: 0..<Int.max))"
-    let fd = open(path, O_CREAT | O_WRONLY, 0o644)
-    guard fd >= 0 else { return path }
-    defer { close(fd) }
+    /// Creates a temporary file with content and returns its path
+    private func makeTempFile(prefix: String, content: String) -> String {
+        let path = "/tmp/\(prefix)-\(getpid())-\(Int.random(in: 0..<Int.max))"
+        let fd = open(path, O_CREAT | O_WRONLY, 0o644)
+        guard fd >= 0 else { return path }
+        defer { close(fd) }
 
-    _ = content.withCString { ptr in
-        write(fd, ptr, content.count)
+        _ = content.withCString { ptr in
+            write(fd, ptr, content.count)
+        }
+
+        return path
     }
 
-    return path
-}
+    /// Creates a temporary file of specified size filled with a pattern
+    private func makeTempFileOfSize(prefix: String, size: Int, pattern: UInt8 = 0xAB) -> String {
+        let path = "/tmp/\(prefix)-\(getpid())-\(Int.random(in: 0..<Int.max))"
+        let fd = open(path, O_CREAT | O_WRONLY, 0o644)
+        guard fd >= 0 else { return path }
+        defer { close(fd) }
 
-/// Creates a temporary file of specified size filled with a pattern
-private func makeTempFileOfSize(prefix: String, size: Int, pattern: UInt8 = 0xAB) -> String {
-    let path = "/tmp/\(prefix)-\(getpid())-\(Int.random(in: 0..<Int.max))"
-    let fd = open(path, O_CREAT | O_WRONLY, 0o644)
-    guard fd >= 0 else { return path }
-    defer { close(fd) }
+        let buffer = [UInt8](repeating: pattern, count: size)
+        _ = buffer.withUnsafeBytes { ptr in
+            write(fd, ptr.baseAddress!, size)
+        }
 
-    let buffer = [UInt8](repeating: pattern, count: size)
-    _ = buffer.withUnsafeBytes { ptr in
-        write(fd, ptr.baseAddress!, size)
+        return path
     }
 
-    return path
-}
-
-/// Cleans up a temp file
-private func removeTempFile(_ path: String) {
-    _ = path.withCString { unlink($0) }
-}
+    /// Cleans up a temp file
+    private func removeTempFile(_ path: String) {
+        _ = path.withCString { unlink($0) }
+    }
 #endif
 
 // MARK: - Mode Tests
@@ -130,96 +131,96 @@ struct DirectModeTests {
         }
 
         #if os(macOS)
-        @Test("macOS: .direct throws notSupported")
-        func macOSDirectThrows() {
-            let mode: IO.File.Direct.Mode = .direct
-            let requirements: IO.File.Direct.Requirements = .unknown(reason: .platformUnsupported)
+            @Test("macOS: .direct throws notSupported")
+            func macOSDirectThrows() {
+                let mode: IO.File.Direct.Mode = .direct
+                let requirements: IO.File.Direct.Requirements = .unknown(reason: .platformUnsupported)
 
-            #expect(throws: IO.File.Direct.Error.notSupported) {
-                try mode.resolve(given: requirements)
+                #expect(throws: IO.File.Direct.Error.notSupported) {
+                    try mode.resolve(given: requirements)
+                }
             }
-        }
 
-        @Test("macOS: .uncached resolves to .uncached")
-        func macOSUncachedResolves() throws {
-            let mode: IO.File.Direct.Mode = .uncached
-            let requirements: IO.File.Direct.Requirements = .unknown(reason: .platformUnsupported)
+            @Test("macOS: .uncached resolves to .uncached")
+            func macOSUncachedResolves() throws {
+                let mode: IO.File.Direct.Mode = .uncached
+                let requirements: IO.File.Direct.Requirements = .unknown(reason: .platformUnsupported)
 
-            let result = try mode.resolve(given: requirements)
-            #expect(result == .uncached)
-        }
+                let result = try mode.resolve(given: requirements)
+                #expect(result == .uncached)
+            }
 
-        @Test("macOS: .auto resolves to .uncached")
-        func macOSAutoResolvesToUncached() throws {
-            let mode1: IO.File.Direct.Mode = .auto(policy: .fallbackToBuffered)
-            let mode2: IO.File.Direct.Mode = .auto(policy: .errorOnViolation)
-            let requirements: IO.File.Direct.Requirements = .unknown(reason: .platformUnsupported)
+            @Test("macOS: .auto resolves to .uncached")
+            func macOSAutoResolvesToUncached() throws {
+                let mode1: IO.File.Direct.Mode = .auto(policy: .fallbackToBuffered)
+                let mode2: IO.File.Direct.Mode = .auto(policy: .errorOnViolation)
+                let requirements: IO.File.Direct.Requirements = .unknown(reason: .platformUnsupported)
 
-            let result1 = try mode1.resolve(given: requirements)
-            let result2 = try mode2.resolve(given: requirements)
+                let result1 = try mode1.resolve(given: requirements)
+                let result2 = try mode2.resolve(given: requirements)
 
-            #expect(result1 == .uncached)
-            #expect(result2 == .uncached)
-        }
+                #expect(result1 == .uncached)
+                #expect(result2 == .uncached)
+            }
         #endif
 
         #if os(Linux) || os(Windows)
-        @Test("Linux/Windows: .direct with .known resolves to .direct")
-        func directWithKnownResolves() throws {
-            let mode: IO.File.Direct.Mode = .direct
-            let requirements = IO.File.Direct.Requirements(uniformAlignment: 4096)
+            @Test("Linux/Windows: .direct with .known resolves to .direct")
+            func directWithKnownResolves() throws {
+                let mode: IO.File.Direct.Mode = .direct
+                let requirements = IO.File.Direct.Requirements(uniformAlignment: 4096)
 
-            let result = try mode.resolve(given: requirements)
-            #expect(result == .direct)
-        }
-
-        @Test("Linux/Windows: .direct with .unknown throws")
-        func directWithUnknownThrows() {
-            let mode: IO.File.Direct.Mode = .direct
-            let requirements: IO.File.Direct.Requirements = .unknown(reason: .sectorSizeUndetermined)
-
-            #expect(throws: IO.File.Direct.Error.notSupported) {
-                try mode.resolve(given: requirements)
+                let result = try mode.resolve(given: requirements)
+                #expect(result == .direct)
             }
-        }
 
-        @Test("Linux/Windows: .uncached throws notSupported")
-        func uncachedThrows() {
-            let mode: IO.File.Direct.Mode = .uncached
-            let requirements = IO.File.Direct.Requirements(uniformAlignment: 4096)
+            @Test("Linux/Windows: .direct with .unknown throws")
+            func directWithUnknownThrows() {
+                let mode: IO.File.Direct.Mode = .direct
+                let requirements: IO.File.Direct.Requirements = .unknown(reason: .sectorSizeUndetermined)
 
-            #expect(throws: IO.File.Direct.Error.notSupported) {
-                try mode.resolve(given: requirements)
+                #expect(throws: IO.File.Direct.Error.notSupported) {
+                    try mode.resolve(given: requirements)
+                }
             }
-        }
 
-        @Test("Linux/Windows: .auto(.fallbackToBuffered) with .unknown resolves to .buffered")
-        func autoFallbackWithUnknown() throws {
-            let mode: IO.File.Direct.Mode = .auto(policy: .fallbackToBuffered)
-            let requirements: IO.File.Direct.Requirements = .unknown(reason: .sectorSizeUndetermined)
+            @Test("Linux/Windows: .uncached throws notSupported")
+            func uncachedThrows() {
+                let mode: IO.File.Direct.Mode = .uncached
+                let requirements = IO.File.Direct.Requirements(uniformAlignment: 4096)
 
-            let result = try mode.resolve(given: requirements)
-            #expect(result == .buffered)
-        }
-
-        @Test("Linux/Windows: .auto(.fallbackToBuffered) with .known resolves to .direct")
-        func autoFallbackWithKnown() throws {
-            let mode: IO.File.Direct.Mode = .auto(policy: .fallbackToBuffered)
-            let requirements = IO.File.Direct.Requirements(uniformAlignment: 4096)
-
-            let result = try mode.resolve(given: requirements)
-            #expect(result == .direct)
-        }
-
-        @Test("Linux/Windows: .auto(.errorOnViolation) with .unknown throws")
-        func autoErrorWithUnknownThrows() {
-            let mode: IO.File.Direct.Mode = .auto(policy: .errorOnViolation)
-            let requirements: IO.File.Direct.Requirements = .unknown(reason: .sectorSizeUndetermined)
-
-            #expect(throws: IO.File.Direct.Error.notSupported) {
-                try mode.resolve(given: requirements)
+                #expect(throws: IO.File.Direct.Error.notSupported) {
+                    try mode.resolve(given: requirements)
+                }
             }
-        }
+
+            @Test("Linux/Windows: .auto(.fallbackToBuffered) with .unknown resolves to .buffered")
+            func autoFallbackWithUnknown() throws {
+                let mode: IO.File.Direct.Mode = .auto(policy: .fallbackToBuffered)
+                let requirements: IO.File.Direct.Requirements = .unknown(reason: .sectorSizeUndetermined)
+
+                let result = try mode.resolve(given: requirements)
+                #expect(result == .buffered)
+            }
+
+            @Test("Linux/Windows: .auto(.fallbackToBuffered) with .known resolves to .direct")
+            func autoFallbackWithKnown() throws {
+                let mode: IO.File.Direct.Mode = .auto(policy: .fallbackToBuffered)
+                let requirements = IO.File.Direct.Requirements(uniformAlignment: 4096)
+
+                let result = try mode.resolve(given: requirements)
+                #expect(result == .direct)
+            }
+
+            @Test("Linux/Windows: .auto(.errorOnViolation) with .unknown throws")
+            func autoErrorWithUnknownThrows() {
+                let mode: IO.File.Direct.Mode = .auto(policy: .errorOnViolation)
+                let requirements: IO.File.Direct.Requirements = .unknown(reason: .sectorSizeUndetermined)
+
+                #expect(throws: IO.File.Direct.Error.notSupported) {
+                    try mode.resolve(given: requirements)
+                }
+            }
         #endif
     }
 }
@@ -280,7 +281,7 @@ struct DirectRequirementsTests {
                 .platformUnsupported,
                 .sectorSizeUndetermined,
                 .filesystemUnsupported,
-                .invalidHandle
+                .invalidHandle,
             ]
 
             for reason in reasons {
@@ -328,9 +329,9 @@ struct DirectRequirementsTests {
 
             // Platform-dependent result
             #if os(macOS)
-            #expect(requirements == .unknown(reason: .platformUnsupported))
+                #expect(requirements == .unknown(reason: .platformUnsupported))
             #elseif os(Linux)
-            #expect(requirements == .unknown(reason: .sectorSizeUndetermined))
+                #expect(requirements == .unknown(reason: .sectorSizeUndetermined))
             #endif
         }
     }
@@ -394,193 +395,193 @@ struct HandleErrorTests {
     }
 
     #if !os(Windows)
-    @Suite("POSIX Error Mapping")
-    struct POSIXErrorMappingTests {
+        @Suite("POSIX Error Mapping")
+        struct POSIXErrorMappingTests {
 
-        @Test("EBADF maps to invalidHandle")
-        func ebadfsToInvalidHandle() {
-            let error = IO.File.Handle.Error(posixErrno: EBADF, operation: .read)
-            #expect(error == .invalidHandle)
-        }
+            @Test("EBADF maps to invalidHandle")
+            func ebadfsToInvalidHandle() {
+                let error = IO.File.Handle.Error(posixErrno: EBADF, operation: .read)
+                #expect(error == .invalidHandle)
+            }
 
-        @Test("EINTR maps to interrupted")
-        func eintrToInterrupted() {
-            let error = IO.File.Handle.Error(posixErrno: EINTR, operation: .read)
-            #expect(error == .interrupted)
-        }
+            @Test("EINTR maps to interrupted")
+            func eintrToInterrupted() {
+                let error = IO.File.Handle.Error(posixErrno: EINTR, operation: .read)
+                #expect(error == .interrupted)
+            }
 
-        @Test("ENOSPC maps to noSpace")
-        func enospcToNoSpace() {
-            let error = IO.File.Handle.Error(posixErrno: ENOSPC, operation: .write)
-            #expect(error == .noSpace)
-        }
+            @Test("ENOSPC maps to noSpace")
+            func enospcToNoSpace() {
+                let error = IO.File.Handle.Error(posixErrno: ENOSPC, operation: .write)
+                #expect(error == .noSpace)
+            }
 
-        @Test("EINVAL maps to alignmentViolation")
-        func einvalToAlignmentViolation() {
-            let error = IO.File.Handle.Error(posixErrno: EINVAL, operation: .read)
+            @Test("EINVAL maps to alignmentViolation")
+            func einvalToAlignmentViolation() {
+                let error = IO.File.Handle.Error(posixErrno: EINVAL, operation: .read)
 
-            if case .alignmentViolation(let op) = error {
-                #expect(op == .read)
-            } else {
-                Issue.record("Expected alignmentViolation, got \(error)")
+                if case .alignmentViolation(let op) = error {
+                    #expect(op == .read)
+                } else {
+                    Issue.record("Expected alignmentViolation, got \(error)")
+                }
+            }
+
+            @Test("unknown errno maps to platform error")
+            func unknownToPlatform() {
+                // EAGAIN is not explicitly handled
+                let error = IO.File.Handle.Error(posixErrno: EAGAIN, operation: .read)
+
+                if case .platform(let code, _) = error {
+                    #expect(code == EAGAIN)
+                } else {
+                    Issue.record("Expected platform error")
+                }
             }
         }
-
-        @Test("unknown errno maps to platform error")
-        func unknownToPlatform() {
-            // EAGAIN is not explicitly handled
-            let error = IO.File.Handle.Error(posixErrno: EAGAIN, operation: .read)
-
-            if case .platform(let code, _) = error {
-                #expect(code == EAGAIN)
-            } else {
-                Issue.record("Expected platform error")
-            }
-        }
-    }
     #endif
 }
 
 // MARK: - Integration Tests
 
 #if !os(Windows)
-@Suite("IO.File Handle Integration")
-struct HandleIntegrationTests {
+    @Suite("IO.File Handle Integration")
+    struct HandleIntegrationTests {
 
-    @Test("open and close file with buffered mode")
-    func openCloseBuffered() throws {
-        let content = "Hello, World!"
-        let path = makeTempFile(prefix: "handle-test", content: content)
-        defer { removeTempFile(path) }
+        @Test("open and close file with buffered mode")
+        func openCloseBuffered() throws {
+            let content = "Hello, World!"
+            let path = makeTempFile(prefix: "handle-test", content: content)
+            defer { removeTempFile(path) }
 
-        let options = IO.File.Open.Options(mode: .read)
-        let handle = try IO.File.open(path, options: options)
-
-        // Verify handle properties
-        #expect(handle.direct == .buffered)
-
-        // Close is consuming, just let it go out of scope
-    }
-
-    @Test("read file with buffered mode")
-    func readBuffered() throws {
-        let content = "Test content for reading"
-        let path = makeTempFile(prefix: "handle-read", content: content)
-        defer { removeTempFile(path) }
-
-        let handle = try IO.File.open(path, options: .init(mode: .read))
-
-        var buffer = [UInt8](repeating: 0, count: 4096)
-        let bytesRead = try buffer.withUnsafeMutableBytes { ptr in
-            try handle.read(into: ptr, at: 0)
-        }
-
-        #expect(bytesRead == content.count)
-
-        // Verify content matches using C string comparison
-        let matches = buffer.withUnsafeBufferPointer { ptr in
-            content.withCString { cStr in
-                memcmp(ptr.baseAddress, cStr, bytesRead) == 0
-            }
-        }
-        #expect(matches)
-    }
-
-    @Test("write file with buffered mode")
-    func writeBuffered() throws {
-        let path = "/tmp/handle-write-\(getpid())-\(Int.random(in: 0..<Int.max))"
-        defer { removeTempFile(path) }
-
-        var options = IO.File.Open.Options(mode: .write)
-        options.create = true
-
-        do {
+            let options = IO.File.Open.Options(mode: .read)
             let handle = try IO.File.open(path, options: options)
 
-            let content = "Written content"
-            let bytesWritten = try content.withCString { _ in
-                try [UInt8](content.utf8).withUnsafeBytes { buffer in
-                    try handle.write(from: buffer, at: 0)
-                }
-            }
+            // Verify handle properties
+            #expect(handle.direct == .buffered)
 
-            #expect(bytesWritten == content.count)
+            // Close is consuming, just let it go out of scope
         }
 
-        // Verify by reading back
-        let fd = open(path, O_RDONLY)
-        #expect(fd >= 0)
-        defer { close(fd) }
+        @Test("read file with buffered mode")
+        func readBuffered() throws {
+            let content = "Test content for reading"
+            let path = makeTempFile(prefix: "handle-read", content: content)
+            defer { removeTempFile(path) }
 
-        var readBuffer = [CChar](repeating: 0, count: 100)
-        let readBytes = read(fd, &readBuffer, readBuffer.count)
-        #expect(readBytes == 15) // "Written content"
-    }
+            let handle = try IO.File.open(path, options: .init(mode: .read))
 
-    @Test("open with .auto(.fallbackToBuffered) succeeds")
-    func openAutoFallback() throws {
-        let content = "Auto fallback test"
-        let path = makeTempFile(prefix: "handle-auto", content: content)
-        defer { removeTempFile(path) }
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            let bytesRead = try buffer.withUnsafeMutableBytes { ptr in
+                try handle.read(into: ptr, at: 0)
+            }
 
-        var options = IO.File.Open.Options(mode: .read)
-        options.cache = .auto(policy: .fallbackToBuffered)
+            #expect(bytesRead == content.count)
 
-        let handle = try IO.File.open(path, options: options)
+            // Verify content matches using C string comparison
+            let matches = buffer.withUnsafeBufferPointer { ptr in
+                content.withCString { cStr in
+                    memcmp(ptr.baseAddress, cStr, bytesRead) == 0
+                }
+            }
+            #expect(matches)
+        }
 
-        // On macOS: .uncached, on Linux: .buffered (because requirements unknown)
-        #if os(macOS)
-        #expect(handle.direct == .uncached)
-        #else
-        #expect(handle.direct == .buffered)
-        #endif
-    }
+        @Test("write file with buffered mode")
+        func writeBuffered() throws {
+            let path = "/tmp/handle-write-\(getpid())-\(Int.random(in: 0..<Int.max))"
+            defer { removeTempFile(path) }
 
-    @Test("read with aligned buffer")
-    func readWithAlignedBuffer() throws {
-        let pageSize = Kernel.System.pageSize
-        let content = String(repeating: "X", count: pageSize)
-        let path = makeTempFile(prefix: "handle-aligned", content: content)
-        defer { removeTempFile(path) }
+            var options = IO.File.Open.Options(mode: .write)
+            options.create = true
 
-        let handle = try IO.File.open(path, options: .init(mode: .read))
+            do {
+                let handle = try IO.File.open(path, options: options)
 
-        var buffer = try Buffer.Aligned(byteCount: pageSize, alignment: pageSize)
-        let bytesRead = try handle.read(into: &buffer, at: 0)
+                let content = "Written content"
+                let bytesWritten = try content.withCString { _ in
+                    try [UInt8](content.utf8).withUnsafeBytes { buffer in
+                        try handle.write(from: buffer, at: 0)
+                    }
+                }
 
-        #expect(bytesRead == pageSize)
-    }
+                #expect(bytesWritten == content.count)
+            }
 
-    @Test("write with aligned buffer")
-    func writeWithAlignedBuffer() throws {
-        let pageSize = Kernel.System.pageSize
-        let path = "/tmp/handle-aligned-write-\(getpid())-\(Int.random(in: 0..<Int.max))"
-        defer { removeTempFile(path) }
+            // Verify by reading back
+            let fd = open(path, O_RDONLY)
+            #expect(fd >= 0)
+            defer { close(fd) }
 
-        var options = IO.File.Open.Options(mode: .write)
-        options.create = true
+            var readBuffer = [CChar](repeating: 0, count: 100)
+            let readBytes = read(fd, &readBuffer, readBuffer.count)
+            #expect(readBytes == 15)  // "Written content"
+        }
 
-        do {
+        @Test("open with .auto(.fallbackToBuffered) succeeds")
+        func openAutoFallback() throws {
+            let content = "Auto fallback test"
+            let path = makeTempFile(prefix: "handle-auto", content: content)
+            defer { removeTempFile(path) }
+
+            var options = IO.File.Open.Options(mode: .read)
+            options.cache = .auto(policy: .fallbackToBuffered)
+
             let handle = try IO.File.open(path, options: options)
 
-            var buffer = try Buffer.Aligned.zeroed(byteCount: pageSize, alignment: pageSize)
-            buffer.withUnsafeMutableBytes { ptr in
-                for i in 0..<pageSize {
-                    ptr[i] = UInt8(i % 256)
-                }
-            }
-
-            let bytesWritten = try handle.write(from: buffer, at: 0)
-            #expect(bytesWritten == pageSize)
+            // On macOS: .uncached, on Linux: .buffered (because requirements unknown)
+            #if os(macOS)
+                #expect(handle.direct == .uncached)
+            #else
+                #expect(handle.direct == .buffered)
+            #endif
         }
 
-        // Verify file size
-        var statBuf = stat()
-        #expect(path.withCString { stat($0, &statBuf) } == 0)
-        #expect(Int(statBuf.st_size) == pageSize)
-    }
+        @Test("read with aligned buffer")
+        func readWithAlignedBuffer() throws {
+            let pageSize = Kernel.System.pageSize
+            let content = String(repeating: "X", count: pageSize)
+            let path = makeTempFile(prefix: "handle-aligned", content: content)
+            defer { removeTempFile(path) }
 
-}
+            let handle = try IO.File.open(path, options: .init(mode: .read))
+
+            var buffer = try Buffer.Aligned(byteCount: pageSize, alignment: pageSize)
+            let bytesRead = try handle.read(into: &buffer, at: 0)
+
+            #expect(bytesRead == pageSize)
+        }
+
+        @Test("write with aligned buffer")
+        func writeWithAlignedBuffer() throws {
+            let pageSize = Kernel.System.pageSize
+            let path = "/tmp/handle-aligned-write-\(getpid())-\(Int.random(in: 0..<Int.max))"
+            defer { removeTempFile(path) }
+
+            var options = IO.File.Open.Options(mode: .write)
+            options.create = true
+
+            do {
+                let handle = try IO.File.open(path, options: options)
+
+                var buffer = try Buffer.Aligned.zeroed(byteCount: pageSize, alignment: pageSize)
+                buffer.withUnsafeMutableBytes { ptr in
+                    for i in 0..<pageSize {
+                        ptr[i] = UInt8(i % 256)
+                    }
+                }
+
+                let bytesWritten = try handle.write(from: buffer, at: 0)
+                #expect(bytesWritten == pageSize)
+            }
+
+            // Verify file size
+            var statBuf = stat()
+            #expect(path.withCString { stat($0, &statBuf) } == 0)
+            #expect(Int(statBuf.st_size) == pageSize)
+        }
+
+    }
 #endif
 
 // MARK: - Direct Error Tests

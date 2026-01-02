@@ -5,15 +5,15 @@
 //  Created by Coen ten Thije Boonkkamp on 31/12/2025.
 //
 
-#if canImport(Darwin)
-import Darwin
-#elseif canImport(Glibc)
-import Glibc
-#elseif os(Windows)
-import WinSDK
-#endif
-
 @_exported public import IO_Completions_Primitives
+
+#if canImport(Darwin)
+    import Darwin
+#elseif canImport(Glibc)
+    import Glibc
+#elseif os(Windows)
+    import WinSDK
+#endif
 
 extension IO.Completion {
     /// Protocol witness struct for platform-specific completion backends.
@@ -60,10 +60,11 @@ extension IO.Completion {
         /// Takes `Operation.Storage` directly, allowing the poll thread to
         /// drain the `Submission.Queue` and submit storages without
         /// reconstructing `Operation` wrappers.
-        let _submitStorage: @Sendable (
-            borrowing Handle,
-            Operation.Storage
-        ) throws(Error) -> Void
+        let _submitStorage:
+            @Sendable (
+                borrowing Handle,
+                Operation.Storage
+            ) throws(Error) -> Void
 
         /// Flush pending submissions to the kernel.
         ///
@@ -81,11 +82,12 @@ extension IO.Completion {
         ///   - deadline: Optional absolute deadline, or `nil` for infinite wait.
         ///   - buffer: Pre-allocated event buffer.
         /// - Returns: Number of events written to buffer.
-        let _poll: @Sendable (
-            borrowing Handle,
-            Deadline?,
-            inout [Event]
-        ) throws(Error) -> Int
+        let _poll:
+            @Sendable (
+                borrowing Handle,
+                Deadline?,
+                inout [Event]
+            ) throws(Error) -> Int
 
         /// Close the completion handle.
         ///
@@ -265,18 +267,18 @@ extension IO.Completion {
         /// Gets the current monotonic time in nanoseconds.
         private static func monotonicNanoseconds() -> UInt64 {
             #if os(Windows)
-            var counter = LARGE_INTEGER()
-            var frequency = LARGE_INTEGER()
-            QueryPerformanceCounter(&counter)
-            QueryPerformanceFrequency(&frequency)
-            // Convert to nanoseconds
-            let seconds = counter.QuadPart / frequency.QuadPart
-            let remainder = counter.QuadPart % frequency.QuadPart
-            return UInt64(seconds) * 1_000_000_000 + UInt64(remainder * 1_000_000_000 / frequency.QuadPart)
+                var counter = LARGE_INTEGER()
+                var frequency = LARGE_INTEGER()
+                QueryPerformanceCounter(&counter)
+                QueryPerformanceFrequency(&frequency)
+                // Convert to nanoseconds
+                let seconds = counter.QuadPart / frequency.QuadPart
+                let remainder = counter.QuadPart % frequency.QuadPart
+                return UInt64(seconds) * 1_000_000_000 + UInt64(remainder * 1_000_000_000 / frequency.QuadPart)
             #else
-            var ts = timespec()
-            clock_gettime(CLOCK_MONOTONIC, &ts)
-            return UInt64(ts.tv_sec) * 1_000_000_000 + UInt64(ts.tv_nsec)
+                var ts = timespec()
+                clock_gettime(CLOCK_MONOTONIC, &ts)
+                return UInt64(ts.tv_sec) * 1_000_000_000 + UInt64(ts.tv_nsec)
             #endif
         }
     }

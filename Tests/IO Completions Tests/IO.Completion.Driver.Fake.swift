@@ -5,15 +5,15 @@
 //  Created by Coen ten Thije Boonkkamp on 31/12/2025.
 //
 
-#if canImport(Darwin)
-import Darwin
-#elseif canImport(Glibc)
-import Glibc
-#elseif os(Windows)
-import WinSDK
-#endif
-
 @testable import IO_Completions
+
+#if canImport(Darwin)
+    import Darwin
+#elseif canImport(Glibc)
+    import Glibc
+#elseif os(Windows)
+    import WinSDK
+#endif
 
 extension IO.Completion.Driver {
     /// Fake driver for deterministic testing.
@@ -60,37 +60,37 @@ extension IO.Completion.Driver {
         // MARK: - Synchronization
 
         #if os(Windows)
-        private var srwlock: SRWLOCK = SRWLOCK()
-        private var condvar: CONDITION_VARIABLE = CONDITION_VARIABLE()
+            private var srwlock: SRWLOCK = SRWLOCK()
+            private var condvar: CONDITION_VARIABLE = CONDITION_VARIABLE()
         #else
-        private var mutex: pthread_mutex_t = pthread_mutex_t()
-        private var cond: pthread_cond_t = pthread_cond_t()
+            private var mutex: pthread_mutex_t = pthread_mutex_t()
+            private var cond: pthread_cond_t = pthread_cond_t()
         #endif
 
         init() {
             #if os(Windows)
-            InitializeSRWLock(&srwlock)
-            InitializeConditionVariable(&condvar)
+                InitializeSRWLock(&srwlock)
+                InitializeConditionVariable(&condvar)
             #else
-            var mutexAttr = pthread_mutexattr_t()
-            pthread_mutexattr_init(&mutexAttr)
-            pthread_mutex_init(&mutex, &mutexAttr)
-            pthread_mutexattr_destroy(&mutexAttr)
+                var mutexAttr = pthread_mutexattr_t()
+                pthread_mutexattr_init(&mutexAttr)
+                pthread_mutex_init(&mutex, &mutexAttr)
+                pthread_mutexattr_destroy(&mutexAttr)
 
-            var condAttr = pthread_condattr_t()
-            pthread_condattr_init(&condAttr)
-            #if !os(macOS) && !os(iOS) && !os(tvOS) && !os(watchOS)
-            pthread_condattr_setclock(&condAttr, CLOCK_MONOTONIC)
-            #endif
-            pthread_cond_init(&cond, &condAttr)
-            pthread_condattr_destroy(&condAttr)
+                var condAttr = pthread_condattr_t()
+                pthread_condattr_init(&condAttr)
+                #if !os(macOS) && !os(iOS) && !os(tvOS) && !os(watchOS)
+                    pthread_condattr_setclock(&condAttr, CLOCK_MONOTONIC)
+                #endif
+                pthread_cond_init(&cond, &condAttr)
+                pthread_condattr_destroy(&condAttr)
             #endif
         }
 
         deinit {
             #if !os(Windows)
-            pthread_cond_destroy(&cond)
-            pthread_mutex_destroy(&mutex)
+                pthread_cond_destroy(&cond)
+                pthread_mutex_destroy(&mutex)
             #endif
         }
 
@@ -98,17 +98,17 @@ extension IO.Completion.Driver {
 
         private func lock() {
             #if os(Windows)
-            AcquireSRWLockExclusive(&srwlock)
+                AcquireSRWLockExclusive(&srwlock)
             #else
-            pthread_mutex_lock(&mutex)
+                pthread_mutex_lock(&mutex)
             #endif
         }
 
         private func unlock() {
             #if os(Windows)
-            ReleaseSRWLockExclusive(&srwlock)
+                ReleaseSRWLockExclusive(&srwlock)
             #else
-            pthread_mutex_unlock(&mutex)
+                pthread_mutex_unlock(&mutex)
             #endif
         }
 
@@ -120,25 +120,25 @@ extension IO.Completion.Driver {
 
         private func wait() {
             #if os(Windows)
-            _ = SleepConditionVariableSRW(&condvar, &srwlock, INFINITE, 0)
+                _ = SleepConditionVariableSRW(&condvar, &srwlock, INFINITE, 0)
             #else
-            pthread_cond_wait(&cond, &mutex)
+                pthread_cond_wait(&cond, &mutex)
             #endif
         }
 
         private func signal() {
             #if os(Windows)
-            WakeConditionVariable(&condvar)
+                WakeConditionVariable(&condvar)
             #else
-            pthread_cond_signal(&cond)
+                pthread_cond_signal(&cond)
             #endif
         }
 
         private func broadcast() {
             #if os(Windows)
-            WakeAllConditionVariable(&condvar)
+                WakeAllConditionVariable(&condvar)
             #else
-            pthread_cond_broadcast(&cond)
+                pthread_cond_broadcast(&cond)
             #endif
         }
 
@@ -180,7 +180,7 @@ extension IO.Completion.Driver {
         func signalWakeup() {
             lock()
             state.wakeupSignaled = true  // Control flag for poll loop
-            state.wakeupCalled = true     // Observation flag for tests
+            state.wakeupCalled = true  // Observation flag for tests
             broadcast()
             unlock()
         }
@@ -274,40 +274,40 @@ extension IO.Completion.Driver {
             defer { unlock() }
 
             #if os(Windows)
-            // Windows: single timed wait
-            while state.submissions[id] == nil {
-                if SleepConditionVariableSRW(&condvar, &srwlock, timeoutMs, 0) == 0 {
-                    // Timeout or error
-                    return state.submissions[id] != nil
+                // Windows: single timed wait
+                while state.submissions[id] == nil {
+                    if SleepConditionVariableSRW(&condvar, &srwlock, timeoutMs, 0) == 0 {
+                        // Timeout or error
+                        return state.submissions[id] != nil
+                    }
                 }
-            }
-            return true
+                return true
             #else
-            // POSIX: compute absolute deadline once, then loop with timedwait
-            var deadline = timespec()
-            #if os(macOS) || os(iOS) || os(tvOS) || os(watchOS)
-            var now = timeval()
-            gettimeofday(&now, nil)
-            let deadlineNs = UInt64(now.tv_sec) * 1_000_000_000 + UInt64(now.tv_usec) * 1_000 + UInt64(timeoutMs) * 1_000_000
-            deadline.tv_sec = Int(deadlineNs / 1_000_000_000)
-            deadline.tv_nsec = Int(deadlineNs % 1_000_000_000)
-            #else
-            clock_gettime(CLOCK_MONOTONIC, &deadline)
-            deadline.tv_sec += Int(timeoutMs / 1000)
-            deadline.tv_nsec += Int((timeoutMs % 1000)) * 1_000_000
-            if deadline.tv_nsec >= 1_000_000_000 {
-                deadline.tv_sec += 1
-                deadline.tv_nsec -= 1_000_000_000
-            }
-            #endif
+                // POSIX: compute absolute deadline once, then loop with timedwait
+                var deadline = timespec()
+                #if os(macOS) || os(iOS) || os(tvOS) || os(watchOS)
+                    var now = timeval()
+                    gettimeofday(&now, nil)
+                    let deadlineNs = UInt64(now.tv_sec) * 1_000_000_000 + UInt64(now.tv_usec) * 1_000 + UInt64(timeoutMs) * 1_000_000
+                    deadline.tv_sec = Int(deadlineNs / 1_000_000_000)
+                    deadline.tv_nsec = Int(deadlineNs % 1_000_000_000)
+                #else
+                    clock_gettime(CLOCK_MONOTONIC, &deadline)
+                    deadline.tv_sec += Int(timeoutMs / 1000)
+                    deadline.tv_nsec += Int((timeoutMs % 1000)) * 1_000_000
+                    if deadline.tv_nsec >= 1_000_000_000 {
+                        deadline.tv_sec += 1
+                        deadline.tv_nsec -= 1_000_000_000
+                    }
+                #endif
 
-            while state.submissions[id] == nil {
-                let result = pthread_cond_timedwait(&cond, &mutex, &deadline)
-                if result == ETIMEDOUT {
-                    return state.submissions[id] != nil
+                while state.submissions[id] == nil {
+                    let result = pthread_cond_timedwait(&cond, &mutex, &deadline)
+                    if result == ETIMEDOUT {
+                        return state.submissions[id] != nil
+                    }
                 }
-            }
-            return true
+                return true
             #endif
         }
     }
@@ -330,11 +330,11 @@ extension IO.Completion.Driver {
             create: {
                 // Return a fake handle
                 #if os(Windows)
-                return IO.Completion.Driver.Handle(raw: UnsafeMutableRawPointer(bitPattern: 1)!)
+                    return IO.Completion.Driver.Handle(raw: UnsafeMutableRawPointer(bitPattern: 1)!)
                 #elseif os(Linux)
-                return IO.Completion.Driver.Handle(descriptor: -1, ringPtr: nil)
+                    return IO.Completion.Driver.Handle(descriptor: -1, ringPtr: nil)
                 #else
-                return IO.Completion.Driver.Handle(descriptor: -1)
+                    return IO.Completion.Driver.Handle(descriptor: -1)
                 #endif
             },
             submitStorage: { _, storage in

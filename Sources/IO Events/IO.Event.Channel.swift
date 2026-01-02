@@ -5,14 +5,14 @@
 //  Created by Coen ten Thije Boonkkamp on 29/12/2025.
 //
 
-#if canImport(Darwin)
-import Darwin
-#elseif canImport(Glibc)
-import Glibc
-#endif
-
-public import IO_Primitives
 public import Binary
+public import IO_Primitives
+
+#if canImport(Darwin)
+    import Darwin
+#elseif canImport(Glibc)
+    import Glibc
+#endif
 
 extension IO.Event {
     /// A non-blocking I/O channel for socket-based read and write operations.
@@ -178,7 +178,7 @@ extension IO.Event {
                 case .wouldBlock:
                     // Arm for read readiness, restoring token on error
                     try await arm(for: .read)
-                    // Continue loop to retry read
+                // Continue loop to retry read
 
                 case .error(let err):
                     throw .failure(.platform(errno: err))
@@ -248,7 +248,7 @@ extension IO.Event {
                 case .wouldBlock:
                     // Arm for write readiness, restoring token on error
                     try await arm(for: .write)
-                    // Continue loop to retry write
+                // Continue loop to retry write
 
                 case .error(let err):
                     throw .failure(.platform(errno: err))
@@ -279,7 +279,7 @@ extension IO.Event {
                             throw Failure.failure(.platform(errno: err))
                         }
                     }
-                case .failed(token: let restoredToken, failure: let failure):
+                case .failed(token: let restoredToken, let failure):
                     // Restore the token and rethrow - channel remains usable
                     registering = consume restoredToken
                     throw failure
@@ -301,7 +301,7 @@ extension IO.Event {
                             throw Failure.failure(.platform(errno: err))
                         }
                     }
-                case .failed(token: let restoredToken, failure: let failure):
+                case .failed(token: let restoredToken, let failure):
                     // Restore the token and rethrow - channel remains usable
                     armed = consume restoredToken
                     throw failure
@@ -333,8 +333,8 @@ extension IO.Event {
                 switch await selector.armPreservingToken(consume taken, interest: .write) {
                 case .armed(let result):
                     armed = consume result.token
-                    // Do NOT check error flags here - connect checks SO_ERROR separately
-                case .failed(token: let restoredToken, failure: let failure):
+                // Do NOT check error flags here - connect checks SO_ERROR separately
+                case .failed(token: let restoredToken, let failure):
                     registering = consume restoredToken
                     throw failure
                 }
@@ -349,8 +349,8 @@ extension IO.Event {
                 switch await selector.armPreservingToken(consume taken, interest: .write) {
                 case .armed(let result):
                     armed = consume result.token
-                    // Do NOT check error flags here - connect checks SO_ERROR separately
-                case .failed(token: let restoredToken, failure: let failure):
+                // Do NOT check error flags here - connect checks SO_ERROR separately
+                case .failed(token: let restoredToken, let failure):
                     armed = consume restoredToken
                     throw failure
                 }

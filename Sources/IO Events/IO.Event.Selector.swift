@@ -846,7 +846,8 @@ extension IO.Event {
 
                 // Skip stale entries (generation mismatch)
                 guard let currentGen = deadlineGeneration[entry.key],
-                      currentGen == entry.generation else {
+                    currentGen == entry.generation
+                else {
                     continue
                 }
 
@@ -893,8 +894,9 @@ extension IO.Event {
             // Pop stale entries
             while let entry = deadlineHeap.peek() {
                 guard let currentGen = deadlineGeneration[entry.key],
-                      currentGen == entry.generation,
-                      waiters[entry.key] != nil else {
+                    currentGen == entry.generation,
+                    waiters[entry.key] != nil
+                else {
                     // Stale - remove
                     _ = deadlineHeap.pop()
                     continue

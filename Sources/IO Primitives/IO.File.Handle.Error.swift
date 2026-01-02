@@ -8,11 +8,11 @@
 public import Kernel
 
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #elseif canImport(Glibc)
-import Glibc
+    import Glibc
 #elseif os(Windows)
-import WinSDK
+    import WinSDK
 #endif
 
 extension IO.File.Handle {
@@ -75,41 +75,41 @@ extension IO.File.Handle {
 
 extension IO.File.Handle.Error {
     #if !os(Windows)
-    /// Creates an error from a POSIX errno.
-    package init(posixErrno: Int32, operation: IO.File.Handle.Operation) {
-        switch posixErrno {
-        case EBADF:
-            self = .invalidHandle
-        case EINTR:
-            self = .interrupted
-        case ENOSPC:
-            self = .noSpace
-        case EINVAL:
-            // EINVAL during I/O typically means alignment violation for Direct I/O
-            // or unsupported operation. Map to semantic error for stable diagnostics.
-            self = .alignmentViolation(operation: operation)
-        default:
-            self = .platform(code: posixErrno, operation: operation)
+        /// Creates an error from a POSIX errno.
+        package init(posixErrno: Int32, operation: IO.File.Handle.Operation) {
+            switch posixErrno {
+            case EBADF:
+                self = .invalidHandle
+            case EINTR:
+                self = .interrupted
+            case ENOSPC:
+                self = .noSpace
+            case EINVAL:
+                // EINVAL during I/O typically means alignment violation for Direct I/O
+                // or unsupported operation. Map to semantic error for stable diagnostics.
+                self = .alignmentViolation(operation: operation)
+            default:
+                self = .platform(code: posixErrno, operation: operation)
+            }
         }
-    }
     #endif
 
     #if os(Windows)
-    /// Creates an error from a Windows error code.
-    package init(windowsError: DWORD, operation: IO.File.Handle.Operation) {
-        switch windowsError {
-        case DWORD(ERROR_INVALID_HANDLE):
-            self = .invalidHandle
-        case DWORD(ERROR_DISK_FULL), DWORD(ERROR_HANDLE_DISK_FULL):
-            self = .noSpace
-        case DWORD(ERROR_INVALID_PARAMETER):
-            // ERROR_INVALID_PARAMETER during I/O typically means alignment violation
-            // for FILE_FLAG_NO_BUFFERING. Map to semantic error.
-            self = .alignmentViolation(operation: operation)
-        default:
-            self = .platform(code: Int32(windowsError), operation: operation)
+        /// Creates an error from a Windows error code.
+        package init(windowsError: DWORD, operation: IO.File.Handle.Operation) {
+            switch windowsError {
+            case DWORD(ERROR_INVALID_HANDLE):
+                self = .invalidHandle
+            case DWORD(ERROR_DISK_FULL), DWORD(ERROR_HANDLE_DISK_FULL):
+                self = .noSpace
+            case DWORD(ERROR_INVALID_PARAMETER):
+                // ERROR_INVALID_PARAMETER during I/O typically means alignment violation
+                // for FILE_FLAG_NO_BUFFERING. Map to semantic error.
+                self = .alignmentViolation(operation: operation)
+            default:
+                self = .platform(code: Int32(windowsError), operation: operation)
+            }
         }
-    }
     #endif
 }
 
@@ -238,10 +238,10 @@ extension IO.File.Handle.Error: CustomStringConvertible {
             return "Alignment violation or Direct I/O not supported during \(operation.rawValue)"
         case .platform(let code, let operation):
             #if !os(Windows)
-            let message = String(cString: strerror(code))
-            return "Platform error \(code) during \(operation.rawValue): \(message)"
+                let message = String(cString: strerror(code))
+                return "Platform error \(code) during \(operation.rawValue): \(message)"
             #else
-            return "Platform error \(code) during \(operation.rawValue)"
+                return "Platform error \(code) during \(operation.rawValue)"
             #endif
         }
     }

@@ -5,8 +5,8 @@
 //  Created by Coen ten Thije Boonkkamp on 31/12/2025.
 //
 
-public import Kernel
 public import Buffer
+public import Kernel
 
 extension IO.Completion {
     /// A thin wrapper over Queue for socket-oriented I/O.

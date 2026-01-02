@@ -18,16 +18,16 @@
 //  difference in backpressure strategies.
 //
 
-#if canImport(Darwin)
-import Darwin
-#elseif canImport(Glibc)
-import Glibc
-#endif
-
 import IO
 import NIOPosix
 import StandardsTestSupport
 import Testing
+
+#if canImport(Darwin)
+    import Darwin
+#elseif canImport(Glibc)
+    import Glibc
+#endif
 
 enum BackpressureBenchmarks {
     #TestSuites

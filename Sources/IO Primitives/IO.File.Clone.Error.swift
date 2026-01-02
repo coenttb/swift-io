@@ -65,10 +65,10 @@ extension IO.File.Clone {
                 return "Source is a directory"
             case .platform(let code, let operation):
                 #if !os(Windows)
-                let message = String(cString: strerror(code))
-                return "Platform error \(code) during \(operation): \(message)"
+                    let message = String(cString: strerror(code))
+                    return "Platform error \(code) during \(operation): \(message)"
                 #else
-                return "Platform error \(code) during \(operation)"
+                    return "Platform error \(code) during \(operation)"
                 #endif
             }
         }
@@ -81,11 +81,11 @@ extension IO.File.Clone {
     /// Internal syscall-level errors for clone operations.
     package enum SyscallError: Swift.Error, Sendable {
         #if !os(Windows)
-        case posix(errno: Int32, operation: Operation)
+            case posix(errno: Int32, operation: Operation)
         #endif
 
         #if os(Windows)
-        case windows(code: UInt32, operation: Operation)
+            case windows(code: UInt32, operation: Operation)
         #endif
 
         case notSupported(operation: Operation)
@@ -129,48 +129,48 @@ extension IO.File.Clone.Error {
             self = .notSupported
 
         #if !os(Windows)
-        case .posix(let errno, let operation):
-            switch errno {
-            case ENOENT:
-                self = .sourceNotFound
-            case EEXIST:
-                self = .destinationExists
-            case EACCES, EPERM:
-                self = .permissionDenied
-            case EXDEV:
-                self = .crossDevice
-            case EISDIR:
-                self = .isDirectory
-            case ENOTSUP, EOPNOTSUPP:
-                self = .notSupported
-            default:
-                self = .platform(code: errno, operation: Operation(from: operation))
-            }
+            case .posix(let errno, let operation):
+                switch errno {
+                case ENOENT:
+                    self = .sourceNotFound
+                case EEXIST:
+                    self = .destinationExists
+                case EACCES, EPERM:
+                    self = .permissionDenied
+                case EXDEV:
+                    self = .crossDevice
+                case EISDIR:
+                    self = .isDirectory
+                case ENOTSUP, EOPNOTSUPP:
+                    self = .notSupported
+                default:
+                    self = .platform(code: errno, operation: Operation(from: operation))
+                }
         #endif
 
         #if os(Windows)
-        case .windows(let code, let operation):
-            switch code {
-            case 2: // ERROR_FILE_NOT_FOUND
-                self = .sourceNotFound
-            case 80: // ERROR_FILE_EXISTS
-                self = .destinationExists
-            case 5: // ERROR_ACCESS_DENIED
-                self = .permissionDenied
-            case 17: // ERROR_NOT_SAME_DEVICE
-                self = .crossDevice
-            default:
-                self = .platform(code: Int32(code), operation: Operation(from: operation))
-            }
+            case .windows(let code, let operation):
+                switch code {
+                case 2:  // ERROR_FILE_NOT_FOUND
+                    self = .sourceNotFound
+                case 80:  // ERROR_FILE_EXISTS
+                    self = .destinationExists
+                case 5:  // ERROR_ACCESS_DENIED
+                    self = .permissionDenied
+                case 17:  // ERROR_NOT_SAME_DEVICE
+                    self = .crossDevice
+                default:
+                    self = .platform(code: Int32(code), operation: Operation(from: operation))
+                }
         #endif
         }
     }
 }
 
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #elseif canImport(Glibc)
-import Glibc
+    import Glibc
 #elseif os(Windows)
-import WinSDK
+    import WinSDK
 #endif

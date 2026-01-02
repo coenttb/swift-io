@@ -409,8 +409,10 @@ extension IO.Completion.Queue.Test.Integration {
         } catch let error as IO.Lifecycle.Error<IO.Completion.Error> {
             // Expected - verify it's the right error
             if case .failure(let completionError) = error {
-                #expect(completionError == .lifecycle(.shutdownInProgress),
-                       "expected shutdownInProgress, got \(completionError)")
+                #expect(
+                    completionError == .lifecycle(.shutdownInProgress),
+                    "expected shutdownInProgress, got \(completionError)"
+                )
             }
         }
     }
@@ -503,8 +505,10 @@ extension IO.Completion.Queue.Test.Integration {
         // - .finalizedWithoutRecord: submit() already returned with completion (too fast to cancel)
         // Both prove completion-wins - the completion was delivered, not cancelled
         let recordResult = await queue._waitUntilRecorded(id)
-        #expect(recordResult == .recorded || recordResult == .finalizedWithoutRecord,
-               "completion must be recorded or already finalized. Got: \(recordResult)")
+        #expect(
+            recordResult == .recorded || recordResult == .finalizedWithoutRecord,
+            "completion must be recorded or already finalized. Got: \(recordResult)"
+        )
 
         // Cancel - if entry still exists, completion must still win
         resultTask.cancel()
@@ -512,8 +516,10 @@ extension IO.Completion.Queue.Test.Integration {
         // Must get the real completion, NOT cancelled
         let event = try await resultTask.value
 
-        #expect(event.outcome == .success(.bytes(42)),
-               "completion-wins: recorded completion must be delivered. Got: \(event.outcome)")
+        #expect(
+            event.outcome == .success(.bytes(42)),
+            "completion-wins: recorded completion must be delivered. Got: \(event.outcome)"
+        )
         #expect(event.id == id)
         #expect(event.kind == .nop)
 
@@ -549,8 +555,10 @@ extension IO.Completion.Queue.Test.Integration {
 
         // Get the result - should be cancelled
         let event = try await resultTask.value
-        #expect(event.outcome == .cancelled,
-               "cancel-first should result in cancelled outcome")
+        #expect(
+            event.outcome == .cancelled,
+            "cancel-first should result in cancelled outcome"
+        )
 
         // Capture current drain count
         let drainCountBefore = await queue._drainedEventCount
@@ -564,8 +572,10 @@ extension IO.Completion.Queue.Test.Integration {
 
         // Entry should still be absent (not resurrected)
         let recordResult = await queue._waitUntilRecorded(id, timeout: .milliseconds(10))
-        #expect(recordResult == .finalizedWithoutRecord,
-               "entry should remain finalized after late completion")
+        #expect(
+            recordResult == .finalizedWithoutRecord,
+            "entry should remain finalized after late completion"
+        )
 
         await queue.shutdown()
     }
@@ -598,8 +608,10 @@ extension IO.Completion.Queue.Test.Integration {
         // Must NOT throw CancellationError
         do {
             let event = try await resultTask.value
-            #expect(event.outcome == .cancelled,
-                   "cancelled task should get .cancelled outcome, not throw")
+            #expect(
+                event.outcome == .cancelled,
+                "cancelled task should get .cancelled outcome, not throw"
+            )
         } catch is CancellationError {
             Issue.record("submit must not throw CancellationError - Pattern A violated")
         }

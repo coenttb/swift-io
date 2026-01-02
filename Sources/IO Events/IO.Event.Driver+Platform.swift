@@ -6,9 +6,9 @@
 //
 
 #if canImport(Darwin)
-import IO_Events_Kqueue
+    import IO_Events_Kqueue
 #elseif canImport(Glibc)
-import IO_Events_Epoll
+    import IO_Events_Epoll
 #endif
 
 extension IO.Event.Driver {
@@ -25,13 +25,13 @@ extension IO.Event.Driver {
     /// ```
     public static var platform: IO.Event.Driver {
         #if canImport(Darwin)
-        IO.Event.Kqueue.driver()
+            IO.Event.Kqueue.driver()
         #elseif canImport(Glibc)
-        IO.Event.Epoll.driver()
+            IO.Event.Epoll.driver()
         #elseif os(Windows)
-        fatalError("Windows IOCP driver not yet implemented")
+            fatalError("Windows IOCP driver not yet implemented")
         #else
-        fatalError("Unsupported platform")
+            fatalError("Unsupported platform")
         #endif
     }
 }

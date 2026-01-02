@@ -3,17 +3,17 @@
 //  swift-io
 //
 
-#if canImport(Darwin)
-import Darwin
-#elseif canImport(Glibc)
-import Glibc
-#endif
-
+import IO_Events_Kqueue
 import StandardsTestSupport
 import Testing
 
 @testable import IO_Events
-import IO_Events_Kqueue
+
+#if canImport(Darwin)
+    import Darwin
+#elseif canImport(Glibc)
+    import Glibc
+#endif
 
 extension IO.Event.Selector {
     #TestSuites
@@ -44,7 +44,7 @@ extension IO.Event.Selector.Test.Shutdown {
             // `error` is typed as IO.Event.Failure, no `as` cast needed
             switch error {
             case .shutdownInProgress:
-                break // Expected
+                break  // Expected
             default:
                 Issue.record("Expected shutdownInProgress, got \(error)")
             }
@@ -139,7 +139,7 @@ extension IO.Event.Selector.Test.Shutdown {
         } catch let error {
             switch error {
             case .shutdownInProgress:
-                break // Expected
+                break  // Expected
             default:
                 Issue.record("Expected shutdownInProgress, got \(error)")
             }

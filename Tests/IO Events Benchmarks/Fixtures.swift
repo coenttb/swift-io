@@ -5,14 +5,15 @@
 //  Shared fixtures for non-blocking I/O benchmarks.
 //
 
-#if canImport(Darwin)
-import Darwin
-#elseif canImport(Glibc)
-import Glibc
-#endif
+import IO_Events_Kqueue
 
 @testable import IO_Events
-import IO_Events_Kqueue
+
+#if canImport(Darwin)
+    import Darwin
+#elseif canImport(Glibc)
+    import Glibc
+#endif
 
 /// Shared fixture providing a pre-configured selector for benchmarks.
 ///

@@ -29,10 +29,6 @@ extension IO.Handle.Waiter {
     // ```
     struct State: RawRepresentable, AtomicRepresentable, Equatable {
         var rawValue: UInt8
-
-        init(rawValue: UInt8) {
-            self.rawValue = rawValue
-        }
     }
 }
 

@@ -45,7 +45,7 @@ extension IO.Blocking.Threads.Completion {
         /// Resume this waiter exactly once with the result.
         mutating func resumeReturning(_ box: IO.Blocking.Box.Pointer) {
             #if DEBUG
-            precondition(!resumed, "Completion waiter resumed more than once")
+                precondition(!resumed, "Completion waiter resumed more than once")
             #endif
             resumed = true
             continuation.resume(returning: box)
@@ -57,7 +57,7 @@ extension IO.Blocking.Threads.Completion {
         /// that no unexpected error types escape through the continuation.
         mutating func resumeThrowing(_ error: IO.Blocking.Failure) {
             #if DEBUG
-            precondition(!resumed, "Completion waiter resumed more than once")
+                precondition(!resumed, "Completion waiter resumed more than once")
             #endif
             resumed = true
             continuation.resume(throwing: error)

@@ -499,14 +499,14 @@ extension IO.Completion.Driver {
     /// - Throws: If no driver can be created or platform lacks completion support.
     public static func bestAvailable() throws(IO.Completion.Error) -> IO.Completion.Driver {
         #if os(Windows)
-        return try IO.Completion.IOCP.driver()
+            return try IO.Completion.IOCP.driver()
         #elseif os(Linux)
-        guard IO.Completion.IOUring.isSupported else {
-            throw .capability(.backendUnavailable)
-        }
-        return try IO.Completion.IOUring.driver()
+            guard IO.Completion.IOUring.isSupported else {
+                throw .capability(.backendUnavailable)
+            }
+            return try IO.Completion.IOUring.driver()
         #else
-        throw .capability(.backendUnavailable)
+            throw .capability(.backendUnavailable)
         #endif
     }
 }

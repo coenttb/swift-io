@@ -8,11 +8,11 @@
 public import Kernel
 
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #elseif canImport(Glibc)
-import Glibc
+    import Glibc
 #elseif os(Windows)
-import WinSDK
+    import WinSDK
 #endif
 
 // MARK: - Namespace
@@ -104,45 +104,45 @@ extension IO.File.Open {
 
 extension IO.File.Open.Error {
     #if !os(Windows)
-    /// Creates an error from a POSIX errno.
-    package init(posixErrno: Int32, path: String) {
-        switch posixErrno {
-        case ENOENT:
-            self = .notFound(path: path)
-        case EACCES, EPERM:
-            self = .permissionDenied(path: path)
-        case EEXIST:
-            self = .alreadyExists(path: path)
-        case EISDIR:
-            self = .isDirectory(path: path)
-        case EMFILE, ENFILE:
-            self = .tooManyOpenFiles
-        case EINVAL:
-            self = .directNotSupported
-        default:
-            self = .platform(code: posixErrno, reason: .other)
+        /// Creates an error from a POSIX errno.
+        package init(posixErrno: Int32, path: String) {
+            switch posixErrno {
+            case ENOENT:
+                self = .notFound(path: path)
+            case EACCES, EPERM:
+                self = .permissionDenied(path: path)
+            case EEXIST:
+                self = .alreadyExists(path: path)
+            case EISDIR:
+                self = .isDirectory(path: path)
+            case EMFILE, ENFILE:
+                self = .tooManyOpenFiles
+            case EINVAL:
+                self = .directNotSupported
+            default:
+                self = .platform(code: posixErrno, reason: .other)
+            }
         }
-    }
     #endif
 
     #if os(Windows)
-    /// Creates an error from a Windows error code.
-    package init(windowsError: DWORD, path: String) {
-        switch windowsError {
-        case DWORD(ERROR_FILE_NOT_FOUND), DWORD(ERROR_PATH_NOT_FOUND):
-            self = .notFound(path: path)
-        case DWORD(ERROR_ACCESS_DENIED):
-            self = .permissionDenied(path: path)
-        case DWORD(ERROR_FILE_EXISTS), DWORD(ERROR_ALREADY_EXISTS):
-            self = .alreadyExists(path: path)
-        case DWORD(ERROR_TOO_MANY_OPEN_FILES):
-            self = .tooManyOpenFiles
-        case DWORD(ERROR_INVALID_PARAMETER):
-            self = .directNotSupported
-        default:
-            self = .platform(code: Int32(windowsError), reason: .other)
+        /// Creates an error from a Windows error code.
+        package init(windowsError: DWORD, path: String) {
+            switch windowsError {
+            case DWORD(ERROR_FILE_NOT_FOUND), DWORD(ERROR_PATH_NOT_FOUND):
+                self = .notFound(path: path)
+            case DWORD(ERROR_ACCESS_DENIED):
+                self = .permissionDenied(path: path)
+            case DWORD(ERROR_FILE_EXISTS), DWORD(ERROR_ALREADY_EXISTS):
+                self = .alreadyExists(path: path)
+            case DWORD(ERROR_TOO_MANY_OPEN_FILES):
+                self = .tooManyOpenFiles
+            case DWORD(ERROR_INVALID_PARAMETER):
+                self = .directNotSupported
+            default:
+                self = .platform(code: Int32(windowsError), reason: .other)
+            }
         }
-    }
     #endif
 }
 
@@ -231,13 +231,13 @@ extension IO.File.Open.Error: CustomStringConvertible {
             case .ioError: reasonDescription = "I/O error"
             case .other:
                 #if !os(Windows)
-                if code >= 0 {
-                    reasonDescription = String(cString: strerror(code))
-                } else {
-                    reasonDescription = "Unknown error"
-                }
+                    if code >= 0 {
+                        reasonDescription = String(cString: strerror(code))
+                    } else {
+                        reasonDescription = "Unknown error"
+                    }
                 #else
-                reasonDescription = "Windows error"
+                    reasonDescription = "Windows error"
                 #endif
             }
             return "Platform error \(code): \(reasonDescription)"

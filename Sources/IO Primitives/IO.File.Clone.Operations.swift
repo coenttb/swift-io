@@ -6,11 +6,11 @@
 //
 
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #elseif canImport(Glibc)
-import Glibc
+    import Glibc
 #elseif os(Windows)
-import WinSDK
+    import WinSDK
 #endif
 
 // MARK: - Public API
@@ -97,60 +97,60 @@ extension IO.File.Clone {
         to destination: String
     ) throws(Error) -> Result {
         #if os(macOS)
-        let cloned: Bool
-        do {
-            cloned = try clonefileAttempt(source: source, destination: destination)
-        } catch {
-            throw Error(from: error)
-        }
+            let cloned: Bool
+            do {
+                cloned = try clonefileAttempt(source: source, destination: destination)
+            } catch {
+                throw Error(from: error)
+            }
 
-        if cloned {
-            return .reflinked
-        }
-        throw Error.notSupported
+            if cloned {
+                return .reflinked
+            }
+            throw Error.notSupported
 
         #elseif os(Linux)
-        // On Linux, we need to open files to use FICLONE
-        let srcFd = source.withCString { open($0, O_RDONLY) }
-        guard srcFd >= 0 else {
-            if errno == ENOENT {
-                throw Error.sourceNotFound
+            // On Linux, we need to open files to use FICLONE
+            let srcFd = source.withCString { open($0, O_RDONLY) }
+            guard srcFd >= 0 else {
+                if errno == ENOENT {
+                    throw Error.sourceNotFound
+                }
+                throw Error.platform(code: errno, operation: .ficlone)
             }
-            throw Error.platform(code: errno, operation: .ficlone)
-        }
-        defer { close(srcFd) }
+            defer { close(srcFd) }
 
-        // Create destination file
-        let dstFd = destination.withCString { open($0, O_WRONLY | O_CREAT | O_EXCL, 0o644) }
-        guard dstFd >= 0 else {
-            if errno == EEXIST {
-                throw Error.destinationExists
+            // Create destination file
+            let dstFd = destination.withCString { open($0, O_WRONLY | O_CREAT | O_EXCL, 0o644) }
+            guard dstFd >= 0 else {
+                if errno == EEXIST {
+                    throw Error.destinationExists
+                }
+                throw Error.platform(code: errno, operation: .ficlone)
             }
-            throw Error.platform(code: errno, operation: .ficlone)
-        }
-        defer { close(dstFd) }
+            defer { close(dstFd) }
 
-        let cloned: Bool
-        do {
-            cloned = try ficloneAttempt(sourceFd: srcFd, destFd: dstFd)
-        } catch {
+            let cloned: Bool
+            do {
+                cloned = try ficloneAttempt(sourceFd: srcFd, destFd: dstFd)
+            } catch {
+                _ = destination.withCString { unlink($0) }
+                throw Error(from: error)
+            }
+
+            if cloned {
+                return .reflinked
+            }
+            // Clean up destination on failure
             _ = destination.withCString { unlink($0) }
-            throw Error(from: error)
-        }
-
-        if cloned {
-            return .reflinked
-        }
-        // Clean up destination on failure
-        _ = destination.withCString { unlink($0) }
-        throw Error.notSupported
+            throw Error.notSupported
 
         #elseif os(Windows)
-        // Windows reflink is very constrained; fail by default
-        throw Error.notSupported
+            // Windows reflink is very constrained; fail by default
+            throw Error.notSupported
 
         #else
-        throw Error.notSupported
+            throw Error.notSupported
         #endif
     }
 
@@ -160,89 +160,89 @@ extension IO.File.Clone {
         to destination: String
     ) throws(Error) -> Result {
         #if os(macOS)
-        // macOS copyfile with COPYFILE_CLONE tries clone, falls back to copy
-        // First try pure clonefile
-        let cloned: Bool
-        do {
-            cloned = try clonefileAttempt(source: source, destination: destination)
-        } catch {
-            // Clonefile failed - fall through to copyfile
-            cloned = false
-        }
+            // macOS copyfile with COPYFILE_CLONE tries clone, falls back to copy
+            // First try pure clonefile
+            let cloned: Bool
+            do {
+                cloned = try clonefileAttempt(source: source, destination: destination)
+            } catch {
+                // Clonefile failed - fall through to copyfile
+                cloned = false
+            }
 
-        if cloned {
-            return .reflinked
-        }
+            if cloned {
+                return .reflinked
+            }
 
-        // Use copyfile with COPYFILE_CLONE flag
-        do {
-            try copyfileClone(source: source, destination: destination)
-            // We can't easily tell if it cloned or copied, assume best-effort worked
-            return .copied
-        } catch {
-            throw Error(from: error)
-        }
+            // Use copyfile with COPYFILE_CLONE flag
+            do {
+                try copyfileClone(source: source, destination: destination)
+                // We can't easily tell if it cloned or copied, assume best-effort worked
+                return .copied
+            } catch {
+                throw Error(from: error)
+            }
 
         #elseif os(Linux)
-        // Try FICLONE first
-        let srcFd = source.withCString { open($0, O_RDONLY) }
-        guard srcFd >= 0 else {
-            if errno == ENOENT {
-                throw Error.sourceNotFound
+            // Try FICLONE first
+            let srcFd = source.withCString { open($0, O_RDONLY) }
+            guard srcFd >= 0 else {
+                if errno == ENOENT {
+                    throw Error.sourceNotFound
+                }
+                throw Error.platform(code: errno, operation: .copyFileRange)
             }
-            throw Error.platform(code: errno, operation: .copyFileRange)
-        }
-        defer { close(srcFd) }
+            defer { close(srcFd) }
 
-        // Get file size for copy_file_range
-        var statBuf = stat()
-        guard fstat(srcFd, &statBuf) == 0 else {
-            throw Error.platform(code: errno, operation: .stat)
-        }
-        let size = Int(statBuf.st_size)
-
-        // Create destination file
-        let dstFd = destination.withCString { open($0, O_WRONLY | O_CREAT | O_EXCL, 0o644) }
-        guard dstFd >= 0 else {
-            if errno == EEXIST {
-                throw Error.destinationExists
+            // Get file size for copy_file_range
+            var statBuf = stat()
+            guard fstat(srcFd, &statBuf) == 0 else {
+                throw Error.platform(code: errno, operation: .stat)
             }
-            throw Error.platform(code: errno, operation: .copyFileRange)
-        }
-        defer { close(dstFd) }
+            let size = Int(statBuf.st_size)
 
-        // Try FICLONE
-        var reflinked = false
-        do {
-            reflinked = try ficloneAttempt(sourceFd: srcFd, destFd: dstFd)
-        } catch {
-            // FICLONE failed, fall through to copy_file_range
-            reflinked = false
-        }
+            // Create destination file
+            let dstFd = destination.withCString { open($0, O_WRONLY | O_CREAT | O_EXCL, 0o644) }
+            guard dstFd >= 0 else {
+                if errno == EEXIST {
+                    throw Error.destinationExists
+                }
+                throw Error.platform(code: errno, operation: .copyFileRange)
+            }
+            defer { close(dstFd) }
 
-        if reflinked {
-            return .reflinked
-        }
+            // Try FICLONE
+            var reflinked = false
+            do {
+                reflinked = try ficloneAttempt(sourceFd: srcFd, destFd: dstFd)
+            } catch {
+                // FICLONE failed, fall through to copy_file_range
+                reflinked = false
+            }
 
-        // Use copy_file_range (may still use server-side copy)
-        do {
-            try copyFileRange(sourceFd: srcFd, destFd: dstFd, length: size)
-            return .copied
-        } catch {
-            _ = destination.withCString { unlink($0) }
-            throw Error(from: error)
-        }
+            if reflinked {
+                return .reflinked
+            }
+
+            // Use copy_file_range (may still use server-side copy)
+            do {
+                try copyFileRange(sourceFd: srcFd, destFd: dstFd, length: size)
+                return .copied
+            } catch {
+                _ = destination.withCString { unlink($0) }
+                throw Error(from: error)
+            }
 
         #elseif os(Windows)
-        do {
-            try copyFile(source: source, destination: destination)
-            return .copied
-        } catch {
-            throw Error(from: error)
-        }
+            do {
+                try copyFile(source: source, destination: destination)
+                return .copied
+            } catch {
+                throw Error(from: error)
+            }
 
         #else
-        throw Error.notSupported
+            throw Error.notSupported
         #endif
     }
 
@@ -252,53 +252,53 @@ extension IO.File.Clone {
         to destination: String
     ) throws(Error) {
         #if os(macOS)
-        do {
-            try copyfileData(source: source, destination: destination)
-        } catch {
-            throw Error(from: error)
-        }
+            do {
+                try copyfileData(source: source, destination: destination)
+            } catch {
+                throw Error(from: error)
+            }
 
         #elseif os(Linux)
-        let srcFd = source.withCString { open($0, O_RDONLY) }
-        guard srcFd >= 0 else {
-            if errno == ENOENT {
-                throw Error.sourceNotFound
+            let srcFd = source.withCString { open($0, O_RDONLY) }
+            guard srcFd >= 0 else {
+                if errno == ENOENT {
+                    throw Error.sourceNotFound
+                }
+                throw Error.platform(code: errno, operation: .copy)
             }
-            throw Error.platform(code: errno, operation: .copy)
-        }
-        defer { close(srcFd) }
+            defer { close(srcFd) }
 
-        var statBuf = Glibc.stat()
-        guard fstat(srcFd, &statBuf) == 0 else {
-            throw Error.platform(code: errno, operation: .stat)
-        }
-        let size = Int(statBuf.st_size)
-
-        let dstFd = destination.withCString { open($0, O_WRONLY | O_CREAT | O_EXCL, 0o644) }
-        guard dstFd >= 0 else {
-            if errno == EEXIST {
-                throw Error.destinationExists
+            var statBuf = Glibc.stat()
+            guard fstat(srcFd, &statBuf) == 0 else {
+                throw Error.platform(code: errno, operation: .stat)
             }
-            throw Error.platform(code: errno, operation: .copy)
-        }
-        defer { close(dstFd) }
+            let size = Int(statBuf.st_size)
 
-        do {
-            try copyFileRange(sourceFd: srcFd, destFd: dstFd, length: size)
-        } catch {
-            _ = destination.withCString { unlink($0) }
-            throw Error(from: error)
-        }
+            let dstFd = destination.withCString { open($0, O_WRONLY | O_CREAT | O_EXCL, 0o644) }
+            guard dstFd >= 0 else {
+                if errno == EEXIST {
+                    throw Error.destinationExists
+                }
+                throw Error.platform(code: errno, operation: .copy)
+            }
+            defer { close(dstFd) }
+
+            do {
+                try copyFileRange(sourceFd: srcFd, destFd: dstFd, length: size)
+            } catch {
+                _ = destination.withCString { unlink($0) }
+                throw Error(from: error)
+            }
 
         #elseif os(Windows)
-        do {
-            try copyFile(source: source, destination: destination)
-        } catch {
-            throw Error(from: error)
-        }
+            do {
+                try copyFile(source: source, destination: destination)
+            } catch {
+                throw Error(from: error)
+            }
 
         #else
-        throw Error.notSupported
+            throw Error.notSupported
         #endif
     }
 }

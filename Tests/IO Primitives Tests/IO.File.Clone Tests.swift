@@ -6,50 +6,51 @@
 //
 
 import Testing
+
 @testable import IO_Primitives
 
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #elseif canImport(Glibc)
-import Glibc
+    import Glibc
 #elseif os(Windows)
-import WinSDK
+    import WinSDK
 #endif
 
 // MARK: - Cross-Platform Test Helpers
 
 #if !os(Windows)
-/// Creates a temporary file with content and returns its path
-func createTempFile(prefix: String, content: String) -> String {
-    let path = "/tmp/\(prefix)-\(getpid())-\(Int.random(in: 0..<Int.max))"
-    let fd = open(path, O_CREAT | O_WRONLY, 0o644)
-    guard fd >= 0 else { return path }
-    defer { close(fd) }
+    /// Creates a temporary file with content and returns its path
+    func createTempFile(prefix: String, content: String) -> String {
+        let path = "/tmp/\(prefix)-\(getpid())-\(Int.random(in: 0..<Int.max))"
+        let fd = open(path, O_CREAT | O_WRONLY, 0o644)
+        guard fd >= 0 else { return path }
+        defer { close(fd) }
 
-    _ = content.withCString { ptr in
-        write(fd, ptr, content.count)
+        _ = content.withCString { ptr in
+            write(fd, ptr, content.count)
+        }
+
+        return path
     }
 
-    return path
-}
+    /// Reads content from a file
+    func readFileContent(_ path: String) -> String? {
+        let fd = open(path, O_RDONLY)
+        guard fd >= 0 else { return nil }
+        defer { close(fd) }
 
-/// Reads content from a file
-func readFileContent(_ path: String) -> String? {
-    let fd = open(path, O_RDONLY)
-    guard fd >= 0 else { return nil }
-    defer { close(fd) }
+        var buffer = [CChar](repeating: 0, count: 4096)
+        let bytesRead = read(fd, &buffer, buffer.count - 1)
+        guard bytesRead > 0 else { return nil }
 
-    var buffer = [CChar](repeating: 0, count: 4096)
-    let bytesRead = read(fd, &buffer, buffer.count - 1)
-    guard bytesRead > 0 else { return nil }
+        return String(cString: buffer)
+    }
 
-    return String(cString: buffer)
-}
-
-/// Cleans up a temp file
-func cleanup(_ path: String) {
-    _ = path.withCString { unlink($0) }
-}
+    /// Cleans up a temp file
+    func cleanup(_ path: String) {
+        _ = path.withCString { unlink($0) }
+    }
 #endif
 
 @Suite("IO.File.Clone")
@@ -146,202 +147,202 @@ struct IOFileCloneTests {
     // MARK: - Capability Probing Tests
 
     #if os(macOS)
-    @Suite("Capability Probing")
-    struct CapabilityProbingTests {
+        @Suite("Capability Probing")
+        struct CapabilityProbingTests {
 
-        @Test("probe capability returns valid result")
-        func probeCapability() throws {
-            // Probe /tmp which is on the boot volume (typically APFS)
-            let cap = try IO.File.Clone.capability(at: "/tmp")
+            @Test("probe capability returns valid result")
+            func probeCapability() throws {
+                // Probe /tmp which is on the boot volume (typically APFS)
+                let cap = try IO.File.Clone.capability(at: "/tmp")
 
-            // On modern macOS with APFS, should be .reflink
-            // On older systems or HFS+, would be .none
-            #expect(cap == .reflink || cap == .none)
-        }
+                // On modern macOS with APFS, should be .reflink
+                // On older systems or HFS+, would be .none
+                #expect(cap == .reflink || cap == .none)
+            }
 
-        @Test("probe nonexistent path throws")
-        func probeNonexistent() throws {
-            #expect(throws: IO.File.Clone.Error.self) {
-                try IO.File.Clone.capability(at: "/nonexistent/path/that/does/not/exist")
+            @Test("probe nonexistent path throws")
+            func probeNonexistent() throws {
+                #expect(throws: IO.File.Clone.Error.self) {
+                    try IO.File.Clone.capability(at: "/nonexistent/path/that/does/not/exist")
+                }
             }
         }
-    }
     #endif
 
     // MARK: - Clone Operation Tests
 
     #if !os(Windows)
-    @Suite("Clone Operations")
-    struct CloneOperationTests {
+        @Suite("Clone Operations")
+        struct CloneOperationTests {
 
-        @Test("copyOnly creates independent copy")
-        func copyOnlyCreatesIndependentCopy() throws {
-            let content = "Hello, World! This is test content for cloning."
-            let source = createTempFile(prefix: "clone-src", content: content)
-            let dest = "/tmp/clone-dst-\(getpid())-\(Int.random(in: 0..<Int.max))"
+            @Test("copyOnly creates independent copy")
+            func copyOnlyCreatesIndependentCopy() throws {
+                let content = "Hello, World! This is test content for cloning."
+                let source = createTempFile(prefix: "clone-src", content: content)
+                let dest = "/tmp/clone-dst-\(getpid())-\(Int.random(in: 0..<Int.max))"
 
-            defer {
-                cleanup(source)
-                cleanup(dest)
-            }
+                defer {
+                    cleanup(source)
+                    cleanup(dest)
+                }
 
-            let result = try IO.File.Clone.clone(
-                from: source,
-                to: dest,
-                behavior: .copyOnly
-            )
-
-            #expect(result == .copied)
-
-            // Verify content matches
-            let readContent = readFileContent(dest)
-            #expect(readContent == content)
-        }
-
-        @Test("reflinkOrCopy succeeds on APFS")
-        func reflinkOrCopySucceeds() throws {
-            let content = "Test content for reflink or copy"
-            let source = createTempFile(prefix: "clone-src", content: content)
-            let dest = "/tmp/clone-dst-\(getpid())-\(Int.random(in: 0..<Int.max))"
-
-            defer {
-                cleanup(source)
-                cleanup(dest)
-            }
-
-            let result = try IO.File.Clone.clone(
-                from: source,
-                to: dest,
-                behavior: .reflinkOrCopy
-            )
-
-            // Should succeed either way
-            #expect(result == .reflinked || result == .copied)
-
-            // Verify content matches
-            let readContent = readFileContent(dest)
-            #expect(readContent == content)
-        }
-
-        @Test("reflinkOrFail on APFS returns reflinked")
-        func reflinkOrFailOnAPFS() throws {
-            let content = "Test content for reflink only"
-            let source = createTempFile(prefix: "clone-src", content: content)
-            let dest = "/tmp/clone-dst-\(getpid())-\(Int.random(in: 0..<Int.max))"
-
-            defer {
-                cleanup(source)
-                cleanup(dest)
-            }
-
-            // First check capability
-            let cap = try IO.File.Clone.capability(at: source)
-
-            if cap == .reflink {
                 let result = try IO.File.Clone.clone(
                     from: source,
                     to: dest,
-                    behavior: .reflinkOrFail
+                    behavior: .copyOnly
                 )
-                #expect(result == .reflinked)
-            } else {
-                // If filesystem doesn't support reflink, should throw
-                #expect(throws: IO.File.Clone.Error.notSupported) {
-                    try IO.File.Clone.clone(
+
+                #expect(result == .copied)
+
+                // Verify content matches
+                let readContent = readFileContent(dest)
+                #expect(readContent == content)
+            }
+
+            @Test("reflinkOrCopy succeeds on APFS")
+            func reflinkOrCopySucceeds() throws {
+                let content = "Test content for reflink or copy"
+                let source = createTempFile(prefix: "clone-src", content: content)
+                let dest = "/tmp/clone-dst-\(getpid())-\(Int.random(in: 0..<Int.max))"
+
+                defer {
+                    cleanup(source)
+                    cleanup(dest)
+                }
+
+                let result = try IO.File.Clone.clone(
+                    from: source,
+                    to: dest,
+                    behavior: .reflinkOrCopy
+                )
+
+                // Should succeed either way
+                #expect(result == .reflinked || result == .copied)
+
+                // Verify content matches
+                let readContent = readFileContent(dest)
+                #expect(readContent == content)
+            }
+
+            @Test("reflinkOrFail on APFS returns reflinked")
+            func reflinkOrFailOnAPFS() throws {
+                let content = "Test content for reflink only"
+                let source = createTempFile(prefix: "clone-src", content: content)
+                let dest = "/tmp/clone-dst-\(getpid())-\(Int.random(in: 0..<Int.max))"
+
+                defer {
+                    cleanup(source)
+                    cleanup(dest)
+                }
+
+                // First check capability
+                let cap = try IO.File.Clone.capability(at: source)
+
+                if cap == .reflink {
+                    let result = try IO.File.Clone.clone(
                         from: source,
                         to: dest,
                         behavior: .reflinkOrFail
                     )
+                    #expect(result == .reflinked)
+                } else {
+                    // If filesystem doesn't support reflink, should throw
+                    #expect(throws: IO.File.Clone.Error.notSupported) {
+                        try IO.File.Clone.clone(
+                            from: source,
+                            to: dest,
+                            behavior: .reflinkOrFail
+                        )
+                    }
                 }
             }
-        }
 
-        @Test("clone to existing destination fails")
-        func cloneToExistingFails() throws {
-            let content = "Source content"
-            let source = createTempFile(prefix: "clone-src", content: content)
-            let dest = createTempFile(prefix: "clone-dst", content: "Existing")
+            @Test("clone to existing destination fails")
+            func cloneToExistingFails() throws {
+                let content = "Source content"
+                let source = createTempFile(prefix: "clone-src", content: content)
+                let dest = createTempFile(prefix: "clone-dst", content: "Existing")
 
-            defer {
-                cleanup(source)
-                cleanup(dest)
+                defer {
+                    cleanup(source)
+                    cleanup(dest)
+                }
+
+                #expect(throws: IO.File.Clone.Error.destinationExists) {
+                    try IO.File.Clone.clone(
+                        from: source,
+                        to: dest,
+                        behavior: .copyOnly
+                    )
+                }
             }
 
-            #expect(throws: IO.File.Clone.Error.destinationExists) {
-                try IO.File.Clone.clone(
+            @Test("clone from nonexistent source fails")
+            func cloneFromNonexistentFails() throws {
+                let source = "/tmp/nonexistent-\(getpid())"
+                let dest = "/tmp/clone-dst-\(getpid())"
+
+                #expect(throws: IO.File.Clone.Error.sourceNotFound) {
+                    try IO.File.Clone.clone(
+                        from: source,
+                        to: dest,
+                        behavior: .copyOnly
+                    )
+                }
+            }
+
+            @Test("clone large file")
+            func cloneLargeFile() throws {
+                // Create a 1MB file
+                let size = 1024 * 1024
+                let content = String(repeating: "X", count: size)
+                let source = createTempFile(prefix: "clone-large-src", content: content)
+                let dest = "/tmp/clone-large-dst-\(getpid())-\(Int.random(in: 0..<Int.max))"
+
+                defer {
+                    cleanup(source)
+                    cleanup(dest)
+                }
+
+                let result = try IO.File.Clone.clone(
+                    from: source,
+                    to: dest,
+                    behavior: .reflinkOrCopy
+                )
+
+                #expect(result == .reflinked || result == .copied)
+
+                // Verify size by reading
+                var statBuf = stat()
+                let statResult = dest.withCString { stat($0, &statBuf) }
+                #expect(statResult == 0)
+                #expect(Int(statBuf.st_size) == size)
+            }
+
+            @Test("clone empty file")
+            func cloneEmptyFile() throws {
+                let source = createTempFile(prefix: "clone-empty-src", content: "")
+                let dest = "/tmp/clone-empty-dst-\(getpid())-\(Int.random(in: 0..<Int.max))"
+
+                defer {
+                    cleanup(source)
+                    cleanup(dest)
+                }
+
+                let result = try IO.File.Clone.clone(
                     from: source,
                     to: dest,
                     behavior: .copyOnly
                 )
+
+                #expect(result == .copied)
+
+                // Verify destination exists and is empty
+                var statBuf = stat()
+                let statResult = dest.withCString { stat($0, &statBuf) }
+                #expect(statResult == 0)
+                #expect(statBuf.st_size == 0)
             }
         }
-
-        @Test("clone from nonexistent source fails")
-        func cloneFromNonexistentFails() throws {
-            let source = "/tmp/nonexistent-\(getpid())"
-            let dest = "/tmp/clone-dst-\(getpid())"
-
-            #expect(throws: IO.File.Clone.Error.sourceNotFound) {
-                try IO.File.Clone.clone(
-                    from: source,
-                    to: dest,
-                    behavior: .copyOnly
-                )
-            }
-        }
-
-        @Test("clone large file")
-        func cloneLargeFile() throws {
-            // Create a 1MB file
-            let size = 1024 * 1024
-            let content = String(repeating: "X", count: size)
-            let source = createTempFile(prefix: "clone-large-src", content: content)
-            let dest = "/tmp/clone-large-dst-\(getpid())-\(Int.random(in: 0..<Int.max))"
-
-            defer {
-                cleanup(source)
-                cleanup(dest)
-            }
-
-            let result = try IO.File.Clone.clone(
-                from: source,
-                to: dest,
-                behavior: .reflinkOrCopy
-            )
-
-            #expect(result == .reflinked || result == .copied)
-
-            // Verify size by reading
-            var statBuf = stat()
-            let statResult = dest.withCString { stat($0, &statBuf) }
-            #expect(statResult == 0)
-            #expect(Int(statBuf.st_size) == size)
-        }
-
-        @Test("clone empty file")
-        func cloneEmptyFile() throws {
-            let source = createTempFile(prefix: "clone-empty-src", content: "")
-            let dest = "/tmp/clone-empty-dst-\(getpid())-\(Int.random(in: 0..<Int.max))"
-
-            defer {
-                cleanup(source)
-                cleanup(dest)
-            }
-
-            let result = try IO.File.Clone.clone(
-                from: source,
-                to: dest,
-                behavior: .copyOnly
-            )
-
-            #expect(result == .copied)
-
-            // Verify destination exists and is empty
-            var statBuf = stat()
-            let statResult = dest.withCString { stat($0, &statBuf) }
-            #expect(statResult == 0)
-            #expect(statBuf.st_size == 0)
-        }
-    }
     #endif
 }

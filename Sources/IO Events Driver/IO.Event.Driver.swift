@@ -5,6 +5,8 @@
 //  Created by Coen ten Thije Boonkkamp on 28/12/2025.
 //
 
+@_exported public import IO_Events_Primitives
+
 #if canImport(Darwin)
     import Darwin
 #elseif canImport(Glibc)
@@ -12,8 +14,6 @@
 #elseif os(Windows)
     import WinSDK
 #endif
-
-@_exported public import IO_Events_Primitives
 
 extension IO.Event {
     /// Protocol witness struct for platform-specific selector backends.
@@ -56,28 +56,31 @@ extension IO.Event {
         /// Register a descriptor for the given interests.
         ///
         /// Called from poll thread only.
-        let _register: @Sendable (
-            borrowing Handle,
-            Int32,  // Raw file descriptor
-            Interest
-        ) throws(Error) -> ID
+        let _register:
+            @Sendable (
+                borrowing Handle,
+                Int32,  // Raw file descriptor
+                Interest
+            ) throws(Error) -> ID
 
         /// Modify the interests for a registered descriptor.
         ///
         /// Called from poll thread only.
-        let _modify: @Sendable (
-            borrowing Handle,
-            ID,
-            Interest
-        ) throws(Error) -> Void
+        let _modify:
+            @Sendable (
+                borrowing Handle,
+                ID,
+                Interest
+            ) throws(Error) -> Void
 
         /// Remove a descriptor from the selector.
         ///
         /// Called from poll thread only.
-        let _deregister: @Sendable (
-            borrowing Handle,
-            ID
-        ) throws(Error) -> Void
+        let _deregister:
+            @Sendable (
+                borrowing Handle,
+                ID
+            ) throws(Error) -> Void
 
         /// Arm a registration for readiness notification.
         ///
@@ -86,11 +89,12 @@ extension IO.Event {
         /// is automatically disabled after delivering an event.
         ///
         /// Called from poll thread only.
-        let _arm: @Sendable (
-            borrowing Handle,
-            ID,
-            Interest
-        ) throws(Error) -> Void
+        let _arm:
+            @Sendable (
+                borrowing Handle,
+                ID,
+                Interest
+            ) throws(Error) -> Void
 
         /// Wait for events with optional timeout.
         ///
@@ -101,11 +105,12 @@ extension IO.Event {
         ///   - deadline: Optional timeout deadline
         ///   - buffer: Pre-allocated event buffer
         /// - Returns: Number of events written to buffer
-        let _poll: @Sendable (
-            borrowing Handle,
-            Deadline?,
-            inout [IO.Event]
-        ) throws(Error) -> Int
+        let _poll:
+            @Sendable (
+                borrowing Handle,
+                Deadline?,
+                inout [IO.Event]
+            ) throws(Error) -> Int
 
         /// Close the selector handle.
         ///
@@ -289,18 +294,18 @@ extension IO.Event {
         /// Gets the current monotonic time in nanoseconds.
         private static func monotonicNanoseconds() -> UInt64 {
             #if os(Windows)
-            var counter: LARGE_INTEGER = LARGE_INTEGER()
-            var frequency: LARGE_INTEGER = LARGE_INTEGER()
-            QueryPerformanceCounter(&counter)
-            QueryPerformanceFrequency(&frequency)
-            // Convert to nanoseconds
-            let seconds = counter.QuadPart / frequency.QuadPart
-            let remainder = counter.QuadPart % frequency.QuadPart
-            return UInt64(seconds) * 1_000_000_000 + UInt64(remainder * 1_000_000_000 / frequency.QuadPart)
+                var counter: LARGE_INTEGER = LARGE_INTEGER()
+                var frequency: LARGE_INTEGER = LARGE_INTEGER()
+                QueryPerformanceCounter(&counter)
+                QueryPerformanceFrequency(&frequency)
+                // Convert to nanoseconds
+                let seconds = counter.QuadPart / frequency.QuadPart
+                let remainder = counter.QuadPart % frequency.QuadPart
+                return UInt64(seconds) * 1_000_000_000 + UInt64(remainder * 1_000_000_000 / frequency.QuadPart)
             #else
-            var ts = timespec()
-            clock_gettime(CLOCK_MONOTONIC, &ts)
-            return UInt64(ts.tv_sec) * 1_000_000_000 + UInt64(ts.tv_nsec)
+                var ts = timespec()
+                clock_gettime(CLOCK_MONOTONIC, &ts)
+                return UInt64(ts.tv_sec) * 1_000_000_000 + UInt64(ts.tv_nsec)
             #endif
         }
     }

@@ -3,16 +3,16 @@
 //  swift-io
 //
 
-#if canImport(Darwin)
-import Darwin
-#elseif canImport(Glibc)
-import Glibc
-#endif
-
+import IO_Events_Kqueue
 import Testing
 
 @testable import IO_Events
-import IO_Events_Kqueue
+
+#if canImport(Darwin)
+    import Darwin
+#elseif canImport(Glibc)
+    import Glibc
+#endif
 
 @Suite("IO.Event.Selector.Deadline")
 struct SelectorDeadlineTests {}

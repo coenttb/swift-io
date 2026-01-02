@@ -120,18 +120,18 @@ extension IO.File.Direct {
         for path: String
     ) -> Requirements {
         #if os(macOS)
-        return .unknown(reason: .platformUnsupported)
+            return .unknown(reason: .platformUnsupported)
         #elseif os(Linux)
-        // Fail closed - alignment not reliably discoverable
-        return .unknown(reason: .sectorSizeUndetermined)
-        #elseif os(Windows)
-        do {
-            return try getRequirements(at: path)
-        } catch {
+            // Fail closed - alignment not reliably discoverable
             return .unknown(reason: .sectorSizeUndetermined)
-        }
+        #elseif os(Windows)
+            do {
+                return try getRequirements(at: path)
+            } catch {
+                return .unknown(reason: .sectorSizeUndetermined)
+            }
         #else
-        return .unknown(reason: .platformUnsupported)
+            return .unknown(reason: .platformUnsupported)
         #endif
     }
 }
@@ -154,11 +154,13 @@ extension IO.File.Direct.Requirements {
         offsetAlignment: Int,
         lengthMultiple: Int
     ) {
-        self = .known(Alignment(
-            bufferAlignment: bufferAlignment,
-            offsetAlignment: offsetAlignment,
-            lengthMultiple: lengthMultiple
-        ))
+        self = .known(
+            Alignment(
+                bufferAlignment: bufferAlignment,
+                offsetAlignment: offsetAlignment,
+                lengthMultiple: lengthMultiple
+            )
+        )
     }
 
     /// Creates known alignment requirements with a uniform value.

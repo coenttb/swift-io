@@ -5,16 +5,16 @@
 //  Created by Coen ten Thije Boonkkamp on 30/12/2025.
 //
 
-#if canImport(Darwin)
-import Darwin
-#elseif canImport(Glibc)
-import Glibc
-#elseif os(Windows)
-import WinSDK
-#endif
-
-public import Kernel
 public import Buffer
+public import Kernel
+
+#if canImport(Darwin)
+    import Darwin
+#elseif canImport(Glibc)
+    import Glibc
+#elseif os(Windows)
+    import WinSDK
+#endif
 
 extension IO.File {
     /// A move-only file handle with Direct I/O support.

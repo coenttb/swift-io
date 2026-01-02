@@ -3,17 +3,17 @@
 //  swift-io
 //
 
-#if canImport(Darwin)
-import Darwin
-#elseif canImport(Glibc)
-import Glibc
-#endif
-
+import IO_Events_Kqueue
 import StandardsTestSupport
 import Testing
 
 @testable import IO_Events
-import IO_Events_Kqueue
+
+#if canImport(Darwin)
+    import Darwin
+#elseif canImport(Glibc)
+    import Glibc
+#endif
 
 extension IO.Event.Channel {
     #TestSuites
@@ -352,7 +352,7 @@ extension IO.Event.Channel.Test.HalfClose {
             case .failure(let leaf):
                 switch leaf {
                 case .writeClosed:
-                    break // Expected
+                    break  // Expected
                 default:
                     Issue.record("Expected writeClosed, got \(leaf)")
                 }

@@ -3,8 +3,8 @@
 //  swift-io
 //
 
-import Synchronization
 import StandardsTestSupport
+import Synchronization
 import Testing
 
 @testable import IO_Primitives

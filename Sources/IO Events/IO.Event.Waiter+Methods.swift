@@ -122,14 +122,12 @@ extension IO.Event.Waiter {
         ///
         /// - Returns: The continuation if available, along with cancellation status.
         ///   Returns `nil` if not yet armed or already drained.
-        public func callAsFunction(
-        ) -> (continuation: CheckedContinuation<Result<IO.Event, IO.Event.Failure>, Never>, wasCancelled: Bool)? {
+        public func callAsFunction() -> (continuation: CheckedContinuation<Result<IO.Event, IO.Event.Failure>, Never>, wasCancelled: Bool)? {
             forResume()
         }
 
         /// Take the continuation for resumption. Actor-only operation.
-        public func forResume(
-        ) -> (continuation: CheckedContinuation<Result<IO.Event, IO.Event.Failure>, Never>, wasCancelled: Bool)? {
+        public func forResume() -> (continuation: CheckedContinuation<Result<IO.Event, IO.Event.Failure>, Never>, wasCancelled: Bool)? {
             while true {
                 let current = waiter._state.load(ordering: .acquiring)
 

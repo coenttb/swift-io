@@ -9,11 +9,11 @@ public import Kernel
 public import SystemPackage
 
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #elseif canImport(Glibc)
-import Glibc
+    import Glibc
 #elseif os(Windows)
-import WinSDK
+    import WinSDK
 #endif
 
 // MARK: - Open Function
@@ -58,14 +58,14 @@ extension IO.File {
 
         // 5. macOS: apply F_NOCACHE post-open
         #if os(macOS)
-        if resolved == .uncached {
-            do {
-                try IO.File.Direct.setNoCache(descriptor: descriptor, enabled: true)
-            } catch {
-                try? Kernel.Close.close(descriptor)
-                throw Kernel.Open.Error.io(.hardware)
+            if resolved == .uncached {
+                do {
+                    try IO.File.Direct.setNoCache(descriptor: descriptor, enabled: true)
+                } catch {
+                    try? Kernel.Close.close(descriptor)
+                    throw Kernel.Open.Error.io(.hardware)
+                }
             }
-        }
         #endif
 
         return Handle(

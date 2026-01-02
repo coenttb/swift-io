@@ -12,16 +12,17 @@
 //  swift test -c release --filter RegistrationBenchmarks
 //
 
-#if canImport(Darwin)
-import Darwin
-#elseif canImport(Glibc)
-import Glibc
-#endif
-
-@testable import IO_Events
 import IO_Events_Kqueue
 import StandardsTestSupport
 import Testing
+
+@testable import IO_Events
+
+#if canImport(Darwin)
+    import Darwin
+#elseif canImport(Glibc)
+    import Glibc
+#endif
 
 enum RegistrationBenchmarks {
     #TestSuites

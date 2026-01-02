@@ -36,9 +36,7 @@ extension IO.Event.DeadlineScheduling.Entry: Comparable {
     }
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.deadline == rhs.deadline &&
-        lhs.key == rhs.key &&
-        lhs.generation == rhs.generation
+        lhs.deadline == rhs.deadline && lhs.key == rhs.key && lhs.generation == rhs.generation
     }
 }
 

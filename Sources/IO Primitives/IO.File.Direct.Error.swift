@@ -6,11 +6,11 @@
 //
 
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #elseif canImport(Glibc)
-import Glibc
+    import Glibc
 #elseif os(Windows)
-import WinSDK
+    import WinSDK
 #endif
 
 extension IO.File.Direct {
@@ -70,10 +70,10 @@ extension IO.File.Direct.Error: CustomStringConvertible {
             return "Invalid file handle"
         case .platform(let code, let operation):
             #if !os(Windows)
-            let message = String(cString: strerror(code))
-            return "Platform error \(code) during \(operation): \(message)"
+                let message = String(cString: strerror(code))
+                return "Platform error \(code) during \(operation): \(message)"
             #else
-            return "Platform error \(code) during \(operation)"
+                return "Platform error \(code) during \(operation)"
             #endif
         }
     }
@@ -102,13 +102,13 @@ extension IO.File.Direct.Error {
     /// It is translated to the semantic `IO.File.Direct.Error` at API boundaries.
     package enum Syscall: Swift.Error, Sendable, Equatable {
         #if !os(Windows)
-        /// POSIX syscall failure with errno.
-        case posix(errno: Int32, operation: Operation)
+            /// POSIX syscall failure with errno.
+            case posix(errno: Int32, operation: Operation)
         #endif
 
         #if os(Windows)
-        /// Windows syscall failure with error code.
-        case windows(code: UInt32, operation: Operation)
+            /// Windows syscall failure with error code.
+            case windows(code: UInt32, operation: Operation)
         #endif
 
         /// Invalid file descriptor provided.
@@ -139,51 +139,51 @@ extension IO.File.Direct.Error {
             self = .notSupported
 
         #if !os(Windows)
-        case .posix(let errno, let operation):
-            self = Self.fromPosixErrno(errno, operation: operation)
+            case .posix(let errno, let operation):
+                self = Self.fromPosixErrno(errno, operation: operation)
         #endif
 
         #if os(Windows)
-        case .windows(let code, let operation):
-            self = Self.fromWindowsError(code, operation: operation)
+            case .windows(let code, let operation):
+                self = Self.fromWindowsError(code, operation: operation)
         #endif
         }
     }
 
     #if !os(Windows)
-    /// Maps POSIX errno to semantic error.
-    private static func fromPosixErrno(_ errno: Int32, operation: Operation) -> Self {
-        switch errno {
-        case EINVAL:
-            // EINVAL from O_DIRECT often means alignment violation
-            return .platform(code: errno, operation: operation)
-        case EBADF:
-            return .invalidHandle
-        case ENOTSUP, EOPNOTSUPP:
-            return .notSupported
-        case EACCES, EPERM:
-            return .platform(code: errno, operation: operation)
-        default:
-            return .platform(code: errno, operation: operation)
+        /// Maps POSIX errno to semantic error.
+        private static func fromPosixErrno(_ errno: Int32, operation: Operation) -> Self {
+            switch errno {
+            case EINVAL:
+                // EINVAL from O_DIRECT often means alignment violation
+                return .platform(code: errno, operation: operation)
+            case EBADF:
+                return .invalidHandle
+            case ENOTSUP, EOPNOTSUPP:
+                return .notSupported
+            case EACCES, EPERM:
+                return .platform(code: errno, operation: operation)
+            default:
+                return .platform(code: errno, operation: operation)
+            }
         }
-    }
     #endif
 
     #if os(Windows)
-    /// Maps Windows error code to semantic error.
-    private static func fromWindowsError(_ error: UInt32, operation: Operation) -> Self {
-        switch error {
-        case DWORD(ERROR_INVALID_PARAMETER):
-            return .platform(code: Int32(error), operation: operation)
-        case DWORD(ERROR_INVALID_HANDLE):
-            return .invalidHandle
-        case DWORD(ERROR_NOT_SUPPORTED):
-            return .notSupported
-        case DWORD(ERROR_ACCESS_DENIED):
-            return .platform(code: Int32(error), operation: operation)
-        default:
-            return .platform(code: Int32(error), operation: operation)
+        /// Maps Windows error code to semantic error.
+        private static func fromWindowsError(_ error: UInt32, operation: Operation) -> Self {
+            switch error {
+            case DWORD(ERROR_INVALID_PARAMETER):
+                return .platform(code: Int32(error), operation: operation)
+            case DWORD(ERROR_INVALID_HANDLE):
+                return .invalidHandle
+            case DWORD(ERROR_NOT_SUPPORTED):
+                return .notSupported
+            case DWORD(ERROR_ACCESS_DENIED):
+                return .platform(code: Int32(error), operation: operation)
+            default:
+                return .platform(code: Int32(error), operation: operation)
+            }
         }
-    }
     #endif
 }

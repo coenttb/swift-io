@@ -5,9 +5,9 @@
 //  Created by Coen ten Thije Boonkkamp on 31/12/2025.
 //
 
+public import Buffer
 public import IO_Primitives
 import Kernel
-public import Buffer
 
 extension IO.Completion {
     /// Namespace for submission-related types.

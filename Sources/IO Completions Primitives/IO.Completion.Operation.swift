@@ -5,9 +5,9 @@
 //  Created by Coen ten Thije Boonkkamp on 31/12/2025.
 //
 
+public import Buffer
 public import IO_Primitives
 public import Kernel
-public import Buffer
 
 extension IO.Completion {
     /// A move-only operation to be submitted to a completion queue.
@@ -105,46 +105,46 @@ extension IO.Completion.Operation {
         package var completion: IO.Completion.Event?
 
         #if os(Linux)
-        /// io_uring user_data for pointer recovery.
-        @usableFromInline
-        package var userData: UInt64
+            /// io_uring user_data for pointer recovery.
+            @usableFromInline
+            package var userData: UInt64
 
-        /// Creates storage for Linux.
-        @usableFromInline
-        package init(
-            id: IO.Completion.ID,
-            kind: IO.Completion.Kind,
-            descriptor: Kernel.Descriptor,
-            buffer: consuming Buffer.Aligned?,
-            offset: Int64
-        ) {
-            self.id = id
-            self.kind = kind
-            self.descriptor = descriptor
-            self.buffer = buffer
-            self.offset = offset
-            self.completion = nil
-            self.userData = 0
-            // Now that all properties are initialized, set userData to self pointer
-            self.userData = UInt64(UInt(bitPattern: Unmanaged.passUnretained(self).toOpaque()))
-        }
+            /// Creates storage for Linux.
+            @usableFromInline
+            package init(
+                id: IO.Completion.ID,
+                kind: IO.Completion.Kind,
+                descriptor: Kernel.Descriptor,
+                buffer: consuming Buffer.Aligned?,
+                offset: Int64
+            ) {
+                self.id = id
+                self.kind = kind
+                self.descriptor = descriptor
+                self.buffer = buffer
+                self.offset = offset
+                self.completion = nil
+                self.userData = 0
+                // Now that all properties are initialized, set userData to self pointer
+                self.userData = UInt64(UInt(bitPattern: Unmanaged.passUnretained(self).toOpaque()))
+            }
         #else
-        /// Creates storage.
-        @usableFromInline
-        package init(
-            id: IO.Completion.ID,
-            kind: IO.Completion.Kind,
-            descriptor: Kernel.Descriptor,
-            buffer: consuming Buffer.Aligned?,
-            offset: Int64
-        ) {
-            self.id = id
-            self.kind = kind
-            self.descriptor = descriptor
-            self.buffer = buffer
-            self.offset = offset
-            self.completion = nil
-        }
+            /// Creates storage.
+            @usableFromInline
+            package init(
+                id: IO.Completion.ID,
+                kind: IO.Completion.Kind,
+                descriptor: Kernel.Descriptor,
+                buffer: consuming Buffer.Aligned?,
+                offset: Int64
+            ) {
+                self.id = id
+                self.kind = kind
+                self.descriptor = descriptor
+                self.buffer = buffer
+                self.offset = offset
+                self.completion = nil
+            }
         #endif
     }
 }

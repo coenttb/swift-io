@@ -6,6 +6,7 @@
 //
 
 import Testing
+
 @testable import IO_Events
 
 @Suite("IO.Event.Driver.Contract")
@@ -200,10 +201,13 @@ struct DriverContractTests {
         let id1 = try driver.register(handle, descriptor: 1, interest: .read)
         let id2 = try driver.register(handle, descriptor: 2, interest: .write)
 
-        controller.pushEvents([
-            IO.Event(id: id1, interest: .read, flags: []),
-            IO.Event(id: id2, interest: .write, flags: [])
-        ], handle: handle)
+        controller.pushEvents(
+            [
+                IO.Event(id: id1, interest: .read, flags: []),
+                IO.Event(id: id2, interest: .write, flags: []),
+            ],
+            handle: handle
+        )
 
         var buffer = [IO.Event](repeating: .empty, count: 10)
         let count = try driver.poll(handle, deadline: nil, into: &buffer)

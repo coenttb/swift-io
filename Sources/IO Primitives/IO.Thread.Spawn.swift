@@ -90,15 +90,15 @@ extension IO.Thread.Spawn {
         }
 
         #if os(Windows)
-        @usableFromInline
-        static func fromLastError() -> Self {
-            Self(platform: .windows, code: Int(GetLastError()))
-        }
+            @usableFromInline
+            static func fromLastError() -> Self {
+                Self(platform: .windows, code: Int(GetLastError()))
+            }
         #else
-        @usableFromInline
-        static func fromPthreadResult(_ result: Int32) -> Self {
-            Self(platform: .pthread, code: Int(result))
-        }
+            @usableFromInline
+            static func fromPthreadResult(_ result: Int32) -> Self {
+                Self(platform: .pthread, code: Int(result))
+            }
         #endif
     }
 }
