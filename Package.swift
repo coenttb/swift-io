@@ -30,9 +30,9 @@ let package = Package(
         .package(url: "https://github.com/swift-standards/swift-time-standard.git", from: "0.2.0"),
         .package(url: "https://github.com/swift-standards/swift-standards", from: "0.24.1"),
         .package(url: "https://github.com/apple/swift-nio", from: "2.70.0"),
-        .package(url: "https://github.com/coenttb/swift-kernel.git", from: "0.1.10"),
-        .package(url: "https://github.com/coenttb/swift-buffer.git", from: "0.1.0"),
-        .package(url: "https://github.com/coenttb/swift-mmap.git", from: "0.1.4"),
+        .package(url: "https://github.com/coenttb/swift-kernel.git", from: "0.2.5"),
+        .package(url: "https://github.com/coenttb/swift-buffer.git", from: "0.1.1"),
+        .package(url: "https://github.com/coenttb/swift-mmap.git", from: "0.1.6"),
     ],
     targets: [
         .target(
