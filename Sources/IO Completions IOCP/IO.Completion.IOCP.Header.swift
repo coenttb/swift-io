@@ -7,7 +7,7 @@
 
 #if os(Windows)
 
-    import WinSDK
+    public import Kernel
 
     extension IO.Completion.IOCP {
         /// IOCP operation header for container-of pointer recovery.

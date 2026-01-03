@@ -7,7 +7,7 @@
 
 #if canImport(Glibc)
 
-    import Glibc
+    public import Kernel
     import Synchronization
 
     // MARK: - Registration Mapping
@@ -24,6 +24,40 @@
     /// so contention is minimal (only during concurrent Selector creation/destruction).
     private let registry = Mutex<[Int32: [IO.Event.ID: RegistrationEntry]]>([:])
 
+    // MARK: - Error Conversion
+
+    extension IO.Event.Error {
+        /// Creates an IO.Event.Error from a Kernel.Epoll.Error.
+        @inlinable
+        init(_ epollError: Kernel.Epoll.Error) {
+            switch epollError {
+            case .createFailed(let errno):
+                self = .platform(errno: errno)
+            case .ctlFailed(let errno):
+                self = .platform(errno: errno)
+            case .waitFailed(let errno):
+                self = .platform(errno: errno)
+            case .interrupted:
+                self = .platform(errno: Kernel.Errno.interrupted)
+            }
+        }
+
+        /// Creates an IO.Event.Error from a Kernel.Eventfd.Error.
+        @inlinable
+        init(_ eventfdError: Kernel.Eventfd.Error) {
+            switch eventfdError {
+            case .createFailed(let errno):
+                self = .platform(errno: errno)
+            case .readFailed(let errno):
+                self = .platform(errno: errno)
+            case .writeFailed(let errno):
+                self = .platform(errno: errno)
+            case .wouldBlock:
+                self = .platform(errno: Kernel.Errno.wouldBlock)
+            }
+        }
+    }
+
     /// Internal implementation of epoll operations.
     enum EpollOperations {
         /// Counter for generating unique registration IDs.
@@ -37,10 +71,14 @@
 
         /// Creates a new epoll handle.
         static func create() throws(IO.Event.Error) -> IO.Event.Driver.Handle {
-            let epfd = epoll_create1(EPOLL_CLOEXEC)
-            guard epfd >= 0 else {
-                throw IO.Event.Error.platform(errno: errno)
+            let descriptor: Kernel.Descriptor
+            do {
+                descriptor = try Kernel.Epoll.create()
+            } catch {
+                throw IO.Event.Error(error)
             }
+
+            let epfd = descriptor.rawValue
 
             // Initialize empty registry for this epoll
             registry.withLock { $0[epfd] = [:] }
@@ -58,13 +96,20 @@
             let id = IO.Event.ID(raw: nextID.wrappingAdd(1, ordering: .relaxed).newValue)
 
             // Build epoll_event
-            var event = epoll_event()
-            event.events = interestToEpollEvents(interest)
-            event.data.u64 = id.raw
+            let event = Kernel.Epoll.Event(
+                events: interestToKernelEvents(interest),
+                data: id.raw
+            )
 
-            let result = epoll_ctl(epfd, EPOLL_CTL_ADD, descriptor, &event)
-            if result < 0 {
-                throw IO.Event.Error.platform(errno: errno)
+            do {
+                try Kernel.Epoll.ctl(
+                    Kernel.Descriptor(rawValue: epfd),
+                    op: .add,
+                    fd: Kernel.Descriptor(rawValue: descriptor),
+                    event: event
+                )
+            } catch {
+                throw IO.Event.Error(error)
             }
 
             // Store the mapping for future modify/deregister
@@ -92,13 +137,20 @@
             let descriptor = entry.descriptor
 
             // Build new epoll_event with EPOLLONESHOT to preserve one-shot semantics
-            var event = epoll_event()
-            event.events = interestToEpollEventsOneShot(newInterest)
-            event.data.u64 = id.raw
+            let event = Kernel.Epoll.Event(
+                events: interestToKernelEventsOneShot(newInterest),
+                data: id.raw
+            )
 
-            let result = epoll_ctl(epfd, EPOLL_CTL_MOD, descriptor, &event)
-            if result < 0 {
-                throw IO.Event.Error.platform(errno: errno)
+            do {
+                try Kernel.Epoll.ctl(
+                    Kernel.Descriptor(rawValue: epfd),
+                    op: .modify,
+                    fd: Kernel.Descriptor(rawValue: descriptor),
+                    event: event
+                )
+            } catch {
+                throw IO.Event.Error(error)
             }
 
             // Update stored interest
@@ -129,12 +181,23 @@
 
             let descriptor = entry.descriptor
 
-            // Remove from epoll - event parameter is ignored for EPOLL_CTL_DEL but required
-            var event = epoll_event()
-            let result = epoll_ctl(epfd, EPOLL_CTL_DEL, descriptor, &event)
-            // Ignore ENOENT - the fd may have been closed already
-            if result < 0 && errno != ENOENT {
-                throw IO.Event.Error.platform(errno: errno)
+            // Remove from epoll
+            do {
+                try Kernel.Epoll.ctl(
+                    Kernel.Descriptor(rawValue: epfd),
+                    op: .delete,
+                    fd: Kernel.Descriptor(rawValue: descriptor)
+                )
+            } catch let error as Kernel.Epoll.Error {
+                // Ignore ENOENT - the fd may have been closed already
+                if case .ctlFailed(let errno) = error, errno == Kernel.Errno.noEntry {
+                    // Ignore
+                } else {
+                    throw IO.Event.Error(error)
+                }
+            } catch {
+                // Should never happen
+                throw IO.Event.Error.platform(errno: Kernel.Errno.invalid)
             }
         }
 
@@ -162,14 +225,21 @@
             let descriptor = entry.descriptor
 
             // Build epoll_event with EPOLLONESHOT for one-shot arming
-            var event = epoll_event()
-            event.events = interestToEpollEventsOneShot(interest)
-            event.data.u64 = id.raw
+            let event = Kernel.Epoll.Event(
+                events: interestToKernelEventsOneShot(interest),
+                data: id.raw
+            )
 
             // Use EPOLL_CTL_MOD to re-enable the descriptor
-            let result = epoll_ctl(epfd, EPOLL_CTL_MOD, descriptor, &event)
-            if result < 0 {
-                throw IO.Event.Error.platform(errno: errno)
+            do {
+                try Kernel.Epoll.ctl(
+                    Kernel.Descriptor(rawValue: epfd),
+                    op: .modify,
+                    fd: Kernel.Descriptor(rawValue: descriptor),
+                    event: event
+                )
+            } catch {
+                throw IO.Event.Error(error)
             }
         }
 
@@ -184,7 +254,7 @@
             // Calculate timeout in milliseconds
             let timeoutMs: Int32
             if let deadline = deadline {
-                let now = getMonotonicTime()
+                let now = Kernel.Time.monotonicNanoseconds()
                 let deadlineNanos = Int64(bitPattern: deadline.nanoseconds)
                 let remaining = deadlineNanos - now
                 if remaining <= 0 {
@@ -198,19 +268,27 @@
                 timeoutMs = -1  // Block indefinitely
             }
 
-            // Create buffer for raw epoll_event structures
-            var rawEvents = [epoll_event](repeating: epoll_event(), count: buffer.count)
+            // Create buffer for Kernel.Epoll.Event
+            var rawEvents = [Kernel.Epoll.Event](
+                repeating: Kernel.Epoll.Event(events: Kernel.Epoll.Events(rawValue: 0), data: 0),
+                count: buffer.count
+            )
 
-            let count = rawEvents.withUnsafeMutableBufferPointer { ptr in
-                epoll_wait(epfd, ptr.baseAddress, Int32(ptr.count), timeoutMs)
-            }
-
-            if count < 0 {
-                let err = errno
-                if err == EINTR {
-                    return 0  // Interrupted, return 0 events
+            let count: Int
+            do {
+                count = try Kernel.Epoll.wait(
+                    Kernel.Descriptor(rawValue: epfd),
+                    events: &rawEvents,
+                    timeout: timeoutMs
+                )
+            } catch let error as Kernel.Epoll.Error {
+                // Handle EINTR specially - return 0 events instead of throwing
+                if case .interrupted = error {
+                    return 0
                 }
-                throw IO.Event.Error.platform(errno: err)
+                throw IO.Event.Error(error)
+            } catch {
+                throw IO.Event.Error.platform(errno: Kernel.Errno.invalid)
             }
 
             // Get current registrations for filtering stale events
@@ -223,9 +301,9 @@
 
             // Convert raw events to IO.Event
             var outputIndex = 0
-            for i in 0..<Int(count) {
+            for i in 0..<count {
                 let raw = rawEvents[i]
-                let id = IO.Event.ID(raw: raw.data.u64)
+                let id = IO.Event.ID(raw: raw.data)
 
                 // Poll race rule: drop events for deregistered IDs
                 // Also skip wakeup events (ID 0 is reserved for wakeup)
@@ -233,7 +311,7 @@
                     continue
                 }
 
-                let (interest, flags) = epollEventsToInterestAndFlags(raw.events)
+                let (interest, flags) = kernelEventsToInterestAndFlags(raw.events)
 
                 buffer[outputIndex] = IO.Event(id: id, interest: interest, flags: flags)
                 outputIndex += 1
@@ -251,7 +329,8 @@
             // Clean up the registry
             _ = registry.withLock { $0.removeValue(forKey: epfd) }
 
-            Glibc.close(epfd)
+            // Use Kernel.Close, ignoring any errors (fire-and-forget)
+            try? Kernel.Close.close(Kernel.Descriptor(rawValue: epfd))
         }
 
         /// Creates a wakeup channel using eventfd.
@@ -261,103 +340,106 @@
             let epfd = handle.rawValue
 
             // Create eventfd for wakeup signaling
-            let efd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK)
-            guard efd >= 0 else {
-                throw IO.Event.Error.platform(errno: errno)
+            let eventDescriptor: Kernel.Descriptor
+            do {
+                eventDescriptor = try Kernel.Eventfd.create(
+                    initval: 0,
+                    flags: .cloexec | .nonblock
+                )
+            } catch {
+                throw IO.Event.Error(error)
             }
 
-            // Register eventfd with epoll using ID 0 (reserved for wakeup)
-            var event = epoll_event()
-            event.events = UInt32(EPOLLIN) | UInt32(EPOLLET)
-            event.data.u64 = 0  // ID 0 = wakeup sentinel
+            let efd = eventDescriptor.rawValue
 
-            let result = epoll_ctl(epfd, EPOLL_CTL_ADD, efd, &event)
-            if result < 0 {
-                let err = errno
-                Glibc.close(efd)
-                throw IO.Event.Error.platform(errno: err)
+            // Register eventfd with epoll using ID 0 (reserved for wakeup)
+            let event = Kernel.Epoll.Event(
+                events: .in | .et,
+                data: 0  // ID 0 = wakeup sentinel
+            )
+
+            do {
+                try Kernel.Epoll.ctl(
+                    Kernel.Descriptor(rawValue: epfd),
+                    op: .add,
+                    fd: eventDescriptor,
+                    event: event
+                )
+            } catch {
+                try? Kernel.Close.close(eventDescriptor)
+                throw IO.Event.Error(error)
             }
 
             return IO.Event.Wakeup.Channel { [efd] in
-                // Write to eventfd to trigger wakeup
-                var val: UInt64 = 1
-                _ = withUnsafePointer(to: &val) { ptr in
-                    write(efd, ptr, MemoryLayout<UInt64>.size)
-                }
+                // Signal eventfd to trigger wakeup (fire-and-forget)
+                Kernel.Eventfd.signal(Kernel.Descriptor(rawValue: efd))
             }
         }
 
         // MARK: - Helpers
 
-        /// Converts Interest to epoll event flags.
-        private static func interestToEpollEvents(_ interest: IO.Event.Interest) -> UInt32 {
-            var events: UInt32 = UInt32(EPOLLET)  // Always edge-triggered
+        /// Converts Interest to Kernel.Epoll.Events (edge-triggered).
+        private static func interestToKernelEvents(_ interest: IO.Event.Interest) -> Kernel.Epoll.Events {
+            var events: Kernel.Epoll.Events = .et  // Always edge-triggered
 
             if interest.contains(.read) {
-                events |= UInt32(EPOLLIN)
+                events = events | .in
             }
             if interest.contains(.write) {
-                events |= UInt32(EPOLLOUT)
+                events = events | .out
             }
             if interest.contains(.priority) {
-                events |= UInt32(EPOLLPRI)
+                events = events | .pri
             }
 
             return events
         }
 
-        /// Converts Interest to epoll event flags with EPOLLONESHOT for one-shot arming.
-        private static func interestToEpollEventsOneShot(_ interest: IO.Event.Interest) -> UInt32 {
-            var events: UInt32 = UInt32(EPOLLET) | UInt32(EPOLLONESHOT)
+        /// Converts Interest to Kernel.Epoll.Events with EPOLLONESHOT for one-shot arming.
+        private static func interestToKernelEventsOneShot(_ interest: IO.Event.Interest) -> Kernel.Epoll.Events {
+            var events: Kernel.Epoll.Events = .et | .oneshot
 
             if interest.contains(.read) {
-                events |= UInt32(EPOLLIN)
+                events = events | .in
             }
             if interest.contains(.write) {
-                events |= UInt32(EPOLLOUT)
+                events = events | .out
             }
             if interest.contains(.priority) {
-                events |= UInt32(EPOLLPRI)
+                events = events | .pri
             }
 
             return events
         }
 
-        /// Converts epoll event flags to Interest and Flags.
-        private static func epollEventsToInterestAndFlags(
-            _ events: UInt32
+        /// Converts Kernel.Epoll.Events to Interest and Flags.
+        private static func kernelEventsToInterestAndFlags(
+            _ events: Kernel.Epoll.Events
         ) -> (IO.Event.Interest, IO.Event.Flags) {
             var interest: IO.Event.Interest = []
             var flags: IO.Event.Flags = []
 
-            if events & UInt32(EPOLLIN) != 0 {
+            if events.contains(.in) {
                 interest.insert(.read)
             }
-            if events & UInt32(EPOLLOUT) != 0 {
+            if events.contains(.out) {
                 interest.insert(.write)
             }
-            if events & UInt32(EPOLLPRI) != 0 {
+            if events.contains(.pri) {
                 interest.insert(.priority)
             }
 
-            if events & UInt32(EPOLLERR) != 0 {
+            if events.contains(.err) {
                 flags.insert(.error)
             }
-            if events & UInt32(EPOLLHUP) != 0 {
+            if events.contains(.hup) {
                 flags.insert(.hangup)
             }
-            if events & UInt32(EPOLLRDHUP) != 0 {
+            if events.contains(.rdhup) {
                 flags.insert(.readHangup)
             }
 
             return (interest, flags)
-        }
-
-        /// Gets the current monotonic time in nanoseconds.
-        private static func getMonotonicTime() -> Int64 {
-            var ts = timespec()
-            clock_gettime(CLOCK_MONOTONIC, &ts)
-            return Int64(ts.tv_sec) * 1_000_000_000 + Int64(ts.tv_nsec)
         }
     }
 

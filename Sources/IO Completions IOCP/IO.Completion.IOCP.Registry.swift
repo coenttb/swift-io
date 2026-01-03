@@ -7,7 +7,7 @@
 
 #if os(Windows)
 
-    import WinSDK
+    public import Kernel
     public import IO_Completions_Driver
 
     extension IO.Completion.IOCP {

@@ -7,8 +7,7 @@
 
 #if os(Windows)
 
-    import Kernel
-    import WinSDK  // For OVERLAPPED, OVERLAPPED_ENTRY and other low-level types
+    public import Kernel
     @_exported public import IO_Completions_Driver
 
     extension IO.Completion {

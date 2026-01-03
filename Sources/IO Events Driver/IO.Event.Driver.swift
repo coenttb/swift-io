@@ -6,14 +6,7 @@
 //
 
 @_exported public import IO_Events_Primitives
-
-#if canImport(Darwin)
-    import Darwin
-#elseif canImport(Glibc)
-    import Glibc
-#elseif os(Windows)
-    import WinSDK
-#endif
+public import Kernel
 
 extension IO.Event {
     /// Protocol witness struct for platform-specific selector backends.
@@ -293,20 +286,7 @@ extension IO.Event {
 
         /// Gets the current monotonic time in nanoseconds.
         private static func monotonicNanoseconds() -> UInt64 {
-            #if os(Windows)
-                var counter: LARGE_INTEGER = LARGE_INTEGER()
-                var frequency: LARGE_INTEGER = LARGE_INTEGER()
-                QueryPerformanceCounter(&counter)
-                QueryPerformanceFrequency(&frequency)
-                // Convert to nanoseconds
-                let seconds = counter.QuadPart / frequency.QuadPart
-                let remainder = counter.QuadPart % frequency.QuadPart
-                return UInt64(seconds) * 1_000_000_000 + UInt64(remainder * 1_000_000_000 / frequency.QuadPart)
-            #else
-                var ts = timespec()
-                clock_gettime(CLOCK_MONOTONIC, &ts)
-                return UInt64(ts.tv_sec) * 1_000_000_000 + UInt64(ts.tv_nsec)
-            #endif
+            UInt64(bitPattern: Kernel.Time.monotonicNanoseconds())
         }
     }
 }

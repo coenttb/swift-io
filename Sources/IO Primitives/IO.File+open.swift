@@ -8,14 +8,6 @@
 public import Kernel
 public import SystemPackage
 
-#if canImport(Darwin)
-    import Darwin
-#elseif canImport(Glibc)
-    import Glibc
-#elseif os(Windows)
-    import WinSDK
-#endif
-
 // MARK: - Open Function
 
 extension IO.File {
@@ -29,12 +21,12 @@ extension IO.File {
     public static func open(
         _ path: FilePath,
         options: Open.Options = .init()
-    ) throws(Kernel.Open.Error) -> Handle {
+    ) throws(Kernel.Open.Error) -> Kernel.File.Handle {
         // 1. Discover requirements
-        let requirements = IO.File.Direct.Requirements(path)
+        let requirements = Kernel.File.Direct.Requirements(path)
 
         // 2. Resolve cache mode
-        let resolved: IO.File.Direct.Mode.Resolved
+        let resolved: Kernel.File.Direct.Mode.Resolved
         do {
             resolved = try options.cache.resolve(given: requirements)
         } catch {
@@ -60,7 +52,7 @@ extension IO.File {
         #if os(macOS)
             if resolved == .uncached {
                 do {
-                    try IO.File.Direct.setNoCache(descriptor: descriptor, enabled: true)
+                    try Kernel.File.Direct.setNoCache(descriptor: descriptor, enabled: true)
                 } catch {
                     try? Kernel.Close.close(descriptor)
                     throw Kernel.Open.Error.io(.hardware)
@@ -68,7 +60,7 @@ extension IO.File {
             }
         #endif
 
-        return Handle(
+        return Kernel.File.Handle(
             descriptor: descriptor,
             direct: resolved,
             requirements: requirements
@@ -82,7 +74,7 @@ extension IO.File {
     public static func open(
         _ path: String,
         options: Open.Options = .init()
-    ) throws(Kernel.Open.Error) -> Handle {
+    ) throws(Kernel.Open.Error) -> Kernel.File.Handle {
         try open(FilePath(path), options: options)
     }
 }

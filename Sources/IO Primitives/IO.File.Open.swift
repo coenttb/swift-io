@@ -7,14 +7,6 @@
 
 public import Kernel
 
-#if canImport(Darwin)
-    import Darwin
-#elseif canImport(Glibc)
-    import Glibc
-#elseif os(Windows)
-    import WinSDK
-#endif
-
 // MARK: - Namespace
 
 extension IO.File {
@@ -39,7 +31,7 @@ extension IO.File.Open {
         public var truncate: Bool
 
         /// Cache mode (buffered, direct, uncached, or auto).
-        public var cache: IO.File.Direct.Mode
+        public var cache: Kernel.File.Direct.Mode
 
         /// Creates default options (read-only, buffered).
         public init() {
@@ -107,40 +99,20 @@ extension IO.File.Open.Error {
         /// Creates an error from a POSIX errno.
         package init(posixErrno: Int32, path: String) {
             switch posixErrno {
-            case ENOENT:
+            case Kernel.Errno.noEntry:
                 self = .notFound(path: path)
-            case EACCES, EPERM:
+            case Kernel.Errno.accessDenied, Kernel.Errno.notPermitted:
                 self = .permissionDenied(path: path)
-            case EEXIST:
+            case Kernel.Errno.exists:
                 self = .alreadyExists(path: path)
-            case EISDIR:
+            case Kernel.Errno.isDirectory:
                 self = .isDirectory(path: path)
-            case EMFILE, ENFILE:
+            case Kernel.Errno.processLimit, Kernel.Errno.systemLimit:
                 self = .tooManyOpenFiles
-            case EINVAL:
+            case Kernel.Errno.invalid:
                 self = .directNotSupported
             default:
                 self = .platform(code: posixErrno, reason: .other)
-            }
-        }
-    #endif
-
-    #if os(Windows)
-        /// Creates an error from a Windows error code.
-        package init(windowsError: DWORD, path: String) {
-            switch windowsError {
-            case DWORD(ERROR_FILE_NOT_FOUND), DWORD(ERROR_PATH_NOT_FOUND):
-                self = .notFound(path: path)
-            case DWORD(ERROR_ACCESS_DENIED):
-                self = .permissionDenied(path: path)
-            case DWORD(ERROR_FILE_EXISTS), DWORD(ERROR_ALREADY_EXISTS):
-                self = .alreadyExists(path: path)
-            case DWORD(ERROR_TOO_MANY_OPEN_FILES):
-                self = .tooManyOpenFiles
-            case DWORD(ERROR_INVALID_PARAMETER):
-                self = .directNotSupported
-            default:
-                self = .platform(code: Int32(windowsError), reason: .other)
             }
         }
     #endif
@@ -232,7 +204,7 @@ extension IO.File.Open.Error: CustomStringConvertible {
             case .other:
                 #if !os(Windows)
                     if code >= 0 {
-                        reasonDescription = String(cString: strerror(code))
+                        reasonDescription = Kernel.Error.message(for: code)
                     } else {
                         reasonDescription = "Unknown error"
                     }
