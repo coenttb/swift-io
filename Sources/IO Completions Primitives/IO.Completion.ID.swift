@@ -6,6 +6,7 @@
 //
 
 public import IO_Primitives
+public import Kernel
 
 extension IO.Completion {
     /// Unique identifier for a submitted completion operation.
@@ -24,31 +25,12 @@ extension IO.Completion {
     ///
     /// - **IOCP**: Stored in completion key
     /// - **io_uring**: Stored in user_data field
-    public struct ID: Hashable, Sendable {
-        /// The raw 64-bit identifier value.
-        public let raw: UInt64
-
-        /// Creates an ID from a raw value.
-        @inlinable
-        public init(raw: UInt64) {
-            self.raw = raw
-        }
-    }
+    public typealias ID = Tagged<IO.Completion, UInt64>
 }
 
-// MARK: - CustomStringConvertible
+// MARK: - Convenience Initializers
 
-extension IO.Completion.ID: CustomStringConvertible {
-    public var description: String {
-        "Completion.ID(\(raw))"
-    }
-}
-
-// MARK: - ExpressibleByIntegerLiteral
-
-extension IO.Completion.ID: ExpressibleByIntegerLiteral {
-    @inlinable
-    public init(integerLiteral value: UInt64) {
-        self.raw = value
-    }
+extension Tagged where Tag == IO.Completion, RawValue == UInt64 {
+    /// The zero ID (often used as sentinel).
+    public static let zero = Self(0)
 }

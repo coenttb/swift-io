@@ -411,9 +411,9 @@ extension SelectorDeadlineTests {
         var heap = MinHeap()
 
         // Insert in non-sorted order
-        heap.push(Entry(deadline: 300, key: IO.Event.Selector.PermitKey(id: .init(raw: 1), interest: .read), generation: 1))
-        heap.push(Entry(deadline: 100, key: IO.Event.Selector.PermitKey(id: .init(raw: 2), interest: .read), generation: 1))
-        heap.push(Entry(deadline: 200, key: IO.Event.Selector.PermitKey(id: .init(raw: 3), interest: .read), generation: 1))
+        heap.push(Entry(deadline: 300, key: IO.Event.Selector.PermitKey(id: IO.Event.ID(1 as UInt), interest: .read), generation: 1))
+        heap.push(Entry(deadline: 100, key: IO.Event.Selector.PermitKey(id: IO.Event.ID(2 as UInt), interest: .read), generation: 1))
+        heap.push(Entry(deadline: 200, key: IO.Event.Selector.PermitKey(id: IO.Event.ID(3 as UInt), interest: .read), generation: 1))
 
         // Should pop in deadline order
         #expect(heap.pop()?.deadline == 100)
@@ -428,7 +428,7 @@ extension SelectorDeadlineTests {
         typealias MinHeap = IO.Event.DeadlineScheduling.MinHeap
 
         var heap = MinHeap()
-        heap.push(Entry(deadline: 100, key: IO.Event.Selector.PermitKey(id: .init(raw: 1), interest: .read), generation: 1))
+        heap.push(Entry(deadline: 100, key: IO.Event.Selector.PermitKey(id: IO.Event.ID(1 as UInt), interest: .read), generation: 1))
 
         #expect(heap.peek()?.deadline == 100)
         #expect(heap.peek()?.deadline == 100)  // Still there

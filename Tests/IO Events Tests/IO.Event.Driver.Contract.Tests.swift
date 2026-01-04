@@ -104,7 +104,7 @@ struct DriverContractTests {
         let driver = IO.Event.Fake.driver(controller: controller)
         let handle = try driver.create()
 
-        let fakeID = IO.Event.ID(raw: 999)
+        let fakeID = IO.Event.ID(999)
 
         #expect(throws: IO.Event.Error.notRegistered) {
             try driver.modify(handle, id: fakeID, interest: .write)
@@ -145,7 +145,7 @@ struct DriverContractTests {
         let driver = IO.Event.Fake.driver(controller: controller)
         let handle = try driver.create()
 
-        let fakeID = IO.Event.ID(raw: 999)
+        let fakeID = IO.Event.ID(999)
         try driver.deregister(handle, id: fakeID)  // Should not throw
     }
 
@@ -284,6 +284,6 @@ struct DriverContractTests {
 extension IO.Event {
     /// Empty event for buffer initialization.
     static var empty: IO.Event {
-        IO.Event(id: IO.Event.ID(raw: 0), interest: [], flags: [])
+        IO.Event(id: IO.Event.ID(0), interest: [], flags: [])
     }
 }

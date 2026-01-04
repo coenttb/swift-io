@@ -172,7 +172,7 @@ extension IO.Event.Fake {
                     return
                 }
 
-                let id = IO.Event.ID(raw: state.nextID)
+                let id = IO.Event.ID(UInt(state.nextID))
                 state.nextID += 1
                 state.handles[handleID]?.registrations[id] = Registration(
                     descriptor: descriptor,

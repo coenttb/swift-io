@@ -93,12 +93,12 @@
             interest: IO.Event.Interest
         ) throws(IO.Event.Error) -> IO.Event.ID {
             let epfd = handle.rawValue
-            let id = IO.Event.ID(raw: nextID.wrappingAdd(1, ordering: .relaxed).newValue)
+            let id = IO.Event.ID(UInt(truncatingIfNeeded: nextID.wrappingAdd(1, ordering: .relaxed).newValue))
 
             // Build epoll_event
             let event = Kernel.Epoll.Event(
                 events: interestToKernelEvents(interest),
-                data: id.raw
+                data: UInt64(id._rawValue)
             )
 
             do {
@@ -139,7 +139,7 @@
             // Build new epoll_event with EPOLLONESHOT to preserve one-shot semantics
             let event = Kernel.Epoll.Event(
                 events: interestToKernelEventsOneShot(newInterest),
-                data: id.raw
+                data: UInt64(id._rawValue)
             )
 
             do {
@@ -227,7 +227,7 @@
             // Build epoll_event with EPOLLONESHOT for one-shot arming
             let event = Kernel.Epoll.Event(
                 events: interestToKernelEventsOneShot(interest),
-                data: id.raw
+                data: UInt64(id._rawValue)
             )
 
             // Use EPOLL_CTL_MOD to re-enable the descriptor
@@ -303,11 +303,11 @@
             var outputIndex = 0
             for i in 0..<count {
                 let raw = rawEvents[i]
-                let id = IO.Event.ID(raw: raw.data)
+                let id = IO.Event.ID(UInt(truncatingIfNeeded: raw.data))
 
                 // Poll race rule: drop events for deregistered IDs
                 // Also skip wakeup events (ID 0 is reserved for wakeup)
-                guard id.raw != 0, registeredIDs.contains(id) else {
+                guard id._rawValue != 0, registeredIDs.contains(id) else {
                     continue
                 }
 

@@ -5,6 +5,7 @@
 //  Created by Coen ten Thije Boonkkamp on 31/12/2025.
 //
 
+import Kernel
 import StandardsTestSupport
 import Testing
 
@@ -27,7 +28,7 @@ extension IO.Completion.Waiter.Test.Unit {
     func cancelBeforeArmReturnsFalse() async {
         // This tests the core fix: arm() returning false when
         // cancellation happens before arm is called.
-        let waiter = IO.Completion.Waiter(id: IO.Completion.ID(raw: 1))
+        let waiter = IO.Completion.Waiter(id: IO.Completion.ID( 1))
 
         // Cancel BEFORE arming
         waiter.cancel()
@@ -47,7 +48,7 @@ extension IO.Completion.Waiter.Test.Unit {
 
     @Test("cancel after arm marks waiter as cancelled")
     func cancelAfterArm() async {
-        let waiter = IO.Completion.Waiter(id: IO.Completion.ID(raw: 1))
+        let waiter = IO.Completion.Waiter(id: IO.Completion.ID( 1))
 
         await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
             let armed = waiter.arm(continuation: c)
@@ -66,7 +67,7 @@ extension IO.Completion.Waiter.Test.Unit {
 
     @Test("takeForResume indicates cancelled state")
     func takeForResumeIndicatesCancelled() async {
-        let waiter = IO.Completion.Waiter(id: IO.Completion.ID(raw: 1))
+        let waiter = IO.Completion.Waiter(id: IO.Completion.ID( 1))
 
         await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
             waiter.arm(continuation: c)
@@ -84,7 +85,7 @@ extension IO.Completion.Waiter.Test.Unit {
     @Test("double resume returns false on second call")
     func doubleResumeReturnsFalse() async {
         // Tests the exactly-once invariant
-        let waiter = IO.Completion.Waiter(id: IO.Completion.ID(raw: 1))
+        let waiter = IO.Completion.Waiter(id: IO.Completion.ID( 1))
 
         await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
             waiter.arm(continuation: c)
@@ -101,7 +102,7 @@ extension IO.Completion.Waiter.Test.Unit {
 
     @Test("takeForResume on unarmed waiter returns nil")
     func takeForResumeOnUnarmed() async {
-        let id = IO.Completion.ID(raw: 1)
+        let id = IO.Completion.ID( 1)
         let waiter = IO.Completion.Waiter(id: id)
 
         // Not armed yet
@@ -111,7 +112,7 @@ extension IO.Completion.Waiter.Test.Unit {
 
     @Test("takeForResume on cancelled-unarmed returns nil")
     func takeForResumeOnCancelledUnarmed() async {
-        let id = IO.Completion.ID(raw: 1)
+        let id = IO.Completion.ID( 1)
         let waiter = IO.Completion.Waiter(id: id)
 
         // Cancel before arm
@@ -129,7 +130,7 @@ extension IO.Completion.Waiter.Test.EdgeCase {
     @Test("cancel-before-arm then takeForResume indicates cancelled")
     func cancelBeforeArmThenTakeForResume() async {
         // This is the key scenario that was crashing before the fix
-        let waiter = IO.Completion.Waiter(id: IO.Completion.ID(raw: 1))
+        let waiter = IO.Completion.Waiter(id: IO.Completion.ID( 1))
 
         // Cancel BEFORE arm (simulates fast onCancel race)
         waiter.cancel()
@@ -152,7 +153,7 @@ extension IO.Completion.Waiter.Test.EdgeCase {
 
     @Test("multiple cancels are idempotent")
     func multipleCancelsIdempotent() async {
-        let waiter = IO.Completion.Waiter(id: IO.Completion.ID(raw: 1))
+        let waiter = IO.Completion.Waiter(id: IO.Completion.ID( 1))
 
         await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
             waiter.arm(continuation: c)
@@ -171,7 +172,7 @@ extension IO.Completion.Waiter.Test.EdgeCase {
 
     @Test("cancel after drain is no-op")
     func cancelAfterDrain() async {
-        let waiter = IO.Completion.Waiter(id: IO.Completion.ID(raw: 1))
+        let waiter = IO.Completion.Waiter(id: IO.Completion.ID( 1))
 
         await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
             waiter.arm(continuation: c)
@@ -205,7 +206,7 @@ extension IO.Completion.Waiter.Test.Invariants {
         var resumed = false
 
         await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
-            let waiter = IO.Completion.Waiter(id: IO.Completion.ID(raw: 1))
+            let waiter = IO.Completion.Waiter(id: IO.Completion.ID( 1))
             waiter.arm(continuation: c)
 
             // Cancel synchronously - should NOT resume
@@ -225,7 +226,7 @@ extension IO.Completion.Waiter.Test.Invariants {
     @Test("single resumption funnel - only takeForResume provides continuation")
     func singleResumptionFunnel() async {
         // Verifies the invariant: continuation is only available via takeForResume
-        let waiter = IO.Completion.Waiter(id: IO.Completion.ID(raw: 1))
+        let waiter = IO.Completion.Waiter(id: IO.Completion.ID( 1))
 
         await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
             waiter.arm(continuation: c)
@@ -445,7 +446,7 @@ extension IO.Completion.Queue.Test.Integration {
 
         // Complete all
         for id in ids {
-            fake.complete(id: id, kind: .nop, outcome: .success(.bytes(Int(id.raw))))
+            fake.complete(id: id, kind: .nop, outcome: .success(.bytes(Int(id._rawValue))))
         }
 
         // Collect results
@@ -456,7 +457,7 @@ extension IO.Completion.Queue.Test.Integration {
                 if case .bytes(let n) = value {
                     successCount += 1
                     // Verify the result matches the ID
-                    #expect(n == Int(event.id.raw))
+                    #expect(n == Int(event.id._rawValue))
                 }
             }
         }
@@ -633,7 +634,7 @@ extension IO.Completion.Driver.Fake.Test.Unit {
         let driver = IO.Completion.Driver(fake)
 
         let handle = try driver.create()
-        let id = IO.Completion.ID(raw: 42)
+        let id = IO.Completion.ID( 42)
         let operation = IO.Completion.Operation.nop(id: id)
 
         try driver.submit(handle, operation: operation)
@@ -647,7 +648,7 @@ extension IO.Completion.Driver.Fake.Test.Unit {
         let driver = IO.Completion.Driver(fake)
 
         let handle = try driver.create()
-        let id = IO.Completion.ID(raw: 42)
+        let id = IO.Completion.ID( 42)
 
         // Inject a completion
         fake.complete(id: id, kind: .read, outcome: .success(.bytes(100)))

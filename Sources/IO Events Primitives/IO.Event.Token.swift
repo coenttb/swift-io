@@ -5,6 +5,8 @@
 //  Created by Coen ten Thije Boonkkamp on 28/12/2025.
 //
 
+public import Kernel
+
 extension IO.Event {
     /// Move-only capability token for selector API safety.
     ///

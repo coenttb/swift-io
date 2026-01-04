@@ -46,7 +46,7 @@ extension EventDeliveryBenchmarks.Test.Performance {
             let producerTask = Task {
                 for i in 0..<10000 {
                     let event = IO.Event(
-                        id: IO.Event.ID(raw: UInt64(i)),
+                        id: IO.Event.ID(UInt(i)),
                         interest: .read,
                         flags: []
                     )
@@ -76,8 +76,8 @@ extension EventDeliveryBenchmarks.Test.Performance {
             let producerTask = Task {
                 for i in 0..<10000 {
                     let reply = IO.Event.Registration.Reply(
-                        id: IO.Event.Registration.ReplyID(raw: UInt64(i)),
-                        result: .success(.registered(IO.Event.ID(raw: UInt64(i))))
+                        id: IO.Event.Registration.ReplyID( UInt64(i)),
+                        result: .success(.registered(IO.Event.ID(UInt(i))))
                     )
                     bridge.push(reply)
                 }
@@ -107,7 +107,7 @@ extension EventDeliveryBenchmarks.Test.Performance {
                     var batch: [IO.Event] = []
                     for i in 0..<10 {
                         let event = IO.Event(
-                            id: IO.Event.ID(raw: UInt64(batchIndex * 10 + i)),
+                            id: IO.Event.ID(UInt(batchIndex * 10 + i)),
                             interest: .read,
                             flags: []
                         )
@@ -152,7 +152,7 @@ extension EventDeliveryBenchmarks.Test.Performance {
                     group.addTask {
                         for i in 0..<eventsPerProducer {
                             let event = IO.Event(
-                                id: IO.Event.ID(raw: UInt64(producerIndex * eventsPerProducer + i)),
+                                id: IO.Event.ID(UInt(producerIndex * eventsPerProducer + i)),
                                 interest: .read,
                                 flags: []
                             )

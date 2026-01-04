@@ -6,6 +6,7 @@
 //
 
 public import Buffer
+public import Kernel
 
 extension IO.Completion {
     /// The completion queue manages async I/O operations.
@@ -136,7 +137,7 @@ extension IO.Completion {
             let driver: IO.Completion.Driver
             do {
                 driver = try IO.Completion.Driver.bestAvailable()
-            } catch let error as IO.Completion.Error {
+            } catch {
                 throw .failure(error)
             }
             try await self.init(driver: driver)
@@ -158,7 +159,7 @@ extension IO.Completion {
             let handle: IO.Completion.Driver.Handle
             do {
                 handle = try driver.create()
-            } catch let error as IO.Completion.Error {
+            } catch {
                 throw .failure(error)
             }
 
@@ -166,7 +167,7 @@ extension IO.Completion {
             let wakeupChannel: Wakeup.Channel
             do {
                 wakeupChannel = try driver.createWakeupChannel(handle)
-            } catch let error as IO.Completion.Error {
+            } catch {
                 throw .failure(error)
             }
             self.wakeupChannel = wakeupChannel
@@ -215,7 +216,7 @@ extension IO.Completion {
         public func nextID() -> IO.Completion.ID {
             let id = _nextID
             _nextID += 1
-            return IO.Completion.ID(raw: id)
+            return IO.Completion.ID(id)
         }
 
         // MARK: - Submission

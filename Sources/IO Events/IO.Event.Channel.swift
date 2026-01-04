@@ -390,7 +390,7 @@ extension IO.Event {
                     Kernel.Socket.Descriptor(rawValue: descriptor),
                     how: .read
                 )
-            } catch let error as Kernel.Socket.Shutdown.Error {
+            } catch {
                 // Ignore most shutdown errors for idempotence:
                 // - ENOTCONN (not connected) is expected for datagram sockets
                 // - EINVAL (invalid) can mean already shut down
@@ -404,8 +404,6 @@ extension IO.Event {
                         break
                     }
                 }
-            } catch {
-                // Unexpected error type - ignore for idempotence
             }
         }
 
@@ -430,7 +428,7 @@ extension IO.Event {
                     Kernel.Socket.Descriptor(rawValue: descriptor),
                     how: .write
                 )
-            } catch let error as Kernel.Socket.Shutdown.Error {
+            } catch {
                 // Ignore most shutdown errors for idempotence:
                 // - ENOTCONN (not connected) is expected for datagram sockets
                 // - EINVAL (invalid) can mean already shut down
@@ -444,8 +442,6 @@ extension IO.Event {
                         break
                     }
                 }
-            } catch {
-                // Unexpected error type - ignore for idempotence
             }
         }
 
@@ -497,7 +493,7 @@ extension IO.Event {
             // Close file descriptor
             do {
                 try Kernel.Close.close(Kernel.Descriptor(rawValue: descriptor))
-            } catch let error as Kernel.Close.Error {
+            } catch {
                 // EBADF means already closed - treat as success
                 switch error {
                 case .handle(.invalid):
@@ -505,8 +501,6 @@ extension IO.Event {
                 default:
                     throw .failure(IO.Event.Error(error))
                 }
-            } catch {
-                // Unexpected error type - ignore
             }
         }
 

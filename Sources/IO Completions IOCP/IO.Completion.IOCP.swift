@@ -211,7 +211,7 @@
                 if entry.lpOverlapped == nil {
                     buffer.append(
                         IO.Completion.Event(
-                            id: IO.Completion.ID(raw: 0),
+                            id: .zero,
                             kind: .wakeup,
                             outcome: .success(.completed)
                         )
@@ -235,7 +235,7 @@
                     // Do NOT free the header here - we don't have ownership.
                     // In debug: trap to surface the bug early.
                     // In release: skip to avoid UAF, leak is preferable.
-                    assertionFailure("IOCP completion for unknown operation ID \(id.raw)")
+                    assertionFailure("IOCP completion for unknown operation ID \(id._rawValue)")
                     continue
                 }
 
@@ -504,7 +504,7 @@
             _ state: State
         ) throws(IO.Completion.Error) {
             // Target operation ID is encoded in offset field
-            let targetID = IO.Completion.ID(raw: UInt64(bitPattern: storage.offset))
+            let targetID = IO.Completion.ID(UInt64(bitPattern: storage.offset))
 
             // Peek registry for target (do NOT remove)
             guard let entry = state.registry.peek(id: targetID) else {

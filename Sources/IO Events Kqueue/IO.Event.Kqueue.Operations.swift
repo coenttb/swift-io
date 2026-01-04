@@ -25,16 +25,6 @@
     /// so contention is minimal (only during concurrent Selector creation/destruction).
     private let registry = Mutex<[Int32: [IO.Event.ID: RegistrationEntry]]>([:])
 
-    // MARK: - Type Conversion
-
-    extension IO.Event.ID {
-        /// Creates an ID from kqueue event data.
-        @usableFromInline
-        init(_ data: Kernel.Kqueue.Event.Data) {
-            self.init(raw: data._rawValue)
-        }
-    }
-
     // MARK: - Error Conversion
 
     extension IO.Event.Error {
@@ -87,7 +77,7 @@
             interest: IO.Event.Interest
         ) throws(IO.Event.Error) -> IO.Event.ID {
             let kq = handle.rawValue
-            let id = IO.Event.ID(raw: nextID.wrappingAdd(1, ordering: .relaxed).newValue)
+            let id = IO.Event.ID(UInt(truncatingIfNeeded: nextID.wrappingAdd(1, ordering: .relaxed).newValue))
 
             // Prepare kevent structures for registration
             var events: [Kernel.Kqueue.Event] = []
@@ -105,7 +95,7 @@
                     id: Kernel.Event.ID(UInt(descriptor)),
                     filter: .read,
                     flags: addFlags,
-                    data: Kernel.Kqueue.Event.Data(id.raw)
+                    data: Kernel.Kqueue.Event.Data(UInt64(id._rawValue))
                 ))
             }
 
@@ -114,7 +104,7 @@
                     id: Kernel.Event.ID(UInt(descriptor)),
                     filter: .write,
                     flags: addFlags,
-                    data: Kernel.Kqueue.Event.Data(id.raw)
+                    data: Kernel.Kqueue.Event.Data(UInt64(id._rawValue))
                 ))
             }
 
@@ -128,10 +118,8 @@
 
             do {
                 try Kernel.Kqueue.register(Kernel.Descriptor(rawValue: kq), events: events)
-            } catch let error as Kernel.Kqueue.Error {
-                throw IO.Event.Error(error)
             } catch {
-                throw .platform(.posix(Errno.invalidArgument.rawValue))
+                throw IO.Event.Error(error)
             }
 
             // Store the mapping for future modify/deregister
@@ -171,7 +159,7 @@
                     id: Kernel.Event.ID(UInt(descriptor)),
                     filter: .read,
                     flags: .delete,
-                    data: Kernel.Kqueue.Event.Data(id.raw)
+                    data: Kernel.Kqueue.Event.Data(UInt64(id._rawValue))
                 ))
             }
             if toRemove.contains(.write) {
@@ -179,7 +167,7 @@
                     id: Kernel.Event.ID(UInt(descriptor)),
                     filter: .write,
                     flags: .delete,
-                    data: Kernel.Kqueue.Event.Data(id.raw)
+                    data: Kernel.Kqueue.Event.Data(UInt64(id._rawValue))
                 ))
             }
 
@@ -190,7 +178,7 @@
                     id: Kernel.Event.ID(UInt(descriptor)),
                     filter: .read,
                     flags: addFlags,
-                    data: Kernel.Kqueue.Event.Data(id.raw)
+                    data: Kernel.Kqueue.Event.Data(UInt64(id._rawValue))
                 ))
             }
             if toAdd.contains(.write) {
@@ -198,17 +186,15 @@
                     id: Kernel.Event.ID(UInt(descriptor)),
                     filter: .write,
                     flags: addFlags,
-                    data: Kernel.Kqueue.Event.Data(id.raw)
+                    data: Kernel.Kqueue.Event.Data(UInt64(id._rawValue))
                 ))
             }
 
             if !events.isEmpty {
                 do {
                     try Kernel.Kqueue.register(Kernel.Descriptor(rawValue: kq), events: events)
-                } catch let error as Kernel.Kqueue.Error {
-                    throw IO.Event.Error(error)
                 } catch {
-                    throw .platform(.posix(Errno.invalidArgument.rawValue))
+                    throw IO.Event.Error(error)
                 }
             }
 
@@ -249,7 +235,7 @@
                     id: Kernel.Event.ID(UInt(descriptor)),
                     filter: .read,
                     flags: .delete,
-                    data: Kernel.Kqueue.Event.Data(id.raw)
+                    data: Kernel.Kqueue.Event.Data(UInt64(id._rawValue))
                 ))
             }
             if interest.contains(.write) {
@@ -257,22 +243,20 @@
                     id: Kernel.Event.ID(UInt(descriptor)),
                     filter: .write,
                     flags: .delete,
-                    data: Kernel.Kqueue.Event.Data(id.raw)
+                    data: Kernel.Kqueue.Event.Data(UInt64(id._rawValue))
                 ))
             }
 
             if !events.isEmpty {
                 do {
                     try Kernel.Kqueue.register(Kernel.Descriptor(rawValue: kq), events: events)
-                } catch let error as Kernel.Kqueue.Error {
+                } catch {
                     // Ignore ENOENT - the event may have been auto-removed if fd was closed
                     if case .kevent(let code) = error, code.posix == Errno.noSuchFileOrDirectory.rawValue {
                         // Ignore
                     } else {
                         throw IO.Event.Error(error)
                     }
-                } catch {
-                    throw .platform(.posix(Errno.invalidArgument.rawValue))
                 }
             }
         }
@@ -312,7 +296,7 @@
                     id: Kernel.Event.ID(UInt(descriptor)),
                     filter: .read,
                     flags: armFlags,
-                    data: Kernel.Kqueue.Event.Data(id.raw)
+                    data: Kernel.Kqueue.Event.Data(UInt64(id._rawValue))
                 ))
             }
 
@@ -321,7 +305,7 @@
                     id: Kernel.Event.ID(UInt(descriptor)),
                     filter: .write,
                     flags: armFlags,
-                    data: Kernel.Kqueue.Event.Data(id.raw)
+                    data: Kernel.Kqueue.Event.Data(UInt64(id._rawValue))
                 ))
             }
 
@@ -329,10 +313,8 @@
 
             do {
                 try Kernel.Kqueue.register(Kernel.Descriptor(rawValue: kq), events: events)
-            } catch let error as Kernel.Kqueue.Error {
-                throw IO.Event.Error(error)
             } catch {
-                throw .platform(.posix(Errno.invalidArgument.rawValue))
+                throw IO.Event.Error(error)
             }
         }
 
@@ -368,14 +350,12 @@
                     into: &rawEvents,
                     timeout: duration
                 )
-            } catch let error as Kernel.Kqueue.Error {
+            } catch {
                 // Handle EINTR specially - return 0 events instead of throwing
                 if case .interrupted = error {
                     return 0
                 }
                 throw IO.Event.Error(error)
-            } catch {
-                throw .platform(.posix(Errno.invalidArgument.rawValue))
             }
 
             // Get current registrations for filtering stale events
@@ -397,7 +377,7 @@
                     continue
                 }
 
-                let id = IO.Event.ID(raw.data)
+                let id = IO.Event.ID(UInt(truncatingIfNeeded: raw.data._rawValue))
 
                 // Poll race rule: drop events for deregistered IDs
                 guard registeredIDs.contains(id) else {
@@ -464,10 +444,8 @@
                     Kernel.Descriptor(rawValue: handle.rawValue),
                     events: [ev]
                 )
-            } catch let error as Kernel.Kqueue.Error {
-                throw IO.Event.Error(error)
             } catch {
-                throw .platform(.posix(Errno.invalidArgument.rawValue))
+                throw IO.Event.Error(error)
             }
 
             // Capture the kqueue fd for the wakeup channel

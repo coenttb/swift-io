@@ -30,7 +30,7 @@ extension IO.Event.Bridge.Test.Unit {
 
         // Push should be silently ignored
         let event = IO.Event(
-            id: IO.Event.ID(raw: 1),
+            id: IO.Event.ID(1),
             interest: .read,
             flags: []
         )
@@ -45,7 +45,7 @@ extension IO.Event.Bridge.Test.Unit {
     func pushThenNextReturnsBatch() async {
         let bridge = IO.Event.Bridge()
         let event = IO.Event(
-            id: IO.Event.ID(raw: 42),
+            id: IO.Event.ID(42),
             interest: .read,
             flags: []
         )
@@ -54,7 +54,7 @@ extension IO.Event.Bridge.Test.Unit {
         let batch = await bridge.next()
         #expect(batch != nil)
         #expect(batch?.count == 1)
-        #expect(batch?.first?.id.raw == 42)
+        #expect(batch?.first?.id._rawValue == 42)
 
         bridge.shutdown()
     }
@@ -71,7 +71,7 @@ extension IO.Event.Bridge.Test.Unit {
 
         // Push should resume the awaiting task
         let event = IO.Event(
-            id: IO.Event.ID(raw: 99),
+            id: IO.Event.ID(99),
             interest: .write,
             flags: []
         )
@@ -79,7 +79,7 @@ extension IO.Event.Bridge.Test.Unit {
 
         let batch = await batchTask
         #expect(batch != nil)
-        #expect(batch?.first?.id.raw == 99)
+        #expect(batch?.first?.id._rawValue == 99)
 
         bridge.shutdown()
     }
@@ -90,8 +90,8 @@ extension IO.Event.Bridge.Test.EdgeCase {
     func multiplePushesQueueCorrectly() async {
         let bridge = IO.Event.Bridge()
 
-        let event1 = IO.Event(id: IO.Event.ID(raw: 1), interest: .read, flags: [])
-        let event2 = IO.Event(id: IO.Event.ID(raw: 2), interest: .write, flags: [])
+        let event1 = IO.Event(id: IO.Event.ID(1), interest: .read, flags: [])
+        let event2 = IO.Event(id: IO.Event.ID(2), interest: .write, flags: [])
 
         bridge.push([event1])
         bridge.push([event2])
@@ -99,8 +99,8 @@ extension IO.Event.Bridge.Test.EdgeCase {
         let batch1 = await bridge.next()
         let batch2 = await bridge.next()
 
-        #expect(batch1?.first?.id.raw == 1)
-        #expect(batch2?.first?.id.raw == 2)
+        #expect(batch1?.first?.id._rawValue == 1)
+        #expect(batch2?.first?.id._rawValue == 2)
 
         bridge.shutdown()
     }
@@ -142,7 +142,7 @@ extension IO.Event.Registration.Reply.Bridge.Test.Unit {
         bridge.shutdown()
 
         let reply = IO.Event.Registration.Reply(
-            id: IO.Event.Registration.ReplyID(raw: 1),
+            id: IO.Event.Registration.ReplyID( 1),
             result: .success(.deregistered)
         )
         bridge.push(reply)
@@ -155,16 +155,16 @@ extension IO.Event.Registration.Reply.Bridge.Test.Unit {
     func pushThenNextReturnsReply() async {
         let bridge = IO.Event.Registration.Reply.Bridge()
         let reply = IO.Event.Registration.Reply(
-            id: IO.Event.Registration.ReplyID(raw: 42),
-            result: .success(.registered(IO.Event.ID(raw: 100)))
+            id: IO.Event.Registration.ReplyID( 42),
+            result: .success(.registered(IO.Event.ID(100)))
         )
         bridge.push(reply)
 
         let received = await bridge.next()
         #expect(received != nil)
-        #expect(received?.id.raw == 42)
+        #expect(received?.id._rawValue == 42)
         if case .success(.registered(let id)) = received?.result {
-            #expect(id.raw == 100)
+            #expect(id._rawValue == 100)
         } else {
             Issue.record("Expected .registered payload")
         }
@@ -181,14 +181,14 @@ extension IO.Event.Registration.Reply.Bridge.Test.Unit {
         try? await Task.sleep(for: .milliseconds(10))
 
         let reply = IO.Event.Registration.Reply(
-            id: IO.Event.Registration.ReplyID(raw: 77),
+            id: IO.Event.Registration.ReplyID( 77),
             result: .success(.modified)
         )
         bridge.push(reply)
 
         let received = await replyTask
         #expect(received != nil)
-        #expect(received?.id.raw == 77)
+        #expect(received?.id._rawValue == 77)
 
         bridge.shutdown()
     }
@@ -200,11 +200,11 @@ extension IO.Event.Registration.Reply.Bridge.Test.EdgeCase {
         let bridge = IO.Event.Registration.Reply.Bridge()
 
         let reply1 = IO.Event.Registration.Reply(
-            id: IO.Event.Registration.ReplyID(raw: 1),
-            result: .success(.registered(IO.Event.ID(raw: 10)))
+            id: IO.Event.Registration.ReplyID( 1),
+            result: .success(.registered(IO.Event.ID(10)))
         )
         let reply2 = IO.Event.Registration.Reply(
-            id: IO.Event.Registration.ReplyID(raw: 2),
+            id: IO.Event.Registration.ReplyID( 2),
             result: .success(.deregistered)
         )
 
@@ -214,8 +214,8 @@ extension IO.Event.Registration.Reply.Bridge.Test.EdgeCase {
         let received1 = await bridge.next()
         let received2 = await bridge.next()
 
-        #expect(received1?.id.raw == 1)
-        #expect(received2?.id.raw == 2)
+        #expect(received1?.id._rawValue == 1)
+        #expect(received2?.id._rawValue == 2)
 
         bridge.shutdown()
     }
@@ -239,7 +239,7 @@ extension IO.Event.Registration.Reply.Bridge.Test.EdgeCase {
         let bridge = IO.Event.Registration.Reply.Bridge()
 
         let reply = IO.Event.Registration.Reply(
-            id: IO.Event.Registration.ReplyID(raw: 5),
+            id: IO.Event.Registration.ReplyID( 5),
             result: .failure(.notRegistered)
         )
         bridge.push(reply)

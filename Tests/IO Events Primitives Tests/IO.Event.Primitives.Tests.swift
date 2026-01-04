@@ -26,7 +26,7 @@ struct NonBlockingPrimitivesTests {
 
     @Test("Event creation and properties")
     func eventCreation() {
-        let id = IO.Event.ID(raw: 42)
+        let id = IO.Event.ID(42)
         let event = IO.Event(
             id: id,
             interest: [.read, .write],
@@ -51,9 +51,9 @@ struct NonBlockingPrimitivesTests {
 
     @Test("ID equality and hashing")
     func idEquality() {
-        let id1 = IO.Event.ID(raw: 100)
-        let id2 = IO.Event.ID(raw: 100)
-        let id3 = IO.Event.ID(raw: 200)
+        let id1 = IO.Event.ID(100)
+        let id2 = IO.Event.ID(100)
+        let id3 = IO.Event.ID(200)
 
         #expect(id1 == id2)
         #expect(id1 != id3)
@@ -62,7 +62,7 @@ struct NonBlockingPrimitivesTests {
 
     @Test("Token creation and ID access")
     func tokenCreation() {
-        let id = IO.Event.ID(raw: 42)
+        let id = IO.Event.ID(42)
         // Tokens are created internally, but we can test the type exists
         // and the ID is accessible via consuming operations
     }

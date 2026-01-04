@@ -6,6 +6,7 @@
 //
 
 public import IO_Primitives
+public import Kernel
 
 extension IO.Completion {
     /// A completion event from the driver.
@@ -71,7 +72,7 @@ extension IO.Completion {
 
         /// An empty event for buffer initialization.
         public static let empty = Event(
-            id: IO.Completion.ID(raw: 0),
+            id: .zero,
             kind: IO.Completion.Kind.nop,
             outcome: IO.Completion.Outcome.cancelled
         )
@@ -82,7 +83,7 @@ extension IO.Completion {
 
 extension IO.Completion.Event: CustomStringConvertible {
     public var description: String {
-        var parts = ["Event(id: \(id.raw), kind: \(kind), outcome: \(outcome)"]
+        var parts = ["Event(id: \(id._rawValue), kind: \(kind), outcome: \(outcome)"]
         if !flags.isEmpty {
             parts.append(", flags: \(flags)")
         }

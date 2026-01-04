@@ -260,7 +260,7 @@ extension IO.Event {
             }
 
             // Generate reply ID for matching request to reply
-            let replyID = IO.Event.Registration.ReplyID(raw: nextReplyID)
+            let replyID = IO.Event.Registration.ReplyID( nextReplyID)
             nextReplyID &+= 1  // Wrapping add OK
 
             // Store continuation and enqueue request
@@ -733,7 +733,7 @@ extension IO.Event {
             }
 
             // Generate reply ID for matching request to reply
-            let replyID = IO.Event.Registration.ReplyID(raw: nextReplyID)
+            let replyID = IO.Event.Registration.ReplyID( nextReplyID)
             nextReplyID &+= 1
 
             // Store continuation and enqueue request

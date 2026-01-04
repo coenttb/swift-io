@@ -17,7 +17,7 @@ extension IO.Event.Waiter {
 extension IO.Event.Waiter.Test.Unit {
     @Test("can create unarmed waiter")
     func canCreateUnarmed() async {
-        let id = IO.Event.ID(raw: 42)
+        let id = IO.Event.ID(42)
         let waiter = IO.Event.Waiter(id: id)
         #expect(waiter.id == id)
         #expect(!waiter.isArmed)
@@ -28,7 +28,7 @@ extension IO.Event.Waiter.Test.Unit {
     @Test("arm binds continuation")
     func armBindsContinuation() async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Result<IO.Event, IO.Event.Failure>, Never>) in
-            let waiter = IO.Event.Waiter(id: IO.Event.ID(raw: 1))
+            let waiter = IO.Event.Waiter(id: IO.Event.ID(1))
             #expect(!waiter.isArmed)
             #expect(waiter.arm(continuation: continuation) == true)
             #expect(waiter.isArmed)
@@ -42,7 +42,7 @@ extension IO.Event.Waiter.Test.Unit {
     @Test("cancel marks waiter as cancelled")
     func cancelMarksWaiter() async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Result<IO.Event, IO.Event.Failure>, Never>) in
-            let waiter = IO.Event.Waiter(id: IO.Event.ID(raw: 1))
+            let waiter = IO.Event.Waiter(id: IO.Event.ID(1))
             waiter.arm(continuation: continuation)
             #expect(waiter.cancel() == true)
             #expect(waiter.wasCancelled == true)
@@ -56,7 +56,7 @@ extension IO.Event.Waiter.Test.Unit {
     @Test("takeForResume returns continuation")
     func takeForResumeReturnsContinuation() async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Result<IO.Event, IO.Event.Failure>, Never>) in
-            let waiter = IO.Event.Waiter(id: IO.Event.ID(raw: 1))
+            let waiter = IO.Event.Waiter(id: IO.Event.ID(1))
             waiter.arm(continuation: continuation)
             if let result = waiter.take.forResume() {
                 #expect(!result.wasCancelled)
@@ -70,7 +70,7 @@ extension IO.Event.Waiter.Test.Unit {
     @Test("takeForResume on cancelled waiter indicates cancelled")
     func takeForResumeCancelled() async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Result<IO.Event, IO.Event.Failure>, Never>) in
-            let waiter = IO.Event.Waiter(id: IO.Event.ID(raw: 1))
+            let waiter = IO.Event.Waiter(id: IO.Event.ID(1))
             waiter.arm(continuation: continuation)
             waiter.cancel()
             if let result = waiter.take.forResume() {
@@ -89,7 +89,7 @@ extension IO.Event.Waiter.Test.EdgeCase {
     @Test("cancel before arm is handled correctly")
     func cancelBeforeArm() async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Result<IO.Event, IO.Event.Failure>, Never>) in
-            let waiter = IO.Event.Waiter(id: IO.Event.ID(raw: 1))
+            let waiter = IO.Event.Waiter(id: IO.Event.ID(1))
             // Cancel before arming
             #expect(waiter.cancel() == true)
             #expect(waiter.wasCancelled == true)
@@ -110,7 +110,7 @@ extension IO.Event.Waiter.Test.EdgeCase {
     @Test("double cancel is idempotent")
     func doubleCancelIdempotent() async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Result<IO.Event, IO.Event.Failure>, Never>) in
-            let waiter = IO.Event.Waiter(id: IO.Event.ID(raw: 1))
+            let waiter = IO.Event.Waiter(id: IO.Event.ID(1))
             waiter.arm(continuation: continuation)
             #expect(waiter.cancel() == true)  // First cancel succeeds
             #expect(waiter.cancel() == false)  // Second cancel fails (already cancelled)
@@ -125,7 +125,7 @@ extension IO.Event.Waiter.Test.EdgeCase {
     @Test("arm twice returns false")
     func armTwiceReturnsFalse() async {
         // Create two waiters and use one to test double-arm attempt
-        let waiter = IO.Event.Waiter(id: IO.Event.ID(raw: 1))
+        let waiter = IO.Event.Waiter(id: IO.Event.ID(1))
 
         // First continuation - arm succeeds
         let _: Result<IO.Event, IO.Event.Failure> = await withCheckedContinuation { first in
@@ -157,7 +157,7 @@ extension IO.Event.Waiter.Test.EdgeCase {
     @Test("takeForResume twice returns nil second time")
     func takeForResumeTwice() async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Result<IO.Event, IO.Event.Failure>, Never>) in
-            let waiter = IO.Event.Waiter(id: IO.Event.ID(raw: 1))
+            let waiter = IO.Event.Waiter(id: IO.Event.ID(1))
             waiter.arm(continuation: continuation)
             let first = waiter.take.forResume()
             #expect(first != nil)
@@ -170,7 +170,7 @@ extension IO.Event.Waiter.Test.EdgeCase {
 
     @Test("takeForResume on unarmed waiter returns nil")
     func takeForResumeUnarmed() async {
-        let waiter = IO.Event.Waiter(id: IO.Event.ID(raw: 1))
+        let waiter = IO.Event.Waiter(id: IO.Event.ID(1))
         #expect(waiter.take.forResume() == nil)
         #expect(!waiter.isDrained)  // Should not mark as drained
     }
@@ -178,7 +178,7 @@ extension IO.Event.Waiter.Test.EdgeCase {
     @Test("cancel after drain fails")
     func cancelAfterDrain() async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Result<IO.Event, IO.Event.Failure>, Never>) in
-            let waiter = IO.Event.Waiter(id: IO.Event.ID(raw: 1))
+            let waiter = IO.Event.Waiter(id: IO.Event.ID(1))
             waiter.arm(continuation: continuation)
             if let result = waiter.take.forResume() {
                 result.continuation.resume(returning: .failure(.cancelled))
@@ -202,7 +202,7 @@ extension IO.Event.Waiter.Test.Invariants {
         var resumed = false
 
         await withCheckedContinuation { (continuation: CheckedContinuation<Result<IO.Event, IO.Event.Failure>, Never>) in
-            let waiter = IO.Event.Waiter(id: IO.Event.ID(raw: 1))
+            let waiter = IO.Event.Waiter(id: IO.Event.ID(1))
             waiter.arm(continuation: continuation)
 
             // Cancel synchronously - should NOT resume
@@ -226,7 +226,7 @@ extension IO.Event.Waiter.Test.Invariants {
         var wasCancelledOnDrain = false
 
         await withCheckedContinuation { (continuation: CheckedContinuation<Result<IO.Event, IO.Event.Failure>, Never>) in
-            let waiter = IO.Event.Waiter(id: IO.Event.ID(raw: 1))
+            let waiter = IO.Event.Waiter(id: IO.Event.ID(1))
 
             // Cancel BEFORE arming (simulates fast onCancel race)
             waiter.cancel()
@@ -249,7 +249,7 @@ extension IO.Event.Waiter.Test.Invariants {
         // This test documents the design: Result<Event, Failure> continuation
         // means all error handling is typed, with no any Error casts.
         let result: Result<IO.Event, IO.Event.Failure> = await withCheckedContinuation { continuation in
-            let waiter = IO.Event.Waiter(id: IO.Event.ID(raw: 1))
+            let waiter = IO.Event.Waiter(id: IO.Event.ID(1))
             waiter.arm(continuation: continuation)
 
             // Simulate actor drain with typed failure
