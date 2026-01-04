@@ -4,6 +4,7 @@
 //
 
 import IO_Events_Kqueue
+import Kernel
 import Testing
 
 @testable import IO_Events
@@ -27,7 +28,7 @@ extension SelectorDeadlineTests {
             ptr.withMemoryRebound(to: Int32.self, capacity: 2) { pipe($0) }
         }
         guard result == 0 else {
-            throw IO.Event.Error.platform(errno: errno)
+            throw IO.Event.Error.platform(.posix(errno))
         }
 
         // Set non-blocking mode

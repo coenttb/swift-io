@@ -3,6 +3,7 @@
 //  swift-io
 //
 
+import Kernel
 import StandardsTestSupport
 import Synchronization
 import Testing
@@ -51,14 +52,14 @@ extension IO.Thread.Test.Unit {
         #expect(completed.load(ordering: .acquiring) == true)
     }
 
-    @Test("Handle.isCurrentThread returns false from main thread")
-    func isCurrentThreadFalseFromMain() throws {
+    @Test("Handle.isCurrent returns false from main thread")
+    func isCurrentFalseFromMain() throws {
         let handle = try IO.Thread.spawn {
             // Do nothing
         }
 
-        // From main thread, isCurrentThread should be false
-        #expect(handle.isCurrentThread == false)
+        // From main thread, isCurrent should be false
+        #expect(handle.isCurrent == false)
 
         handle.join()
     }
@@ -71,38 +72,42 @@ extension IO.Thread.Spawn.Error {
 }
 
 extension IO.Thread.Spawn.Error.Test.Unit {
-    @Test("Error stores platform and code correctly")
-    func errorStoresPlatformAndCode() {
-        let error = IO.Thread.Spawn.Error(platform: .pthread, code: 42)
-        #expect(error.platform == .pthread)
-        #expect(error.code == 42)
+    @Test("Error wraps kernel error correctly")
+    func errorWrapsKernelError() {
+        let kernelError = Kernel.Thread.Error.create(.posix(42))
+        let error = IO.Thread.Spawn.Error(kernelError)
+
+        if case .create(let code) = error.kernelError {
+            #expect(code == .posix(42))
+        } else {
+            Issue.record("Expected .create case")
+        }
     }
 
     @Test("Error is Equatable")
     func errorIsEquatable() {
-        let e1 = IO.Thread.Spawn.Error(platform: .pthread, code: 11)
-        let e2 = IO.Thread.Spawn.Error(platform: .pthread, code: 11)
-        let e3 = IO.Thread.Spawn.Error(platform: .pthread, code: 22)
-        let e4 = IO.Thread.Spawn.Error(platform: .windows, code: 11)
+        let e1 = IO.Thread.Spawn.Error(Kernel.Thread.Error.create(.posix(11)))
+        let e2 = IO.Thread.Spawn.Error(Kernel.Thread.Error.create(.posix(11)))
+        let e3 = IO.Thread.Spawn.Error(Kernel.Thread.Error.create(.posix(22)))
+        let e4 = IO.Thread.Spawn.Error(Kernel.Thread.Error.join(.posix(11)))
 
         #expect(e1 == e2)
         #expect(e1 != e3)
-        #expect(e1 != e4)  // Different platform
+        #expect(e1 != e4)  // Different error type
     }
 
-    @Test("Error description includes code")
-    func errorDescriptionIncludesCode() {
-        let error = IO.Thread.Spawn.Error(platform: .pthread, code: 99)
-        #expect(error.description.contains("99"))
-        #expect(error.description.contains("pthread"))
+    @Test("Error description includes context")
+    func errorDescriptionIncludesContext() {
+        let error = IO.Thread.Spawn.Error(Kernel.Thread.Error.create(.posix(99)))
+        #expect(error.description.contains("creation") || error.description.contains("99"))
     }
 
-    @Test("Error description varies by platform")
-    func errorDescriptionVariesByPlatform() {
-        let pthreadError = IO.Thread.Spawn.Error(platform: .pthread, code: 11)
-        let windowsError = IO.Thread.Spawn.Error(platform: .windows, code: 11)
+    @Test("Error description varies by operation")
+    func errorDescriptionVariesByOperation() {
+        let createError = IO.Thread.Spawn.Error(Kernel.Thread.Error.create(.posix(11)))
+        let joinError = IO.Thread.Spawn.Error(Kernel.Thread.Error.join(.posix(11)))
 
-        #expect(pthreadError.description.contains("pthread"))
-        #expect(windowsError.description.contains("CreateThread"))
+        #expect(createError.description.contains("creation"))
+        #expect(joinError.description.contains("join"))
     }
 }

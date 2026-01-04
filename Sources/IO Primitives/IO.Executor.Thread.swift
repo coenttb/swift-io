@@ -159,7 +159,7 @@ extension IO.Executor.Thread {
         }
 
         precondition(
-            !handle.isCurrentThread,
+            !handle.isCurrent,
             "Cannot shutdown executor from its own thread - would deadlock on join"
         )
 

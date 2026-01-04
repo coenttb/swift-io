@@ -30,8 +30,10 @@ let package = Package(
         .package(url: "https://github.com/swift-standards/swift-time-standard.git", from: "0.2.0"),
         .package(url: "https://github.com/swift-standards/swift-standards", from: "0.24.1"),
         .package(url: "https://github.com/apple/swift-nio", from: "2.70.0"),
-        .package(url: "https://github.com/coenttb/swift-kernel.git", from: "0.4.0"),
-        .package(url: "https://github.com/coenttb/swift-mmap.git", from: "0.2.0"),
+        .package(path: "../swift-kernel"),
+        .package(path: "../swift-memory"),
+//        .package(url: "https://github.com/coenttb/swift-kernel.git", from: "0.2.0"),
+//        .package(url: "https://github.com/coenttb/swift-memory.git", from: "0.1.0"),
         .package(url: "https://github.com/coenttb/swift-buffer.git", from: "0.1.1"),
     ],
     targets: [
@@ -59,7 +61,7 @@ let package = Package(
             dependencies: [
                 "IO Blocking",
                 "IO Blocking Threads",
-                .product(name: "MMap", package: "swift-mmap"),
+                .product(name: "Memory", package: "swift-memory"),
             ]
         ),
         .target(
@@ -111,7 +113,7 @@ let package = Package(
             dependencies: [
                 "IO Completions Driver",
                 .product(name: "Kernel", package: "swift-kernel"),
-                .product(name: "MMap", package: "swift-mmap"),
+                .product(name: "Memory", package: "swift-memory"),
             ]
         ),
         .target(

@@ -6,6 +6,7 @@
 //
 
 import IO_Events_Kqueue
+import Kernel
 
 @testable import IO_Events
 
@@ -46,7 +47,7 @@ final class SelectorFixture: @unchecked Sendable {
             ptr.withMemoryRebound(to: Int32.self, capacity: 2) { pipe($0) }
         }
         guard result == 0 else {
-            throw IO.Event.Error.platform(errno: errno)
+            throw IO.Event.Error.platform(.posix(errno))
         }
         return fds
     }

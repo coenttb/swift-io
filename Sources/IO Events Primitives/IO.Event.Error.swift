@@ -5,6 +5,8 @@
 //  Created by Coen ten Thije Boonkkamp on 28/12/2025.
 //
 
+public import Kernel
+
 extension IO.Event {
     /// Leaf errors for non-blocking I/O operations.
     ///
@@ -27,11 +29,8 @@ extension IO.Event {
     public enum Error: Swift.Error, Sendable, Equatable {
         // MARK: - Platform Errors
 
-        /// Unix/POSIX error from `errno`.
-        case platform(errno: Int32)
-
-        /// Windows error from `GetLastError()` or `WSAGetLastError()`.
-        case platformWindows(code: UInt32)
+        /// Platform error code (POSIX errno or Win32 error).
+        case platform(Kernel.Error.Code)
 
         // MARK: - Descriptor Errors
 
@@ -76,10 +75,8 @@ extension IO.Event {
 extension IO.Event.Error: CustomStringConvertible {
     public var description: String {
         switch self {
-        case .platform(let errno):
-            return "Platform error (errno: \(errno))"
-        case .platformWindows(let code):
-            return "Windows error (code: \(code))"
+        case .platform(let code):
+            return "Platform error (\(code))"
         case .invalidDescriptor:
             return "Invalid descriptor"
         case .alreadyRegistered:

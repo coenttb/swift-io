@@ -5,13 +5,7 @@
 //  Created by Coen ten Thije Boonkkamp on 30/12/2025.
 //
 
-#if canImport(Darwin)
-    import Darwin
-#elseif canImport(Glibc)
-    import Glibc
-#elseif os(Windows)
-    import WinSDK
-#endif
+public import Kernel
 
 extension IO.Thread {
     /// Thread spawning callable type.
@@ -51,55 +45,20 @@ extension IO.Thread {
 extension IO.Thread.Spawn {
     /// Error thrown when thread creation fails.
     ///
-    /// Thread creation can fail due to:
-    /// - Resource limits (RLIMIT_NPROC, memory pressure)
-    /// - OS policy or sandboxing restrictions
-    /// - Windows quota/policy limits
-    ///
-    /// The error preserves the platform-specific error code for diagnostics.
+    /// Wraps `Kernel.Thread.Error` with additional context.
     public struct Error: Swift.Error, Sendable, Equatable, CustomStringConvertible {
-        /// The platform where the error originated.
-        public enum Platform: Sendable, Equatable {
-            case windows
-            case pthread
-        }
-
-        /// The platform where thread creation failed.
-        public let platform: Platform
-
-        /// The platform-specific error code.
-        ///
-        /// - On POSIX: The return value from `pthread_create` (e.g., EAGAIN, EPERM).
-        /// - On Windows: The value from `GetLastError()`.
-        public let code: Int
+        /// The underlying kernel error.
+        public let kernelError: Kernel.Thread.Error
 
         /// Human-readable description of the failure.
         public var description: String {
-            switch platform {
-            case .windows:
-                "CreateThread failed with error code \(code)"
-            case .pthread:
-                "pthread_create failed with error code \(code)"
-            }
+            kernelError.description
         }
 
         @usableFromInline
-        init(platform: Platform, code: Int) {
-            self.platform = platform
-            self.code = code
+        init(_ kernelError: Kernel.Thread.Error) {
+            self.kernelError = kernelError
         }
-
-        #if os(Windows)
-            @usableFromInline
-            static func fromLastError() -> Self {
-                Self(platform: .windows, code: Int(GetLastError()))
-            }
-        #else
-            @usableFromInline
-            static func fromPthreadResult(_ result: Int32) -> Self {
-                Self(platform: .pthread, code: Int(result))
-            }
-        #endif
     }
 }
 
@@ -116,104 +75,16 @@ extension IO.Thread.Spawn {
     /// - Parameter body: The work to run on the new thread. Executed exactly once.
     /// - Returns: An opaque handle to the thread.
     /// - Throws: `IO.Thread.Spawn.Error` if thread creation fails.
+    @inlinable
     public func callAsFunction(
         _ body: @escaping @Sendable () -> Void
     ) throws(Error) -> IO.Thread.Handle {
-        #if os(Windows)
-            let context = UnsafeMutablePointer<(@Sendable () -> Void)>.allocate(capacity: 1)
-            context.initialize(to: body)
-
-            let threadHandle = CreateThread(
-                nil,
-                0,
-                { context in
-                    guard let ctx = context else { return 0 }
-                    let body = ctx.assumingMemoryBound(to: (@Sendable () -> Void).self)
-                    // Ownership transfer: move() consumes the value, leaving memory uninitialized.
-                    // We deallocate before running work() to minimize leak window.
-                    let work = body.move()
-                    body.deallocate()
-                    work()
-                    return 0
-                },
-                context,
-                0,
-                nil
-            )
-
-            guard let handle = threadHandle else {
-                // Thread creation failed - clean up context to prevent leak.
-                // deinitialize() required here because we haven't moved out of the memory.
-                context.deinitialize(count: 1)
-                context.deallocate()
-                throw .fromLastError()
-            }
-
-            return IO.Thread.Handle(handle: handle)
-
-        #elseif canImport(Darwin)
-            var thread: pthread_t?
-            let contextPtr = UnsafeMutablePointer<(@Sendable () -> Void)>.allocate(capacity: 1)
-            contextPtr.initialize(to: body)
-
-            let result = pthread_create(
-                &thread,
-                nil,
-                { ctx in
-                    // Darwin: ctx is non-optional UnsafeMutableRawPointer
-                    let bodyPtr = ctx.assumingMemoryBound(to: (@Sendable () -> Void).self)
-                    // Ownership transfer: move() consumes the value, leaving memory uninitialized.
-                    // We deallocate before running work() to minimize leak window.
-                    let work = bodyPtr.move()
-                    bodyPtr.deallocate()
-                    work()
-                    return nil
-                },
-                contextPtr
-            )
-
-            guard result == 0, let thread else {
-                // Thread creation failed - clean up context to prevent leak.
-                // deinitialize() required here because we haven't moved out of the memory.
-                contextPtr.deinitialize(count: 1)
-                contextPtr.deallocate()
-                throw .fromPthreadResult(result)
-            }
-
-            return IO.Thread.Handle(thread: thread)
-
-        #else
-            // Linux: pthread_t is non-optional
-            var thread: pthread_t = 0
-            let contextPtr = UnsafeMutablePointer<(@Sendable () -> Void)>.allocate(capacity: 1)
-            contextPtr.initialize(to: body)
-
-            let result = pthread_create(
-                &thread,
-                nil,
-                { ctx in
-                    guard let ctx else { return nil }
-                    let bodyPtr = ctx.assumingMemoryBound(to: (@Sendable () -> Void).self)
-                    // Ownership transfer: move() consumes the value, leaving memory uninitialized.
-                    // We deallocate before running work() to minimize leak window.
-                    let work = bodyPtr.move()
-                    bodyPtr.deallocate()
-                    work()
-                    return nil
-                },
-                contextPtr
-            )
-
-            guard result == 0 else {
-                // Thread creation failed - clean up context to prevent leak.
-                // deinitialize() required here because we haven't moved out of the memory.
-                contextPtr.deinitialize(count: 1)
-                contextPtr.deallocate()
-                throw .fromPthreadResult(result)
-            }
-
-            return IO.Thread.Handle(thread: thread)
-        #endif
+        do {
+            let kernelHandle = try Kernel.Thread.create(body)
+            return IO.Thread.Handle(kernelHandle)
+        } catch {
+            throw Error(error)
+        }
     }
 
     /// Spawns a dedicated OS thread with an explicit value.

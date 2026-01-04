@@ -165,7 +165,7 @@ extension IO.Thread.Worker {
     /// - Note: Must be called exactly once. The `~Copyable` constraint enforces this.
     public consuming func join() {
         precondition(
-            handle.isCurrentThread == false,
+            handle.isCurrent == false,
             "IO.Thread.Worker.join() called on the current thread"
         )
         handle.join()

@@ -46,9 +46,7 @@ extension IO.Blocking.Deadline {
     /// - Parameter nanoseconds: Duration from now in nanoseconds.
     /// - Returns: A deadline at `now + nanoseconds`.
     public static func after(nanoseconds: Int64) -> Self {
-        let current = now
-        // Use truncating to avoid throws on Duration arithmetic
-        return (try? current.advancing(truncating: .nanoseconds(nanoseconds))) ?? current
+        now.advanced(by: .nanoseconds(nanoseconds))
     }
 
     /// Creates a deadline relative to now.

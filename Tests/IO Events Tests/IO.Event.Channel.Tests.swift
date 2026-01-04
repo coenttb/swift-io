@@ -4,6 +4,7 @@
 //
 
 import IO_Events_Kqueue
+import Kernel
 import StandardsTestSupport
 import Testing
 
@@ -33,7 +34,7 @@ extension IO.Event.Channel.Test.BasicIO {
             ptr.withMemoryRebound(to: Int32.self, capacity: 2) { pipe($0) }
         }
         guard result == 0 else {
-            throw IO.Event.Error.platform(errno: errno)
+            throw IO.Event.Error.platform(.posix(errno))
         }
 
         // Set non-blocking mode
@@ -204,7 +205,7 @@ extension IO.Event.Channel.Test.EOF {
             ptr.withMemoryRebound(to: Int32.self, capacity: 2) { pipe($0) }
         }
         guard result == 0 else {
-            throw IO.Event.Error.platform(errno: errno)
+            throw IO.Event.Error.platform(.posix(errno))
         }
 
         // Set non-blocking mode
@@ -269,7 +270,7 @@ extension IO.Event.Channel.Test.HalfClose {
             }
         }
         guard result == 0 else {
-            throw IO.Event.Error.platform(errno: errno)
+            throw IO.Event.Error.platform(.posix(errno))
         }
 
         // Set non-blocking mode
@@ -380,7 +381,7 @@ extension IO.Event.Channel.Test.Close {
             ptr.withMemoryRebound(to: Int32.self, capacity: 2) { pipe($0) }
         }
         guard result == 0 else {
-            throw IO.Event.Error.platform(errno: errno)
+            throw IO.Event.Error.platform(.posix(errno))
         }
 
         // Set non-blocking mode

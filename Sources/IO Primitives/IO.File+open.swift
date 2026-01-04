@@ -17,11 +17,11 @@ extension IO.File {
     ///   - path: The file path.
     ///   - options: Open options (mode, create, truncate, cache mode).
     /// - Returns: A file handle with Direct I/O state.
-    /// - Throws: `Kernel.Open.Error` on failure.
+    /// - Throws: `Kernel.File.Open.Error` on failure.
     public static func open(
         _ path: FilePath,
         options: Open.Options = .init()
-    ) throws(Kernel.Open.Error) -> Kernel.File.Handle {
+    ) throws(Kernel.File.Open.Error) -> Kernel.File.Handle {
         // 1. Discover requirements
         let requirements = Kernel.File.Direct.Requirements(path)
 
@@ -39,26 +39,16 @@ extension IO.File {
         if options.create { kernelOptions.insert(.create) }
         if options.truncate { kernelOptions.insert(.truncate) }
         if resolved == .direct { kernelOptions.insert(.direct) }
+        // TODO: Add .cacheDisabled when kernel makes it public
+        // if resolved == .uncached { kernelOptions.insert(.cacheDisabled) }
 
-        // 4. Open via Kernel
-        let descriptor = try Kernel.Open.open(
+        // 4. Open via Kernel (kernel handles platform specifics internally)
+        let descriptor = try Kernel.File.Open.open(
             path: path,
             mode: options.mode,
             options: kernelOptions,
             permissions: 0o644
         )
-
-        // 5. macOS: apply F_NOCACHE post-open
-        #if os(macOS)
-            if resolved == .uncached {
-                do {
-                    try Kernel.File.Direct.setNoCache(descriptor: descriptor, enabled: true)
-                } catch {
-                    try? Kernel.Close.close(descriptor)
-                    throw Kernel.Open.Error.io(.hardware)
-                }
-            }
-        #endif
 
         return Kernel.File.Handle(
             descriptor: descriptor,
@@ -74,7 +64,7 @@ extension IO.File {
     public static func open(
         _ path: String,
         options: Open.Options = .init()
-    ) throws(Kernel.Open.Error) -> Kernel.File.Handle {
+    ) throws(Kernel.File.Open.Error) -> Kernel.File.Handle {
         try open(FilePath(path), options: options)
     }
 }

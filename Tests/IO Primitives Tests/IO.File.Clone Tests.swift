@@ -5,6 +5,8 @@
 //  Created by Coen ten Thije Boonkkamp on 30/12/2025.
 //
 
+import Kernel
+import SystemPackage
 import Testing
 
 @testable import IO_Primitives
@@ -118,7 +120,7 @@ struct IOFileCloneTests {
                 .destinationExists,
                 .permissionDenied,
                 .isDirectory,
-                .platform(code: 42, operation: .copy),
+                .platform(code: .posix(42), operation: .copy),
             ]
 
             for error in errors {
@@ -135,9 +137,9 @@ struct IOFileCloneTests {
             #expect(IO.File.Clone.Error.notSupported == .notSupported)
             #expect(IO.File.Clone.Error.crossDevice != .notSupported)
 
-            let p1 = IO.File.Clone.Error.platform(code: 1, operation: .copy)
-            let p2 = IO.File.Clone.Error.platform(code: 1, operation: .copy)
-            let p3 = IO.File.Clone.Error.platform(code: 2, operation: .copy)
+            let p1 = IO.File.Clone.Error.platform(code: .posix(1), operation: .copy)
+            let p2 = IO.File.Clone.Error.platform(code: .posix(1), operation: .copy)
+            let p3 = IO.File.Clone.Error.platform(code: .posix(2), operation: .copy)
 
             #expect(p1 == p2)
             #expect(p1 != p3)
@@ -153,7 +155,7 @@ struct IOFileCloneTests {
             @Test("probe capability returns valid result")
             func probeCapability() throws {
                 // Probe /tmp which is on the boot volume (typically APFS)
-                let cap = try IO.File.Clone.capability(at: "/tmp")
+                let cap = try IO.File.Clone.capability(at: FilePath("/tmp"))
 
                 // On modern macOS with APFS, should be .reflink
                 // On older systems or HFS+, would be .none
@@ -163,7 +165,7 @@ struct IOFileCloneTests {
             @Test("probe nonexistent path throws")
             func probeNonexistent() throws {
                 #expect(throws: IO.File.Clone.Error.self) {
-                    try IO.File.Clone.capability(at: "/nonexistent/path/that/does/not/exist")
+                    try IO.File.Clone.capability(at: FilePath("/nonexistent/path/that/does/not/exist"))
                 }
             }
         }
@@ -187,8 +189,8 @@ struct IOFileCloneTests {
                 }
 
                 let result = try IO.File.Clone.clone(
-                    from: source,
-                    to: dest,
+                    from: FilePath(source),
+                    to: FilePath(dest),
                     behavior: .copyOnly
                 )
 
@@ -211,8 +213,8 @@ struct IOFileCloneTests {
                 }
 
                 let result = try IO.File.Clone.clone(
-                    from: source,
-                    to: dest,
+                    from: FilePath(source),
+                    to: FilePath(dest),
                     behavior: .reflinkOrCopy
                 )
 
@@ -236,12 +238,12 @@ struct IOFileCloneTests {
                 }
 
                 // First check capability
-                let cap = try IO.File.Clone.capability(at: source)
+                let cap = try IO.File.Clone.capability(at: FilePath(source))
 
                 if cap == .reflink {
                     let result = try IO.File.Clone.clone(
-                        from: source,
-                        to: dest,
+                        from: FilePath(source),
+                        to: FilePath(dest),
                         behavior: .reflinkOrFail
                     )
                     #expect(result == .reflinked)
@@ -249,8 +251,8 @@ struct IOFileCloneTests {
                     // If filesystem doesn't support reflink, should throw
                     #expect(throws: IO.File.Clone.Error.notSupported) {
                         try IO.File.Clone.clone(
-                            from: source,
-                            to: dest,
+                            from: FilePath(source),
+                            to: FilePath(dest),
                             behavior: .reflinkOrFail
                         )
                     }
@@ -270,8 +272,8 @@ struct IOFileCloneTests {
 
                 #expect(throws: IO.File.Clone.Error.destinationExists) {
                     try IO.File.Clone.clone(
-                        from: source,
-                        to: dest,
+                        from: FilePath(source),
+                        to: FilePath(dest),
                         behavior: .copyOnly
                     )
                 }
@@ -284,8 +286,8 @@ struct IOFileCloneTests {
 
                 #expect(throws: IO.File.Clone.Error.sourceNotFound) {
                     try IO.File.Clone.clone(
-                        from: source,
-                        to: dest,
+                        from: FilePath(source),
+                        to: FilePath(dest),
                         behavior: .copyOnly
                     )
                 }
@@ -305,8 +307,8 @@ struct IOFileCloneTests {
                 }
 
                 let result = try IO.File.Clone.clone(
-                    from: source,
-                    to: dest,
+                    from: FilePath(source),
+                    to: FilePath(dest),
                     behavior: .reflinkOrCopy
                 )
 
@@ -330,8 +332,8 @@ struct IOFileCloneTests {
                 }
 
                 let result = try IO.File.Clone.clone(
-                    from: source,
-                    to: dest,
+                    from: FilePath(source),
+                    to: FilePath(dest),
                     behavior: .copyOnly
                 )
 

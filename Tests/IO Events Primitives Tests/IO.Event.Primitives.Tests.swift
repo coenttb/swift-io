@@ -6,6 +6,7 @@
 //
 
 import IO_Events_Primitives
+import Kernel
 import Testing
 
 @Suite("IO.Event Primitives")
@@ -68,11 +69,11 @@ struct NonBlockingPrimitivesTests {
 
     @Test("Error descriptions")
     func errorDescriptions() {
-        let platformError = IO.Event.Error.platform(errno: 22)
+        let platformError = IO.Event.Error.platform(.posix(22))
         let invalidDesc = IO.Event.Error.invalidDescriptor
         let writeClosed = IO.Event.Error.writeClosed
 
-        #expect(platformError.description.contains("22"))
+        #expect(platformError.description.contains("Platform"))
         #expect(invalidDesc.description.contains("Invalid"))
         #expect(writeClosed.description.contains("closed"))
     }

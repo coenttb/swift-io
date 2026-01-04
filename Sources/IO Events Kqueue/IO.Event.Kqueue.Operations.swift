@@ -7,19 +7,9 @@
 
 #if canImport(Darwin)
 
-    import Darwin.C
+    public import Kernel
+    import SystemPackage
     import Synchronization
-
-    // Import the kevent function explicitly (not the struct)
-    @_silgen_name("kevent")
-    private func kevent_c(
-        _ kq: Int32,
-        _ changelist: UnsafePointer<Darwin.kevent>?,
-        _ nchanges: Int32,
-        _ eventlist: UnsafeMutablePointer<Darwin.kevent>?,
-        _ nevents: Int32,
-        _ timeout: UnsafePointer<timespec>?
-    ) -> Int32
 
     // MARK: - Registration Mapping
 
@@ -35,6 +25,33 @@
     /// so contention is minimal (only during concurrent Selector creation/destruction).
     private let registry = Mutex<[Int32: [IO.Event.ID: RegistrationEntry]]>([:])
 
+    // MARK: - Type Conversion
+
+    extension IO.Event.ID {
+        /// Creates an ID from kqueue event data.
+        @usableFromInline
+        init(_ data: Kernel.Kqueue.Event.Data) {
+            self.init(raw: data._rawValue)
+        }
+    }
+
+    // MARK: - Error Conversion
+
+    extension IO.Event.Error {
+        /// Creates an IO.Event.Error from a Kernel.Kqueue.Error.
+        init(_ kqueueError: Kernel.Kqueue.Error) {
+            switch kqueueError {
+            case .create(let code):
+                self = .platform(code)
+            case .kevent(let code):
+                self = .platform(code)
+            case .interrupted:
+                // Map interrupted to EINTR platform error
+                self = .platform(.posix(Errno.interrupted.rawValue))
+            }
+        }
+    }
+
     /// Internal implementation of kqueue operations.
     enum KqueueOperations {
         /// Counter for generating unique registration IDs.
@@ -48,10 +65,14 @@
 
         /// Creates a new kqueue handle.
         static func create() throws(IO.Event.Error) -> IO.Event.Driver.Handle {
-            let kq = Darwin.kqueue()
-            guard kq >= 0 else {
-                throw IO.Event.Error.platform(errno: errno)
+            let descriptor: Kernel.Descriptor
+            do {
+                descriptor = try Kernel.Kqueue.create()
+            } catch {
+                throw IO.Event.Error(error)
             }
+
+            let kq = descriptor.rawValue
 
             // Initialize empty registry for this kqueue
             registry.withLock { $0[kq] = [:] }
@@ -69,40 +90,32 @@
             let id = IO.Event.ID(raw: nextID.wrappingAdd(1, ordering: .relaxed).newValue)
 
             // Prepare kevent structures for registration
-            var events: [Darwin.kevent] = []
+            var events: [Kernel.Kqueue.Event] = []
+
+            // EV_ADD: Add filter (starts enabled)
+            // EV_CLEAR: Edge-triggered
+            // EV_DISPATCH: Auto-disable after delivery (requires re-arm)
+            //
+            // We start ENABLED so events that occur before arm() are captured
+            // as permits. If we started disabled, edges would be lost.
+            let addFlags: Kernel.Kqueue.Flags = .add | .clear | .dispatch
 
             if interest.contains(.read) {
-                var ev = Darwin.kevent()
-                ev.ident = UInt(descriptor)
-                ev.filter = Int16(EVFILT_READ)
-                // EV_ADD: Add filter (starts enabled)
-                // EV_CLEAR: Edge-triggered
-                // EV_DISPATCH: Auto-disable after delivery (requires re-arm)
-                //
-                // We start ENABLED so events that occur before arm() are captured
-                // as permits. If we started disabled, edges would be lost.
-                ev.flags = UInt16(EV_ADD | EV_CLEAR | EV_DISPATCH)
-                ev.fflags = 0
-                ev.data = 0
-                ev.udata = UnsafeMutableRawPointer(bitPattern: UInt(id.raw))
-                events.append(ev)
+                events.append(Kernel.Kqueue.Event(
+                    id: Kernel.Event.ID(UInt(descriptor)),
+                    filter: .read,
+                    flags: addFlags,
+                    data: Kernel.Kqueue.Event.Data(id.raw)
+                ))
             }
 
             if interest.contains(.write) {
-                var ev = Darwin.kevent()
-                ev.ident = UInt(descriptor)
-                ev.filter = Int16(EVFILT_WRITE)
-                // EV_ADD: Add filter (starts enabled)
-                // EV_CLEAR: Edge-triggered
-                // EV_DISPATCH: Auto-disable after delivery (requires re-arm)
-                //
-                // We start ENABLED so events that occur before arm() are captured
-                // as permits. If we started disabled, edges would be lost.
-                ev.flags = UInt16(EV_ADD | EV_CLEAR | EV_DISPATCH)
-                ev.fflags = 0
-                ev.data = 0
-                ev.udata = UnsafeMutableRawPointer(bitPattern: UInt(id.raw))
-                events.append(ev)
+                events.append(Kernel.Kqueue.Event(
+                    id: Kernel.Event.ID(UInt(descriptor)),
+                    filter: .write,
+                    flags: addFlags,
+                    data: Kernel.Kqueue.Event.Data(id.raw)
+                ))
             }
 
             guard !events.isEmpty else {
@@ -113,11 +126,12 @@
                 return id
             }
 
-            let result = events.withUnsafeBufferPointer { ptr in
-                kevent_c(kq, ptr.baseAddress, Int32(ptr.count), nil, 0, nil)
-            }
-            if result < 0 {
-                throw IO.Event.Error.platform(errno: errno)
+            do {
+                try Kernel.Kqueue.register(Kernel.Descriptor(rawValue: kq), events: events)
+            } catch let error as Kernel.Kqueue.Error {
+                throw IO.Event.Error(error)
+            } catch {
+                throw .platform(.posix(Errno.invalidArgument.rawValue))
             }
 
             // Store the mapping for future modify/deregister
@@ -149,58 +163,52 @@
             let toAdd = newInterest.subtracting(oldInterest)
             let toRemove = oldInterest.subtracting(newInterest)
 
-            var events: [Darwin.kevent] = []
+            var events: [Kernel.Kqueue.Event] = []
 
             // Remove old interests
             if toRemove.contains(.read) {
-                var ev = Darwin.kevent()
-                ev.ident = UInt(descriptor)
-                ev.filter = Int16(EVFILT_READ)
-                ev.flags = UInt16(EV_DELETE)
-                ev.fflags = 0
-                ev.data = 0
-                ev.udata = UnsafeMutableRawPointer(bitPattern: UInt(id.raw))
-                events.append(ev)
+                events.append(Kernel.Kqueue.Event(
+                    id: Kernel.Event.ID(UInt(descriptor)),
+                    filter: .read,
+                    flags: .delete,
+                    data: Kernel.Kqueue.Event.Data(id.raw)
+                ))
             }
             if toRemove.contains(.write) {
-                var ev = Darwin.kevent()
-                ev.ident = UInt(descriptor)
-                ev.filter = Int16(EVFILT_WRITE)
-                ev.flags = UInt16(EV_DELETE)
-                ev.fflags = 0
-                ev.data = 0
-                ev.udata = UnsafeMutableRawPointer(bitPattern: UInt(id.raw))
-                events.append(ev)
+                events.append(Kernel.Kqueue.Event(
+                    id: Kernel.Event.ID(UInt(descriptor)),
+                    filter: .write,
+                    flags: .delete,
+                    data: Kernel.Kqueue.Event.Data(id.raw)
+                ))
             }
 
             // Add new interests with EV_DISPATCH for one-shot semantics
+            let addFlags: Kernel.Kqueue.Flags = .add | .clear | .dispatch
             if toAdd.contains(.read) {
-                var ev = Darwin.kevent()
-                ev.ident = UInt(descriptor)
-                ev.filter = Int16(EVFILT_READ)
-                ev.flags = UInt16(EV_ADD | EV_CLEAR | EV_DISPATCH)
-                ev.fflags = 0
-                ev.data = 0
-                ev.udata = UnsafeMutableRawPointer(bitPattern: UInt(id.raw))
-                events.append(ev)
+                events.append(Kernel.Kqueue.Event(
+                    id: Kernel.Event.ID(UInt(descriptor)),
+                    filter: .read,
+                    flags: addFlags,
+                    data: Kernel.Kqueue.Event.Data(id.raw)
+                ))
             }
             if toAdd.contains(.write) {
-                var ev = Darwin.kevent()
-                ev.ident = UInt(descriptor)
-                ev.filter = Int16(EVFILT_WRITE)
-                ev.flags = UInt16(EV_ADD | EV_CLEAR | EV_DISPATCH)
-                ev.fflags = 0
-                ev.data = 0
-                ev.udata = UnsafeMutableRawPointer(bitPattern: UInt(id.raw))
-                events.append(ev)
+                events.append(Kernel.Kqueue.Event(
+                    id: Kernel.Event.ID(UInt(descriptor)),
+                    filter: .write,
+                    flags: addFlags,
+                    data: Kernel.Kqueue.Event.Data(id.raw)
+                ))
             }
 
             if !events.isEmpty {
-                let result = events.withUnsafeBufferPointer { ptr in
-                    kevent_c(kq, ptr.baseAddress, Int32(ptr.count), nil, 0, nil)
-                }
-                if result < 0 {
-                    throw IO.Event.Error.platform(errno: errno)
+                do {
+                    try Kernel.Kqueue.register(Kernel.Descriptor(rawValue: kq), events: events)
+                } catch let error as Kernel.Kqueue.Error {
+                    throw IO.Event.Error(error)
+                } catch {
+                    throw .platform(.posix(Errno.invalidArgument.rawValue))
                 }
             }
 
@@ -234,36 +242,37 @@
             let interest = entry.interest
 
             // Delete all registered filters
-            var events: [Darwin.kevent] = []
+            var events: [Kernel.Kqueue.Event] = []
 
             if interest.contains(.read) {
-                var ev = Darwin.kevent()
-                ev.ident = UInt(descriptor)
-                ev.filter = Int16(EVFILT_READ)
-                ev.flags = UInt16(EV_DELETE)
-                ev.fflags = 0
-                ev.data = 0
-                ev.udata = UnsafeMutableRawPointer(bitPattern: UInt(id.raw))
-                events.append(ev)
+                events.append(Kernel.Kqueue.Event(
+                    id: Kernel.Event.ID(UInt(descriptor)),
+                    filter: .read,
+                    flags: .delete,
+                    data: Kernel.Kqueue.Event.Data(id.raw)
+                ))
             }
             if interest.contains(.write) {
-                var ev = Darwin.kevent()
-                ev.ident = UInt(descriptor)
-                ev.filter = Int16(EVFILT_WRITE)
-                ev.flags = UInt16(EV_DELETE)
-                ev.fflags = 0
-                ev.data = 0
-                ev.udata = UnsafeMutableRawPointer(bitPattern: UInt(id.raw))
-                events.append(ev)
+                events.append(Kernel.Kqueue.Event(
+                    id: Kernel.Event.ID(UInt(descriptor)),
+                    filter: .write,
+                    flags: .delete,
+                    data: Kernel.Kqueue.Event.Data(id.raw)
+                ))
             }
 
             if !events.isEmpty {
-                let result = events.withUnsafeBufferPointer { ptr in
-                    kevent_c(kq, ptr.baseAddress, Int32(ptr.count), nil, 0, nil)
-                }
-                // Ignore ENOENT - the event may have been auto-removed if fd was closed
-                if result < 0 && errno != ENOENT {
-                    throw IO.Event.Error.platform(errno: errno)
+                do {
+                    try Kernel.Kqueue.register(Kernel.Descriptor(rawValue: kq), events: events)
+                } catch let error as Kernel.Kqueue.Error {
+                    // Ignore ENOENT - the event may have been auto-removed if fd was closed
+                    if case .kevent(let code) = error, code.posix == Errno.noSuchFileOrDirectory.rawValue {
+                        // Ignore
+                    } else {
+                        throw IO.Event.Error(error)
+                    }
+                } catch {
+                    throw .platform(.posix(Errno.invalidArgument.rawValue))
                 }
             }
         }
@@ -290,45 +299,40 @@
             }
 
             let descriptor = entry.descriptor
-            var events: [Darwin.kevent] = []
+            var events: [Kernel.Kqueue.Event] = []
+
+            // EV_ADD: Required to modify filter parameters (not just enable/disable)
+            // EV_ENABLE: Re-enable the filter after EV_DISPATCH disabled it
+            // EV_CLEAR: Edge-triggered - reset state after delivery
+            // EV_DISPATCH: Auto-disable after delivery (one-shot arming)
+            let armFlags: Kernel.Kqueue.Flags = .add | .enable | .clear | .dispatch
 
             if interest.contains(.read) {
-                var ev = Darwin.kevent()
-                ev.ident = UInt(descriptor)
-                ev.filter = Int16(EVFILT_READ)
-                // EV_ADD: Required to modify filter parameters (not just enable/disable)
-                // EV_ENABLE: Re-enable the filter after EV_DISPATCH disabled it
-                // EV_CLEAR: Edge-triggered - reset state after delivery
-                // EV_DISPATCH: Auto-disable after delivery (one-shot arming)
-                ev.flags = UInt16(EV_ADD | EV_ENABLE | EV_CLEAR | EV_DISPATCH)
-                ev.fflags = 0
-                ev.data = 0
-                ev.udata = UnsafeMutableRawPointer(bitPattern: UInt(id.raw))
-                events.append(ev)
+                events.append(Kernel.Kqueue.Event(
+                    id: Kernel.Event.ID(UInt(descriptor)),
+                    filter: .read,
+                    flags: armFlags,
+                    data: Kernel.Kqueue.Event.Data(id.raw)
+                ))
             }
 
             if interest.contains(.write) {
-                var ev = Darwin.kevent()
-                ev.ident = UInt(descriptor)
-                ev.filter = Int16(EVFILT_WRITE)
-                // EV_ADD: Required to modify filter parameters (not just enable/disable)
-                // EV_ENABLE: Re-enable the filter after EV_DISPATCH disabled it
-                // EV_CLEAR: Edge-triggered - reset state after delivery
-                // EV_DISPATCH: Auto-disable after delivery (one-shot arming)
-                ev.flags = UInt16(EV_ADD | EV_ENABLE | EV_CLEAR | EV_DISPATCH)
-                ev.fflags = 0
-                ev.data = 0
-                ev.udata = UnsafeMutableRawPointer(bitPattern: UInt(id.raw))
-                events.append(ev)
+                events.append(Kernel.Kqueue.Event(
+                    id: Kernel.Event.ID(UInt(descriptor)),
+                    filter: .write,
+                    flags: armFlags,
+                    data: Kernel.Kqueue.Event.Data(id.raw)
+                ))
             }
 
             guard !events.isEmpty else { return }
 
-            let result = events.withUnsafeBufferPointer { ptr in
-                kevent_c(kq, ptr.baseAddress, Int32(ptr.count), nil, 0, nil)
-            }
-            if result < 0 {
-                throw IO.Event.Error.platform(errno: errno)
+            do {
+                try Kernel.Kqueue.register(Kernel.Descriptor(rawValue: kq), events: events)
+            } catch let error as Kernel.Kqueue.Error {
+                throw IO.Event.Error(error)
+            } catch {
+                throw .platform(.posix(Errno.invalidArgument.rawValue))
             }
         }
 
@@ -338,60 +342,40 @@
             deadline: IO.Event.Deadline?,
             into buffer: inout [IO.Event]
         ) throws(IO.Event.Error) -> Int {
-            var timeout: timespec?
-
+            // Calculate Duration from deadline
+            var duration: Duration? = nil
             if let deadline = deadline {
-                // Calculate timeout from deadline
-                let now = getMonotonicTime()
+                let now = Kernel.Time.monotonicNanoseconds()
                 let deadlineNanos = Int64(bitPattern: deadline.nanoseconds)
                 let remaining = deadlineNanos - now
                 if remaining <= 0 {
-                    // Already expired
-                    timeout = timespec(tv_sec: 0, tv_nsec: 0)
+                    duration = .zero
                 } else {
-                    timeout = timespec(
-                        tv_sec: Int(remaining / 1_000_000_000),
-                        tv_nsec: Int(remaining % 1_000_000_000)
-                    )
+                    duration = .nanoseconds(remaining)
                 }
             }
 
             // Create a buffer for raw kevent structures
-            var rawEvents = [Darwin.kevent](repeating: Darwin.kevent(), count: buffer.count)
+            var rawEvents = [Kernel.Kqueue.Event](
+                repeating: Kernel.Kqueue.Event(id: .zero, filter: .read, flags: .none),
+                count: buffer.count
+            )
 
-            let count: Int32
-            if var ts = timeout {
-                count = rawEvents.withUnsafeMutableBufferPointer { evPtr in
-                    withUnsafePointer(to: &ts) { tsPtr in
-                        kevent_c(
-                            handle.rawValue,
-                            nil,
-                            0,
-                            evPtr.baseAddress,
-                            Int32(evPtr.count),
-                            tsPtr
-                        )
-                    }
+            let count: Int
+            do {
+                count = try Kernel.Kqueue.poll(
+                    Kernel.Descriptor(rawValue: handle.rawValue),
+                    into: &rawEvents,
+                    timeout: duration
+                )
+            } catch let error as Kernel.Kqueue.Error {
+                // Handle EINTR specially - return 0 events instead of throwing
+                if case .interrupted = error {
+                    return 0
                 }
-            } else {
-                count = rawEvents.withUnsafeMutableBufferPointer { evPtr in
-                    kevent_c(
-                        handle.rawValue,
-                        nil,
-                        0,
-                        evPtr.baseAddress,
-                        Int32(evPtr.count),
-                        nil
-                    )
-                }
-            }
-
-            if count < 0 {
-                let err = errno
-                if err == EINTR {
-                    return 0  // Interrupted, return 0 events
-                }
-                throw IO.Event.Error.platform(errno: err)
+                throw IO.Event.Error(error)
+            } catch {
+                throw .platform(.posix(Errno.invalidArgument.rawValue))
             }
 
             // Get current registrations for filtering stale events
@@ -405,15 +389,15 @@
 
             // Convert raw events to IO.Event
             var outputIndex = 0
-            for i in 0..<Int(count) {
+            for i in 0..<count {
                 let raw = rawEvents[i]
 
                 // Skip user events (wakeup)
-                if raw.filter == Int16(EVFILT_USER) {
+                if raw.filter == .user {
                     continue
                 }
 
-                let id = IO.Event.ID(raw: UInt64(UInt(bitPattern: raw.udata)))
+                let id = IO.Event.ID(raw.data)
 
                 // Poll race rule: drop events for deregistered IDs
                 guard registeredIDs.contains(id) else {
@@ -421,23 +405,23 @@
                 }
 
                 var interest: IO.Event.Interest = []
-                if raw.filter == Int16(EVFILT_READ) {
+                if raw.filter == .read {
                     interest.insert(.read)
                 }
-                if raw.filter == Int16(EVFILT_WRITE) {
+                if raw.filter == .write {
                     interest.insert(.write)
                 }
 
                 var flags: IO.Event.Flags = []
-                if raw.flags & UInt16(EV_EOF) != 0 {
+                if raw.flags.contains(.eof) {
                     flags.insert(.hangup)
-                    if raw.filter == Int16(EVFILT_READ) {
+                    if raw.filter == .read {
                         flags.insert(.readHangup)
-                    } else if raw.filter == Int16(EVFILT_WRITE) {
+                    } else if raw.filter == .write {
                         flags.insert(.writeHangup)
                     }
                 }
-                if raw.flags & UInt16(EV_ERROR) != 0 {
+                if raw.flags.contains(.error) {
                     flags.insert(.error)
                 }
 
@@ -458,7 +442,8 @@
             // Clean up the registry
             _ = registry.withLock { $0.removeValue(forKey: kq) }
 
-            Darwin.close(kq)
+            // Use Kernel.Close, ignoring any errors (fire-and-forget)
+            try? Kernel.Close.close(Kernel.Descriptor(rawValue: kq))
         }
 
         /// Creates a wakeup channel using EVFILT_USER.
@@ -466,21 +451,23 @@
             _ handle: borrowing IO.Event.Driver.Handle
         ) throws(IO.Event.Error) -> IO.Event.Wakeup.Channel {
             // Register a user event for wakeup
-            let wakeupIdent: UInt = 1  // Special ident for wakeup
+            let wakeupId = Kernel.Event.ID(1)  // Special id for wakeup
 
-            var ev = Darwin.kevent()
-            ev.ident = wakeupIdent
-            ev.filter = Int16(EVFILT_USER)
-            ev.flags = UInt16(EV_ADD | EV_CLEAR)
-            ev.fflags = 0
-            ev.data = 0
-            ev.udata = nil
+            let ev = Kernel.Kqueue.Event(
+                id: wakeupId,
+                filter: .user,
+                flags: .add | .clear
+            )
 
-            let result = withUnsafePointer(to: &ev) { ptr in
-                kevent_c(handle.rawValue, ptr, 1, nil, 0, nil)
-            }
-            if result < 0 {
-                throw IO.Event.Error.platform(errno: errno)
+            do {
+                try Kernel.Kqueue.register(
+                    Kernel.Descriptor(rawValue: handle.rawValue),
+                    events: [ev]
+                )
+            } catch let error as Kernel.Kqueue.Error {
+                throw IO.Event.Error(error)
+            } catch {
+                throw .platform(.posix(Errno.invalidArgument.rawValue))
             }
 
             // Capture the kqueue fd for the wakeup channel
@@ -488,25 +475,19 @@
 
             return IO.Event.Wakeup.Channel {
                 // Trigger the user event
-                var triggerEv = Darwin.kevent()
-                triggerEv.ident = wakeupIdent
-                triggerEv.filter = Int16(EVFILT_USER)
-                triggerEv.flags = 0
-                triggerEv.fflags = UInt32(NOTE_TRIGGER)
-                triggerEv.data = 0
-                triggerEv.udata = nil
+                let triggerEv = Kernel.Kqueue.Event(
+                    id: wakeupId,
+                    filter: .user,
+                    flags: .none,
+                    fflags: .trigger
+                )
 
-                _ = withUnsafePointer(to: &triggerEv) { ptr in
-                    kevent_c(kq, ptr, 1, nil, 0, nil)
-                }
+                // Fire-and-forget - ignore errors on wakeup
+                _ = try? Kernel.Kqueue.register(
+                    Kernel.Descriptor(rawValue: kq),
+                    events: [triggerEv]
+                )
             }
-        }
-
-        /// Gets the current monotonic time in nanoseconds.
-        private static func getMonotonicTime() -> Int64 {
-            var ts = timespec()
-            clock_gettime(CLOCK_MONOTONIC, &ts)
-            return Int64(ts.tv_sec) * 1_000_000_000 + Int64(ts.tv_nsec)
         }
     }
 

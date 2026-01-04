@@ -7,12 +7,7 @@
 
 public import Binary
 public import IO_Primitives
-
-#if canImport(Darwin)
-    import Darwin
-#elseif canImport(Glibc)
-    import Glibc
-#endif
+public import Kernel
 
 extension IO.Event {
     /// A non-blocking I/O channel for socket-based read and write operations.
@@ -150,19 +145,23 @@ extension IO.Event {
 
             // Read loop with retry on EAGAIN
             while true {
-                let result = buffer.withUnsafeMutableBytes { ptr -> ReadResult in
-                    let n = systemRead(descriptor, ptr.baseAddress, ptr.count)
-                    if n > 0 {
-                        return .read(n)
-                    } else if n == 0 {
-                        return .eof
-                    } else {
-                        let err = errno
-                        if err == EAGAIN || err == EWOULDBLOCK {
-                            return .wouldBlock
+                var result: ReadResult = .error(.handle(.invalid))
+                buffer.withUnsafeMutableBytes { ptr in
+                    do {
+                        let n = try Kernel.IO.Read.read(
+                            Kernel.Descriptor(rawValue: descriptor),
+                            into: ptr
+                        )
+                        result = n == 0 ? .eof : .read(n)
+                    } catch let error as Kernel.IO.Read.Error {
+                        if case .blocking(.wouldBlock) = error {
+                            result = .wouldBlock
                         } else {
-                            return .error(err)
+                            result = .error(error)
                         }
+                    } catch {
+                        // Unexpected error - treat as invalid handle
+                        result = .error(Kernel.IO.Read.Error.handle(.invalid))
                     }
                 }
 
@@ -180,8 +179,8 @@ extension IO.Event {
                     try await arm(for: .read)
                 // Continue loop to retry read
 
-                case .error(let err):
-                    throw .failure(.platform(errno: err))
+                case .error(let error):
+                    throw .failure(IO.Event.Error(error))
                 }
             }
         }
@@ -223,21 +222,29 @@ extension IO.Event {
 
             // Write loop with retry on EAGAIN
             while true {
-                let result = buffer.withUnsafeBytes { ptr -> WriteResult in
-                    let n = systemWrite(descriptor, ptr.baseAddress, ptr.count)
-                    if n > 0 {
-                        return .wrote(n)
-                    } else if n == 0 {
-                        // Treat write returning 0 on non-empty buffer as wouldBlock
-                        // to prevent tight loops on exotic descriptors
-                        return .wouldBlock
-                    } else {
-                        let err = errno
-                        if err == EAGAIN || err == EWOULDBLOCK {
-                            return .wouldBlock
+                var result: WriteResult = .error(.handle(.invalid))
+                buffer.withUnsafeBytes { ptr in
+                    do {
+                        let n = try Kernel.IO.Write.write(
+                            Kernel.Descriptor(rawValue: descriptor),
+                            from: ptr
+                        )
+                        if n > 0 {
+                            result = .wrote(n)
                         } else {
-                            return .error(err)
+                            // Treat write returning 0 on non-empty buffer as wouldBlock
+                            // to prevent tight loops on exotic descriptors
+                            result = .wouldBlock
                         }
+                    } catch let error as Kernel.IO.Write.Error {
+                        if case .blocking(.wouldBlock) = error {
+                            result = .wouldBlock
+                        } else {
+                            result = .error(error)
+                        }
+                    } catch {
+                        // Unexpected error - treat as invalid handle
+                        result = .error(Kernel.IO.Write.Error.handle(.invalid))
                     }
                 }
 
@@ -250,8 +257,8 @@ extension IO.Event {
                     try await arm(for: .write)
                 // Continue loop to retry write
 
-                case .error(let err):
-                    throw .failure(.platform(errno: err))
+                case .error(let error):
+                    throw .failure(IO.Event.Error(error))
                 }
             }
         }
@@ -275,8 +282,8 @@ extension IO.Event {
                     armed = consume result.token
                     // Check for socket error
                     if result.event.flags.contains(.error) {
-                        if let err = pendingSocketError() {
-                            throw Failure.failure(.platform(errno: err))
+                        if let code = pendingSocketError() {
+                            throw Failure.failure(.platform(code))
                         }
                     }
                 case .failed(token: let restoredToken, let failure):
@@ -297,8 +304,8 @@ extension IO.Event {
                     armed = consume result.token
                     // Check for socket error
                     if result.event.flags.contains(.error) {
-                        if let err = pendingSocketError() {
-                            throw Failure.failure(.platform(errno: err))
+                        if let code = pendingSocketError() {
+                            throw Failure.failure(.platform(code))
                         }
                     }
                 case .failed(token: let restoredToken, let failure):
@@ -378,14 +385,27 @@ extension IO.Event {
             await lifecycle.close.read()
 
             // Perform syscall, normalize errors for idempotence
-            let result = systemShutdown(descriptor, SHUT_RD)
-            if result != 0 {
-                let err = errno
-                // ENOTCONN is OK - socket wasn't connected
-                // EINVAL is OK - may already be shut down
-                if err != ENOTCONN && err != EINVAL {
-                    throw .failure(.platform(errno: err))
+            do {
+                try Kernel.Socket.Shutdown.shutdown(
+                    Kernel.Socket.Descriptor(rawValue: descriptor),
+                    how: .read
+                )
+            } catch let error as Kernel.Socket.Shutdown.Error {
+                // Ignore most shutdown errors for idempotence:
+                // - ENOTCONN (not connected) is expected for datagram sockets
+                // - EINVAL (invalid) can mean already shut down
+                // Only propagate serious I/O errors
+                if case .io(let ioError) = error {
+                    // Propagate hardware/reset errors
+                    switch ioError {
+                    case .hardware, .reset:
+                        throw .failure(IO.Event.Error(error))
+                    default:
+                        break
+                    }
                 }
+            } catch {
+                // Unexpected error type - ignore for idempotence
             }
         }
 
@@ -405,14 +425,27 @@ extension IO.Event {
             await lifecycle.close.write()
 
             // Perform syscall, normalize errors for idempotence
-            let result = systemShutdown(descriptor, SHUT_WR)
-            if result != 0 {
-                let err = errno
-                // ENOTCONN is OK - socket wasn't connected
-                // EINVAL is OK - may already be shut down
-                if err != ENOTCONN && err != EINVAL {
-                    throw .failure(.platform(errno: err))
+            do {
+                try Kernel.Socket.Shutdown.shutdown(
+                    Kernel.Socket.Descriptor(rawValue: descriptor),
+                    how: .write
+                )
+            } catch let error as Kernel.Socket.Shutdown.Error {
+                // Ignore most shutdown errors for idempotence:
+                // - ENOTCONN (not connected) is expected for datagram sockets
+                // - EINVAL (invalid) can mean already shut down
+                // Only propagate serious I/O errors
+                if case .io(let ioError) = error {
+                    // Propagate hardware/reset errors
+                    switch ioError {
+                    case .hardware, .reset:
+                        throw .failure(IO.Event.Error(error))
+                    default:
+                        break
+                    }
                 }
+            } catch {
+                // Unexpected error type - ignore for idempotence
             }
         }
 
@@ -442,7 +475,7 @@ extension IO.Event {
                     try await selector.deregister(taken)
                 } catch {
                     // Deregister failed - best effort: close the fd anyway
-                    _ = systemClose(descriptor)
+                    try? Kernel.Close.close(Kernel.Descriptor(rawValue: descriptor))
                     throw error
                 }
             } else {
@@ -454,7 +487,7 @@ extension IO.Event {
                         try await selector.deregister(taken)
                     } catch {
                         // Deregister failed - best effort: close the fd anyway
-                        _ = systemClose(descriptor)
+                        try? Kernel.Close.close(Kernel.Descriptor(rawValue: descriptor))
                         throw error
                     }
                 }
@@ -462,13 +495,18 @@ extension IO.Event {
             }
 
             // Close file descriptor
-            let result = systemClose(descriptor)
-            if result != 0 {
-                let err = errno
+            do {
+                try Kernel.Close.close(Kernel.Descriptor(rawValue: descriptor))
+            } catch let error as Kernel.Close.Error {
                 // EBADF means already closed - treat as success
-                if err != EBADF {
-                    throw .failure(.platform(errno: err))
+                switch error {
+                case .handle(.invalid):
+                    break
+                default:
+                    throw .failure(IO.Event.Error(error))
                 }
+            } catch {
+                // Unexpected error type - ignore
             }
         }
 
@@ -480,12 +518,19 @@ extension IO.Event {
         /// in SO_ERROR, not in errno. This fetches and clears it.
         ///
         /// - Returns: The pending error code, or nil if no error.
-        private func pendingSocketError() -> Int32? {
-            var err: Int32 = 0
-            var len = socklen_t(MemoryLayout<Int32>.size)
-            let rc = getsockopt(descriptor, SOL_SOCKET, SO_ERROR, &err, &len)
-            guard rc == 0, err != 0 else { return nil }
-            return err
+        private func pendingSocketError() -> Kernel.Error.Code? {
+            do {
+                let code = try Kernel.Socket.getError(Kernel.Socket.Descriptor(rawValue: descriptor))
+                // Check if there's an actual error (non-zero code)
+                switch code {
+                case .posix(0), .win32(0):
+                    return nil
+                default:
+                    return code
+                }
+            } catch {
+                return nil
+            }
         }
     }
 }
@@ -606,33 +651,91 @@ extension IO.Event.Channel {
         case read(Int)
         case eof
         case wouldBlock
-        case error(Int32)
+        case error(Kernel.IO.Read.Error)
     }
 
     /// Result of a write syscall.
     private enum WriteResult {
         case wrote(Int)
         case wouldBlock
-        case error(Int32)
+        case error(Kernel.IO.Write.Error)
     }
 }
 
-// MARK: - Platform Syscall Shims
-// Moved to IO.Event.Syscalls.swift for centralized platform abstraction.
-// Local aliases for backwards compatibility within this file.
+public import SystemPackage
 
-private func systemRead(_ fd: Int32, _ buf: UnsafeMutableRawPointer?, _ count: Int) -> Int {
-    IO.Event.Syscalls.read(fd, buf, count)
-}
+// MARK: - Kernel Error Conversions
 
-private func systemWrite(_ fd: Int32, _ buf: UnsafeRawPointer?, _ count: Int) -> Int {
-    IO.Event.Syscalls.write(fd, buf, count)
-}
+extension IO.Event.Error {
+    /// Creates an IO.Event.Error from a Kernel.IO.Read.Error.
+    init(_ readError: Kernel.IO.Read.Error) {
+        switch readError {
+        case .handle(.invalid):
+            self = .invalidDescriptor
+        case .handle(.limit):
+            self = .platform(.posix(Errno.tooManyOpenFiles.rawValue))
+        case .signal(.interrupted):
+            self = .platform(.posix(Errno.interrupted.rawValue))
+        case .blocking(.wouldBlock):
+            self = .platform(.posix(Errno.wouldBlock.rawValue))
+        case .io:
+            self = .platform(.posix(Errno.ioError.rawValue))
+        case .memory:
+            self = .platform(.posix(Errno.noMemory.rawValue))
+        case .platform(.unmapped(let code, _)):
+            self = .platform(code)
+        }
+    }
 
-private func systemShutdown(_ fd: Int32, _ how: Int32) -> Int32 {
-    IO.Event.Syscalls.shutdown(fd, how)
-}
+    /// Creates an IO.Event.Error from a Kernel.IO.Write.Error.
+    init(_ writeError: Kernel.IO.Write.Error) {
+        switch writeError {
+        case .handle(.invalid):
+            self = .invalidDescriptor
+        case .handle(.limit):
+            self = .platform(.posix(Errno.tooManyOpenFiles.rawValue))
+        case .signal(.interrupted):
+            self = .platform(.posix(Errno.interrupted.rawValue))
+        case .blocking(.wouldBlock):
+            self = .platform(.posix(Errno.wouldBlock.rawValue))
+        case .io:
+            self = .platform(.posix(Errno.ioError.rawValue))
+        case .space:
+            self = .platform(.posix(Errno.noSpace.rawValue))
+        case .memory:
+            self = .platform(.posix(Errno.noMemory.rawValue))
+        case .platform(.unmapped(let code, _)):
+            self = .platform(code)
+        }
+    }
 
-private func systemClose(_ fd: Int32) -> Int32 {
-    IO.Event.Syscalls.close(fd)
+    /// Creates an IO.Event.Error from a Kernel.Socket.Shutdown.Error.
+    init(_ shutdownError: Kernel.Socket.Shutdown.Error) {
+        switch shutdownError {
+        case .handle(.invalid):
+            self = .invalidDescriptor
+        case .handle(.limit):
+            self = .platform(.posix(Errno.tooManyOpenFiles.rawValue))
+        case .io:
+            self = .platform(.posix(Errno.ioError.rawValue))
+        case .platform(.unmapped(let code, _)):
+            self = .platform(code)
+        }
+    }
+
+    /// Creates an IO.Event.Error from a Kernel.Close.Error.
+    init(_ closeError: Kernel.Close.Error) {
+        switch closeError {
+        case .handle(.invalid):
+            self = .invalidDescriptor
+        case .handle(.limit):
+            self = .platform(.posix(Errno.tooManyOpenFiles.rawValue))
+        case .signal(.interrupted):
+            self = .platform(.posix(Errno.interrupted.rawValue))
+        case .io:
+            self = .platform(.posix(Errno.ioError.rawValue))
+        case .platform(.unmapped(let code, _)):
+            self = .platform(code)
+        }
+    }
 }

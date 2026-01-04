@@ -5,13 +5,24 @@
 //  Created by Coen ten Thije Boonkkamp on 30/12/2025.
 //
 
-#if canImport(Darwin)
-    import Darwin
-#elseif canImport(Glibc)
-    import Glibc
-#elseif os(Windows)
-    import WinSDK
-#endif
+public import Kernel
+public import SystemPackage
+
+// MARK: - Type Aliases
+
+extension IO.File.Clone {
+    /// Error type from Kernel.
+    public typealias Error = Kernel.File.Clone.Error
+
+    /// Behavior policy from Kernel.
+    public typealias Behavior = Kernel.File.Clone.Behavior
+
+    /// Capability type from Kernel.
+    public typealias Capability = Kernel.File.Clone.Capability
+
+    /// Result type from Kernel.
+    public typealias Result = Kernel.File.Clone.Result
+}
 
 // MARK: - Public API
 
@@ -28,27 +39,9 @@ extension IO.File.Clone {
     ///   - behavior: The cloning behavior policy.
     /// - Returns: The result indicating whether reflink or copy was used.
     /// - Throws: `IO.File.Clone.Error` if the operation fails.
-    ///
-    /// ## Example
-    ///
-    /// ```swift
-    /// // Best-effort clone with fallback
-    /// let result = try IO.File.Clone.clone(
-    ///     from: "/path/to/source",
-    ///     to: "/path/to/destination",
-    ///     behavior: .reflinkOrCopy
-    /// )
-    ///
-    /// switch result {
-    /// case .reflinked:
-    ///     print("Used zero-copy clone")
-    /// case .copied:
-    ///     print("Fell back to byte copy")
-    /// }
-    /// ```
     public static func clone(
-        from source: String,
-        to destination: String,
+        from source: FilePath,
+        to destination: FilePath,
         behavior: Behavior
     ) throws(Error) -> Result {
         switch behavior {
@@ -70,20 +63,11 @@ extension IO.File.Clone {
     /// - Parameter path: The path to probe (typically the source file or its directory).
     /// - Returns: The capability of the filesystem at that path.
     /// - Throws: `IO.File.Clone.Error` if probing fails.
-    ///
-    /// ## Example
-    ///
-    /// ```swift
-    /// let cap = try IO.File.Clone.capability(at: sourcePath)
-    /// if cap == .reflink {
-    ///     print("Filesystem supports zero-copy cloning")
-    /// }
-    /// ```
-    public static func capability(at path: String) throws(Error) -> Capability {
+    public static func capability(at path: FilePath) throws(Error) -> Capability {
         do {
-            return try probeCapability(at: path)
+            return try Kernel.File.Clone.Capability.probe(at: path)
         } catch {
-            throw Error(from: error)
+            throw .notSupported
         }
     }
 }
@@ -93,15 +77,18 @@ extension IO.File.Clone {
 extension IO.File.Clone {
     /// Clones using reflink only; fails if unsupported.
     private static func cloneReflinkOnly(
-        from source: String,
-        to destination: String
+        from source: FilePath,
+        to destination: FilePath
     ) throws(Error) -> Result {
         #if os(macOS)
             let cloned: Bool
             do {
-                cloned = try clonefileAttempt(source: source, destination: destination)
+                cloned = try Kernel.File.Clone.Clonefile.attempt(
+                    source: source,
+                    destination: destination
+                )
             } catch {
-                throw Error(from: error)
+                throw .notSupported
             }
 
             if cloned {
@@ -111,42 +98,60 @@ extension IO.File.Clone {
 
         #elseif os(Linux)
             // On Linux, we need to open files to use FICLONE
-            let srcFd = source.withCString { open($0, O_RDONLY) }
-            guard srcFd >= 0 else {
-                if errno == ENOENT {
+            let srcDescriptor: Kernel.Descriptor
+            do {
+                srcDescriptor = try Kernel.File.Open.open(
+                    path: source,
+                    mode: .read,
+                    options: [],
+                    permissions: 0
+                )
+            } catch let error as Kernel.File.Open.Error {
+                if case .path(.notFound) = error {
                     throw Error.sourceNotFound
                 }
-                throw Error.platform(code: errno, operation: .ficlone)
+                throw Error.notSupported
             }
-            defer { close(srcFd) }
+            defer { try? Kernel.Close.close(srcDescriptor) }
 
             // Create destination file
-            let dstFd = destination.withCString { open($0, O_WRONLY | O_CREAT | O_EXCL, 0o644) }
-            guard dstFd >= 0 else {
-                if errno == EEXIST {
+            let dstDescriptor: Kernel.Descriptor
+            do {
+                dstDescriptor = try Kernel.File.Open.open(
+                    path: destination,
+                    mode: .write,
+                    options: [.create, .exclusive],
+                    permissions: 0o644
+                )
+            } catch let error as Kernel.File.Open.Error {
+                if case .path(.exists) = error {
                     throw Error.destinationExists
                 }
-                throw Error.platform(code: errno, operation: .ficlone)
+                throw Error.notSupported
             }
-            defer { close(dstFd) }
+            defer { try? Kernel.Close.close(dstDescriptor) }
 
             let cloned: Bool
             do {
-                cloned = try ficloneAttempt(sourceFd: srcFd, destFd: dstFd)
-            } catch {
-                _ = destination.withCString { unlink($0) }
+                cloned = try Kernel.File.Clone.Ficlone.attempt(
+                    sourceFd: srcDescriptor.rawValue,
+                    destFd: dstDescriptor.rawValue
+                )
+            } catch let error as Kernel.File.Clone.Error.Syscall {
+                try? Kernel.Unlink.unlink(destination)
                 throw Error(from: error)
+            } catch {
+                try? Kernel.Unlink.unlink(destination)
+                throw .notSupported
             }
 
             if cloned {
                 return .reflinked
             }
-            // Clean up destination on failure
-            _ = destination.withCString { unlink($0) }
+            try? Kernel.Unlink.unlink(destination)
             throw Error.notSupported
 
         #elseif os(Windows)
-            // Windows reflink is very constrained; fail by default
             throw Error.notSupported
 
         #else
@@ -156,15 +161,17 @@ extension IO.File.Clone {
 
     /// Clones using reflink if available, falls back to copy.
     private static func cloneWithFallback(
-        from source: String,
-        to destination: String
+        from source: FilePath,
+        to destination: FilePath
     ) throws(Error) -> Result {
         #if os(macOS)
-            // macOS copyfile with COPYFILE_CLONE tries clone, falls back to copy
             // First try pure clonefile
             let cloned: Bool
             do {
-                cloned = try clonefileAttempt(source: source, destination: destination)
+                cloned = try Kernel.File.Clone.Clonefile.attempt(
+                    source: source,
+                    destination: destination
+                )
             } catch {
                 // Clonefile failed - fall through to copyfile
                 cloned = false
@@ -176,47 +183,66 @@ extension IO.File.Clone {
 
             // Use copyfile with COPYFILE_CLONE flag
             do {
-                try copyfileClone(source: source, destination: destination)
-                // We can't easily tell if it cloned or copied, assume best-effort worked
+                try Kernel.File.Clone.Copyfile.clone(
+                    source: source,
+                    destination: destination
+                )
                 return .copied
             } catch {
-                throw Error(from: error)
+                throw .notSupported
             }
 
         #elseif os(Linux)
             // Try FICLONE first
-            let srcFd = source.withCString { open($0, O_RDONLY) }
-            guard srcFd >= 0 else {
-                if errno == ENOENT {
+            let srcDescriptor: Kernel.Descriptor
+            do {
+                srcDescriptor = try Kernel.File.Open.open(
+                    path: source,
+                    mode: .read,
+                    options: [],
+                    permissions: 0
+                )
+            } catch let error as Kernel.File.Open.Error {
+                if case .path(.notFound) = error {
                     throw Error.sourceNotFound
                 }
-                throw Error.platform(code: errno, operation: .copyFileRange)
+                throw Error.notSupported
             }
-            defer { close(srcFd) }
+            defer { try? Kernel.Close.close(srcDescriptor) }
 
             // Get file size for copy_file_range
-            var statBuf = stat()
-            guard fstat(srcFd, &statBuf) == 0 else {
-                throw Error.platform(code: errno, operation: .stat)
+            let size: Int
+            do {
+                size = try Kernel.File.Clone.Metadata.size(at: source)
+            } catch {
+                throw Error.notSupported
             }
-            let size = Int(statBuf.st_size)
 
             // Create destination file
-            let dstFd = destination.withCString { open($0, O_WRONLY | O_CREAT | O_EXCL, 0o644) }
-            guard dstFd >= 0 else {
-                if errno == EEXIST {
+            let dstDescriptor: Kernel.Descriptor
+            do {
+                dstDescriptor = try Kernel.File.Open.open(
+                    path: destination,
+                    mode: .write,
+                    options: [.create, .exclusive],
+                    permissions: 0o644
+                )
+            } catch let error as Kernel.File.Open.Error {
+                if case .path(.exists) = error {
                     throw Error.destinationExists
                 }
-                throw Error.platform(code: errno, operation: .copyFileRange)
+                throw Error.notSupported
             }
-            defer { close(dstFd) }
+            defer { try? Kernel.Close.close(dstDescriptor) }
 
             // Try FICLONE
             var reflinked = false
             do {
-                reflinked = try ficloneAttempt(sourceFd: srcFd, destFd: dstFd)
+                reflinked = try Kernel.File.Clone.Ficlone.attempt(
+                    sourceFd: srcDescriptor.rawValue,
+                    destFd: dstDescriptor.rawValue
+                )
             } catch {
-                // FICLONE failed, fall through to copy_file_range
                 reflinked = false
             }
 
@@ -224,21 +250,31 @@ extension IO.File.Clone {
                 return .reflinked
             }
 
-            // Use copy_file_range (may still use server-side copy)
+            // Use copy_file_range
             do {
-                try copyFileRange(sourceFd: srcFd, destFd: dstFd, length: size)
+                try Kernel.File.Clone.CopyRange.copy(
+                    sourceFd: srcDescriptor.rawValue,
+                    destFd: dstDescriptor.rawValue,
+                    length: size
+                )
                 return .copied
-            } catch {
-                _ = destination.withCString { unlink($0) }
+            } catch let error as Kernel.File.Clone.Error.Syscall {
+                try? Kernel.Unlink.unlink(destination)
                 throw Error(from: error)
+            } catch {
+                try? Kernel.Unlink.unlink(destination)
+                throw .notSupported
             }
 
         #elseif os(Windows)
             do {
-                try copyFile(source: source, destination: destination)
+                try Kernel.File.Clone.Copy.file(
+                    source: source,
+                    destination: destination
+                )
                 return .copied
             } catch {
-                throw Error(from: error)
+                throw .notSupported
             }
 
         #else
@@ -248,53 +284,78 @@ extension IO.File.Clone {
 
     /// Copies a file without attempting reflink.
     private static func copyOnly(
-        from source: String,
-        to destination: String
+        from source: FilePath,
+        to destination: FilePath
     ) throws(Error) {
         #if os(macOS)
             do {
-                try copyfileData(source: source, destination: destination)
+                try Kernel.File.Clone.Copyfile.data(
+                    source: source,
+                    destination: destination
+                )
             } catch {
-                throw Error(from: error)
+                throw .notSupported
             }
 
         #elseif os(Linux)
-            let srcFd = source.withCString { open($0, O_RDONLY) }
-            guard srcFd >= 0 else {
-                if errno == ENOENT {
+            let srcDescriptor: Kernel.Descriptor
+            do {
+                srcDescriptor = try Kernel.File.Open.open(
+                    path: source,
+                    mode: .read,
+                    options: [],
+                    permissions: 0
+                )
+            } catch let error as Kernel.File.Open.Error {
+                if case .path(.notFound) = error {
                     throw Error.sourceNotFound
                 }
-                throw Error.platform(code: errno, operation: .copy)
+                throw Error.notSupported
             }
-            defer { close(srcFd) }
+            defer { try? Kernel.Close.close(srcDescriptor) }
 
-            var statBuf = Glibc.stat()
-            guard fstat(srcFd, &statBuf) == 0 else {
-                throw Error.platform(code: errno, operation: .stat)
+            let size: Int
+            do {
+                size = try Kernel.File.Clone.Metadata.size(at: source)
+            } catch {
+                throw Error.notSupported
             }
-            let size = Int(statBuf.st_size)
 
-            let dstFd = destination.withCString { open($0, O_WRONLY | O_CREAT | O_EXCL, 0o644) }
-            guard dstFd >= 0 else {
-                if errno == EEXIST {
+            let dstDescriptor: Kernel.Descriptor
+            do {
+                dstDescriptor = try Kernel.File.Open.open(
+                    path: destination,
+                    mode: .write,
+                    options: [.create, .exclusive],
+                    permissions: 0o644
+                )
+            } catch let error as Kernel.File.Open.Error {
+                if case .path(.exists) = error {
                     throw Error.destinationExists
                 }
-                throw Error.platform(code: errno, operation: .copy)
+                throw Error.notSupported
             }
-            defer { close(dstFd) }
+            defer { try? Kernel.Close.close(dstDescriptor) }
 
             do {
-                try copyFileRange(sourceFd: srcFd, destFd: dstFd, length: size)
+                try Kernel.File.Clone.CopyRange.copy(
+                    sourceFd: srcDescriptor.rawValue,
+                    destFd: dstDescriptor.rawValue,
+                    length: size
+                )
             } catch {
-                _ = destination.withCString { unlink($0) }
-                throw Error(from: error)
+                try? Kernel.Unlink.unlink(destination)
+                throw .notSupported
             }
 
         #elseif os(Windows)
             do {
-                try copyFile(source: source, destination: destination)
+                try Kernel.File.Clone.Copy.file(
+                    source: source,
+                    destination: destination
+                )
             } catch {
-                throw Error(from: error)
+                throw .notSupported
             }
 
         #else
