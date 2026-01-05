@@ -26,5 +26,5 @@ extension IO.Executor {
     /// - Sharing executors across Pool actors reduces resource waste
     /// - Round-robin assignment provides load balancing
     /// - Testable: Create a separate `Threads` instance for isolated tests
-    public static let shared: Threads = Threads()
+    public static let shared: Kernel.Thread.Executors = Kernel.Thread.Executors()
 }

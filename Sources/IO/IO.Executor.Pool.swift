@@ -48,7 +48,7 @@ extension IO.Executor {
         ///
         /// INVARIANT: Immutable for the lifetime of this actor. Rebinding is forbidden.
         /// `UnownedSerialExecutor` does not retain; executor must outlive actor.
-        private let _executor: IO.Executor.Thread
+        private let _executor: Kernel.Thread.Executor
 
         /// The lane for executing blocking operations.
         public let lane: IO.Blocking.Lane
@@ -135,7 +135,7 @@ extension IO.Executor {
             lane: IO.Blocking.Lane,
             policy: IO.Backpressure.Policy = .default,
             teardown: IO.Executor.Teardown<Resource> = IO.Executor.Teardown<Resource>.none,
-            executor: IO.Executor.Thread,
+            executor: Kernel.Thread.Executor,
             shardIndex: UInt16 = 0
         ) {
             self._executor = executor
@@ -192,7 +192,7 @@ extension IO.Executor.Pool where Resource: ~Copyable {
     ///
     /// Use with `withTaskExecutorPreference` to keep related work co-located
     /// on the same executor shard, reducing scheduling overhead.
-    public nonisolated var executor: IO.Executor.Thread {
+    public nonisolated var executor: Kernel.Thread.Executor {
         _executor
     }
 
@@ -325,12 +325,12 @@ extension IO.Executor.Pool where Resource: ~Copyable {
         }
 
         // 3. Run teardown for each resource on the lane
-        // Use IO.Handoff.Cell to move ~Copyable resources through escaping closure.
+        // Use Kernel.Handoff.Cell to move ~Copyable resources through escaping closure.
         // Cell is a one-shot ownership transfer: resource moved in, token crosses boundary, taken out.
         if let action = teardown.action {
             for (_, entry) in handles {
                 if let resource = entry.take() {
-                    let cell = IO.Handoff.Cell(resource)
+                    let cell = Kernel.Handoff.Cell(resource)
                     let token = cell.token()
                     do {
                         let _: Void = try await lane.run(deadline: nil) {
@@ -473,7 +473,7 @@ extension IO.Executor.Pool where Resource: ~Copyable {
     /// 1. If creation fails, no resource to teardown
     /// 2. If commit fails (shutdown), we still own the resource → teardown runs
     ///
-    /// Uses `IO.Handoff.Storage` to pass ~Copyable resource through escaping lane closure.
+    /// Uses `Kernel.Handoff.Storage` to pass ~Copyable resource through escaping lane closure.
     ///
     /// - Parameters:
     ///   - deadline: Optional deadline for the creation operation.
@@ -495,9 +495,9 @@ extension IO.Executor.Pool where Resource: ~Copyable {
             throw .cancelled
         }
 
-        // Create resource on lane via IO.Handoff.Storage (Resource is ~Copyable).
+        // Create resource on lane via Kernel.Handoff.Storage (Resource is ~Copyable).
         // Storage stays here; token crosses the escaping boundary.
-        let storage = IO.Handoff.Storage<Resource>()
+        let storage = Kernel.Handoff.Storage<Resource>()
         let storeToken = storage.token
 
         // Run make() on lane, store result via token
@@ -534,7 +534,7 @@ extension IO.Executor.Pool where Resource: ~Copyable {
         if let resource = _commitHandle(reservedID, resource) {
             // Commit failed (shutdown started) - run teardown with returned resource
             if let action = teardown.action {
-                let cell = IO.Handoff.Cell(resource)
+                let cell = Kernel.Handoff.Cell(resource)
                 let token = cell.token()
                 do {
                     // Try to run teardown on lane

@@ -34,11 +34,11 @@ extension IO.Executor {
     /// ```
     public enum Slot {}
 
-    // ## Relationship to IO.Handoff
-    // Both Slot and IO.Handoff solve "cross Sendable boundary" problems:
+    // ## Relationship to Kernel.Handoff
+    // Both Slot and Kernel.Handoff solve "cross Sendable boundary" problems:
     //
-    // - **IO.Handoff.Cell**: Simple one-shot ownership transfer (init → token → take)
-    // - **IO.Handoff.Storage**: Create inside closure, retrieve after (init → token → store → take)
+    // - **Kernel.Handoff.Cell**: Simple one-shot ownership transfer (init → token → take)
+    // - **Kernel.Handoff.Storage**: Create inside closure, retrieve after (init → token → store → take)
     // - **IO.Executor.Slot.Container**: Two-phase lane execution pattern with
     //   separate allocation, initialization, and consumption phases
     //

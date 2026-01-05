@@ -20,9 +20,9 @@ extension IO.Event {
     /// - **Phase-typed**: Wrong-state operations are compile-time errors
     /// - **Sendable**: Safe to pass across isolation boundaries
     ///
-    /// ## Distinction from IO.Handoff.Token
+    /// ## Distinction from Kernel.Handoff.Token
     /// - `IO.Event.Token<Phase>`: API safety (typestate for selector operations)
-    /// - `IO.Handoff.Token`: Ownership transfer of ~Copyable values across @Sendable boundaries
+    /// - `Kernel.Handoff.Token`: Ownership transfer of ~Copyable values across @Sendable boundaries
     ///
     /// ## Phases (defined in IO.Event namespace)
     /// - `Registering`: Initial phase after registration

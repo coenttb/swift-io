@@ -19,7 +19,7 @@ extension IO.Event {
     /// ## Architecture
     ///
     /// The Selector uses a split architecture:
-    /// - **Selector actor**: Runs on an `IO.Executor.Thread`, manages state
+    /// - **Selector actor**: Runs on an `Kernel.Thread.Executor`, manages state
     /// - **Poll thread**: Dedicated OS thread, owns driver handle, blocks in poll
     ///
     /// Communication between them uses thread-safe primitives:
@@ -35,7 +35,7 @@ extension IO.Event {
     ///
     /// ## Thread Safety
     ///
-    /// The actor is pinned to a custom `IO.Executor.Thread` for predictable
+    /// The actor is pinned to a custom `Kernel.Thread.Executor` for predictable
     /// scheduling. All state mutations and continuation resumptions happen
     /// on this executor.
     ///
@@ -53,7 +53,7 @@ extension IO.Event {
         private let driver: Driver
 
         /// Custom executor for this actor.
-        private let executor: IO.Executor.Thread
+        private let executor: Kernel.Thread.Executor
 
         /// Channel for waking the poll thread.
         private let wakeupChannel: Wakeup.Channel
@@ -71,7 +71,7 @@ extension IO.Event {
         private let shutdownFlag: PollLoop.Shutdown.Flag
 
         /// Handle to the poll thread (consumed on shutdown).
-        private var pollThreadHandle: IO.Thread.Handle?
+        private var pollThreadHandle: Kernel.Thread.Handle?
 
         /// Registration table.
         private var registrations: [ID: Registration] = [:]
@@ -127,14 +127,14 @@ extension IO.Event {
         /// Private memberwise initializer.
         private init(
             driver: Driver,
-            executor: IO.Executor.Thread,
+            executor: Kernel.Thread.Executor,
             wakeupChannel: Wakeup.Channel,
             eventBridge: IO.Event.Bridge,
             replyBridge: IO.Event.Registration.Reply.Bridge,
             registrationQueue: IO.Event.Registration.Queue,
             shutdownFlag: PollLoop.Shutdown.Flag,
             nextDeadline: PollLoop.NextDeadline,
-            pollThreadHandle: consuming IO.Thread.Handle
+            pollThreadHandle: consuming Kernel.Thread.Handle
         ) {
             self.driver = driver
             self.executor = executor
@@ -159,7 +159,7 @@ extension IO.Event {
         /// - Throws: `Make.Error` if construction fails.
         public static func make(
             driver: Driver,
-            executor: IO.Executor.Thread
+            executor: Kernel.Thread.Executor
         ) async throws(Make.Error) -> Selector {
             // Create driver handle and wakeup channel
             // Uses typed conversion helper - no existential widening, no `as` casts
@@ -191,7 +191,7 @@ extension IO.Event {
 
             // Start poll thread with context
             // Uses trap because thread spawn failure is unrecoverable for the selector runtime
-            let pollThreadHandle = IO.Thread.trap(context) { context in
+            let pollThreadHandle = Kernel.Thread.trap(context) { context in
                 PollLoop.run(context)
             }
 
@@ -222,7 +222,7 @@ extension IO.Event {
         /// - Returns: A new, running selector.
         /// - Throws: `Make.Error` if construction fails.
         public static func make(
-            executor: IO.Executor.Thread
+            executor: Kernel.Thread.Executor
         ) async throws(Make.Error) -> Selector {
             try await make(driver: .platform, executor: executor)
         }

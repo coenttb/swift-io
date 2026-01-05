@@ -89,7 +89,7 @@ extension IO.Executor {
         public init(
             count: Int,
             laneFactory: @Sendable () -> IO.Blocking.Lane,
-            executorFactory: @Sendable () -> IO.Executor.Thread,
+            executorFactory: @Sendable () -> Kernel.Thread.Executor,
             policy: IO.Backpressure.Policy = .default
         ) {
             precondition(count > 0 && count <= Int(UInt16.max), "Shard count must be 1...65535")
