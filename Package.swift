@@ -34,7 +34,8 @@ let package = Package(
         .package(path: "../swift-memory"),
 //        .package(url: "https://github.com/coenttb/swift-kernel.git", from: "0.2.0"),
 //        .package(url: "https://github.com/coenttb/swift-memory.git", from: "0.1.0"),
-        .package(url: "https://github.com/coenttb/swift-buffer.git", from: "0.1.1"),
+        .package(path: "../swift-buffer"),
+//        .package(url: "https://github.com/coenttb/swift-buffer.git", from: "0.1.1"),
     ],
     targets: [
         .target(
@@ -54,7 +55,10 @@ let package = Package(
         ),
         .target(
             name: "IO Blocking Threads",
-            dependencies: ["IO Blocking"]
+            dependencies: ["IO Blocking"],
+            swiftSettings: [
+                .define("IO_TESTING", .when(configuration: .debug))
+            ]
         ),
         .target(
             name: "IO",
@@ -140,10 +144,18 @@ let package = Package(
                 .product(name: "StandardsTestSupport", package: "swift-standards"),
             ]
         ),
+        .target(
+            name: "IO Test Support",
+            dependencies: [
+                "IO Blocking Threads",
+            ],
+            path: "Tests/Support"
+        ),
         .testTarget(
             name: "IO Blocking Threads Tests",
             dependencies: [
                 "IO Blocking Threads",
+                "IO Test Support",
                 .product(name: "StandardsTestSupport", package: "swift-standards"),
             ]
         ),
@@ -179,6 +191,7 @@ let package = Package(
             name: "IO Benchmarks",
             dependencies: [
                 "IO",
+                "IO Test Support",
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
                 .product(name: "StandardsTestSupport", package: "swift-standards"),

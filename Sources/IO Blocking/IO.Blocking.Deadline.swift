@@ -57,6 +57,16 @@ extension IO.Blocking.Deadline {
         after(nanoseconds: milliseconds * 1_000_000)
     }
 
+    /// Creates a deadline relative to now.
+    ///
+    /// - Parameter duration: Duration from now.
+    /// - Returns: A deadline at `now + duration`.
+    public static func after(_ duration: Swift.Duration) -> Self {
+        let components = duration.components
+        let nanoseconds = components.seconds * 1_000_000_000 + Int64(components.attoseconds / 1_000_000_000)
+        return after(nanoseconds: nanoseconds)
+    }
+
     /// Whether this deadline has passed.
     public var hasExpired: Bool {
         Self.now >= self
