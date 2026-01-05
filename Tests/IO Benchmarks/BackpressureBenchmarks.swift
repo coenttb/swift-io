@@ -588,7 +588,7 @@ extension BackpressureBenchmarks.Test.Performance {
                 workers: Kernel.Thread.Count(Self.threadCount),
                 queueLimit: Self.totalOps,
                 acceptanceWaitersLimit: Self.totalOps,
-                backpressure: .suspend
+                backpressure: .wait
             )
             let lane = IO.Blocking.Lane.threads(options)
 
@@ -656,7 +656,7 @@ extension BackpressureBenchmarks.Test.Performance {
                 workers: Kernel.Thread.Count(Self.threadCount),
                 queueLimit: Self.queueLimit,
                 acceptanceWaitersLimit: Self.acceptanceLimit,
-                backpressure: .throw  // Reject immediately when full
+                backpressure: .failFast  // Reject immediately when full
             )
             let lane = IO.Blocking.Lane.threads(options)
 
