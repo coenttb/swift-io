@@ -13,19 +13,6 @@ import Synchronization
 // Do not assume Threads is the only Lane implementation.
 
 extension IO.Blocking {
-    /// A unique identifier for an accepted job.
-    ///
-    /// Tickets are assigned at acceptance time and used to correlate
-    /// job completion with waiting callers. Each ticket is unique
-    /// within a Threads instance.
-    public struct Ticket: Hashable, Sendable {
-        public let rawValue: UInt64
-
-        public init(rawValue: UInt64) {
-            self.rawValue = rawValue
-        }
-    }
-
     /// A lane implementation backed by dedicated OS threads.
     ///
     /// ## Design
@@ -282,15 +269,6 @@ extension IO.Blocking.Threads {
 // MARK: - Test Observability
 
 extension IO.Blocking.Threads {
-    /// Snapshot of internal state for testing.
-    public struct DebugSnapshot: Sendable {
-        public let sleepers: Int
-        public let queueIsEmpty: Bool
-        public let queueCount: Int
-        public let inFlightCount: Int
-        public let isShutdown: Bool
-    }
-
     /// Returns a snapshot of internal state under the lock.
     /// Use for test assertions only.
     public func debugSnapshot() -> DebugSnapshot {
