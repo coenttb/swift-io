@@ -42,7 +42,7 @@ extension IO.Blocking.Threads.Acceptance {
         }
 
         /// The ticket for this waiter (delegates to job).
-        var ticket: IO.Blocking.Threads.Ticket {
+        var ticket: IO.Blocking.Ticket {
             job.ticket
         }
     }

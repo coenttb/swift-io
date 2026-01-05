@@ -87,9 +87,9 @@ extension IO.Blocking.Lane {
     ) async throws(IO.Blocking.Failure) -> Result<T, E> {
         let ptr = try await _run(deadline) {
             let result = operation()
-            return IO.Blocking.Box.make(result)
+            return Kernel.Handoff.Box.make(result)
         }
-        return IO.Blocking.Box.take(ptr)
+        return Kernel.Handoff.Box.take(ptr)
     }
 }
 
@@ -140,9 +140,9 @@ extension IO.Blocking.Lane {
     ) async throws(IO.Blocking.Failure) -> T {
         let ptr = try await _run(deadline) {
             let result = operation()
-            return IO.Blocking.Box.makeValue(result)
+            return Kernel.Handoff.Box.makeValue(result)
         }
-        return IO.Blocking.Box.takeValue(ptr)
+        return Kernel.Handoff.Box.takeValue(ptr)
     }
 }
 

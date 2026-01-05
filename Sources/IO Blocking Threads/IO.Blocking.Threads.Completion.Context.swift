@@ -9,7 +9,7 @@ import Synchronization
 
 extension IO.Blocking.Threads.Completion {
     /// Typed result for completion - no existential errors.
-    typealias Result = Swift.Result<IO.Blocking.Box.Pointer, IO.Blocking.Failure>
+    typealias Result = Swift.Result<Kernel.Handoff.Box.Pointer, IO.Blocking.Failure>
 
     /// Context for exactly-once completion resumption.
     ///
@@ -59,7 +59,7 @@ extension IO.Blocking.Threads.Completion {
         /// Attempt to complete with success. Returns true if this call resumed.
         ///
         /// Called by the worker after job execution.
-        func complete(with box: IO.Blocking.Box.Pointer) -> Bool {
+        func complete(with box: Kernel.Handoff.Box.Pointer) -> Bool {
             let (exchanged, _) = state.compareExchange(
                 expected: Self.pending,
                 desired: Self.completed,

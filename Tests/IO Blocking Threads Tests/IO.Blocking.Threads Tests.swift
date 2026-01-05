@@ -7,6 +7,7 @@ import Dimension
 import Foundation
 import IO_Blocking_Threads
 import IO_Test_Support
+import Kernel
 import StandardsTestSupport
 import Testing
 
@@ -46,9 +47,9 @@ extension IO.Blocking.Threads.Test.Unit {
         let threads = IO.Blocking.Threads()
 
         let ptr = try await threads.runBoxed(deadline: nil) {
-            IO.Blocking.Box.makeValue(42)
+            Kernel.Handoff.Box.makeValue(42)
         }
-        let result: Int = IO.Blocking.Box.takeValue(ptr)
+        let result: Int = Kernel.Handoff.Box.takeValue(ptr)
         #expect(result == 42)
 
         await threads.shutdown()
@@ -97,9 +98,9 @@ extension IO.Blocking.Threads.Test.Performance {
 
         // Warm up: ensure all workers are spawned
         let warmupPtr = try await threads.runBoxed(deadline: .none) {
-            IO.Blocking.Box.makeValue(())
+            Kernel.Handoff.Box.makeValue(())
         }
-        IO.Blocking.Box.destroy(warmupPtr)
+        Kernel.Handoff.Box.destroy(warmupPtr)
 
         // Wait for all workers to go back to sleep
         let idleReached = await ThreadPoolTesting.waitUntilIdle(
@@ -149,9 +150,9 @@ extension IO.Blocking.Threads.Test.Performance {
                             // This indicates signal() instead of broadcast()
                             timeoutTracker.markTimeout()
                         }
-                        return IO.Blocking.Box.makeValue(())
+                        return Kernel.Handoff.Box.makeValue(())
                     }
-                    IO.Blocking.Box.destroy(ptr)
+                    Kernel.Handoff.Box.destroy(ptr)
                 }
             }
         }
@@ -177,9 +178,9 @@ extension IO.Blocking.Threads.Test.EdgeCase {
 
         for i in 0..<10 {
             let ptr = try await threads.runBoxed(deadline: nil) {
-                IO.Blocking.Box.makeValue(i)
+                Kernel.Handoff.Box.makeValue(i)
             }
-            let result: Int = IO.Blocking.Box.takeValue(ptr)
+            let result: Int = Kernel.Handoff.Box.takeValue(ptr)
             #expect(result == i)
         }
 
@@ -210,9 +211,9 @@ extension IO.Blocking.Threads.Test.EdgeCase {
         _ = Task {
             let ptr: UnsafeMutableRawPointer = try await threads.runBoxed(deadline: nil) {
                 Thread.sleep(forTimeInterval: 2.0)  // Block worker for 2 seconds
-                return IO.Blocking.Box.makeValue(())
+                return Kernel.Handoff.Box.makeValue(())
             }
-            IO.Blocking.Box.destroy(ptr)
+            Kernel.Handoff.Box.destroy(ptr)
         }
 
         // Small delay to ensure slowJob1 is accepted first
@@ -221,9 +222,9 @@ extension IO.Blocking.Threads.Test.EdgeCase {
         _ = Task {
             let ptr: UnsafeMutableRawPointer = try await threads.runBoxed(deadline: nil) {
                 Thread.sleep(forTimeInterval: 2.0)
-                return IO.Blocking.Box.makeValue(())
+                return Kernel.Handoff.Box.makeValue(())
             }
-            IO.Blocking.Box.destroy(ptr)
+            Kernel.Handoff.Box.destroy(ptr)
         }
 
         // Wait for queue to be full (slowJob1 running + slowJob2 in queue = full)
@@ -233,7 +234,7 @@ extension IO.Blocking.Threads.Test.EdgeCase {
         let waitingTask = Task {
             do {
                 let _: UnsafeMutableRawPointer = try await threads.runBoxed(deadline: nil) {
-                    return IO.Blocking.Box.makeValue(())
+                    return Kernel.Handoff.Box.makeValue(())
                 }
                 return false  // Unexpected success
             } catch let error as IO.Blocking.Failure {
@@ -269,10 +270,10 @@ extension IO.Blocking.Threads.Test.EdgeCase {
             do {
                 let ptr: UnsafeMutableRawPointer = try await threads.runBoxed(deadline: nil) {
                     // Minimal work - use Box API for proper ownership
-                    IO.Blocking.Box.makeValue(42)
+                    Kernel.Handoff.Box.makeValue(42)
                 }
                 // Completion won - unbox via Box API
-                let value: Int = IO.Blocking.Box.takeValue(ptr)
+                let value: Int = Kernel.Handoff.Box.takeValue(ptr)
                 return "completed:\(value)"
             } catch let error as IO.Blocking.Failure {
                 return "cancelled:\(error)"
@@ -309,9 +310,9 @@ extension IO.Blocking.Threads.Test.EdgeCase {
         _ = Task {
             let ptr: UnsafeMutableRawPointer = try await threads.runBoxed(deadline: nil) {
                 Thread.sleep(forTimeInterval: 5.0)  // Long enough to outlast test
-                return IO.Blocking.Box.makeValue(())
+                return Kernel.Handoff.Box.makeValue(())
             }
-            IO.Blocking.Box.destroy(ptr)
+            Kernel.Handoff.Box.destroy(ptr)
         }
 
         try await Task.sleep(for: .milliseconds(10))
@@ -319,9 +320,9 @@ extension IO.Blocking.Threads.Test.EdgeCase {
         _ = Task {
             let ptr: UnsafeMutableRawPointer = try await threads.runBoxed(deadline: nil) {
                 Thread.sleep(forTimeInterval: 5.0)
-                return IO.Blocking.Box.makeValue(())
+                return Kernel.Handoff.Box.makeValue(())
             }
-            IO.Blocking.Box.destroy(ptr)
+            Kernel.Handoff.Box.destroy(ptr)
         }
 
         try await Task.sleep(for: .milliseconds(50))
@@ -330,7 +331,7 @@ extension IO.Blocking.Threads.Test.EdgeCase {
         let waitingTask = Task {
             do {
                 let _: UnsafeMutableRawPointer = try await threads.runBoxed(deadline: nil) {
-                    return IO.Blocking.Box.makeValue(())
+                    return Kernel.Handoff.Box.makeValue(())
                 }
                 return "unexpected-success"
             } catch let error as IO.Blocking.Failure {

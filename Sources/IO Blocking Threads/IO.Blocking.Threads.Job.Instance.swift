@@ -13,7 +13,7 @@ extension IO.Blocking.Threads.Job {
     /// The worker calls `context.complete()` directly after execution.
     ///
     /// ## Safety Invariant (for @unchecked Sendable)
-    /// - Jobs are created and consumed under the Worker.State lock
+    /// - Jobs are created and consumed under the Runtime.State lock
     /// - The operation closure is marked @Sendable and captures only Sendable state
     /// - The context is Sendable (uses atomic state for thread-safe resumption)
     ///
@@ -22,7 +22,7 @@ extension IO.Blocking.Threads.Job {
     /// - In that case, the box is destroyed to prevent leaks
     struct Instance: @unchecked Sendable {
         /// The ticket identifying this job (for debugging/logging).
-        let ticket: IO.Blocking.Threads.Ticket
+        let ticket: IO.Blocking.Ticket
 
         /// The context for exactly-once completion resumption.
         let context: IO.Blocking.Threads.Completion.Context
@@ -37,7 +37,7 @@ extension IO.Blocking.Threads.Job {
         ///   - context: The completion context (owns the continuation)
         ///   - operation: The blocking operation that produces a boxed result
         init(
-            ticket: IO.Blocking.Threads.Ticket,
+            ticket: IO.Blocking.Ticket,
             context: IO.Blocking.Threads.Completion.Context,
             operation: @Sendable @escaping () -> UnsafeMutableRawPointer
         ) {
@@ -54,9 +54,9 @@ extension IO.Blocking.Threads.Job {
         /// 3. If cancelled, destroy the box to prevent leaks
         func run() {
             let box = operation()
-            if !context.complete(with: IO.Blocking.Box.Pointer(box)) {
+            if !context.complete(with: Kernel.Handoff.Box.Pointer(box)) {
                 // Context was already cancelled - destroy the box
-                IO.Blocking.Box.destroy(box)
+                Kernel.Handoff.Box.destroy(box)
             }
         }
     }
