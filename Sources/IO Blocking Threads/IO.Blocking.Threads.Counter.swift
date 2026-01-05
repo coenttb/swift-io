@@ -5,23 +5,21 @@
 //  Created by Coen ten Thije Boonkkamp on 24/12/2025.
 //
 
+import Synchronization
+
 extension IO.Blocking.Threads {
     /// Thread-safe counter for generating unique IDs.
     ///
-    /// Uses the Lock from this module to ensure all synchronization primitives
-    /// are consolidated.
-    public final class Counter: @unchecked Sendable {
-        private let lock = Lock()
-        private var value: UInt64 = 0
+    /// Uses atomic operations for lock-free increment.
+    public final class Counter: Sendable {
+        private let value: Atomic<UInt64>
 
-        public init() {}
+        public init(_ initial: UInt64 = 0) {
+            self.value = Atomic(initial)
+        }
 
         public func next() -> UInt64 {
-            lock.withLock {
-                let result = value
-                value += 1
-                return result
-            }
+            value.wrappingAdd(1, ordering: .relaxed).oldValue
         }
     }
 }
