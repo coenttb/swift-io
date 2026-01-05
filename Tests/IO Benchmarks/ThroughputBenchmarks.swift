@@ -25,16 +25,58 @@ enum ThroughputBenchmarks {
 // MARK: - Helpers
 
 extension ThroughputBenchmarks {
-    /// Simulates blocking work by spinning for approximately the given duration.
-    /// Uses spinning instead of sleep for more consistent timing.
+    /// Simulates blocking work by spinning until deadline.
+    ///
+    /// Uses `ContinuousClock` for accurate, machine-independent timing.
+    /// Clock is checked every 64 iterations to bound overhead.
     @inline(never)
-    static func simulateWork(microseconds: Int) {
-        let iterations = microseconds * 100  // Approximate calibration
+    static func simulateWork(duration: Duration) {
+        let deadline = ContinuousClock.now.advanced(by: duration)
         var sum = 0
-        for i in 0..<iterations {
-            sum &+= i
+        var checkCounter = 0
+        while true {
+            sum &+= checkCounter
+            checkCounter += 1
+            if checkCounter & 63 == 0 {  // Check every 64 iterations
+                if ContinuousClock.now >= deadline { break }
+            }
         }
         withExtendedLifetime(sum) {}
+    }
+}
+
+// MARK: - Work Simulator Baseline
+
+extension ThroughputBenchmarks.Test.Performance {
+
+    /// Validates that simulateWork() produces accurate timing.
+    /// Run these to sanity-check timing on your machine.
+    @Suite("Work Simulator Baseline")
+    struct SimulatorBaseline {
+
+        @Test(
+            "simulateWork(10μs) actual duration",
+            .timed(iterations: 1000, warmup: 100, trackAllocations: false)
+        )
+        func tenMicroseconds() {
+            ThroughputBenchmarks.simulateWork(duration: .microseconds(10))
+        }
+
+        @Test(
+            "simulateWork(100μs) actual duration",
+            .timed(iterations: 100, warmup: 10, trackAllocations: false)
+        )
+        func hundredMicroseconds() {
+            ThroughputBenchmarks.simulateWork(duration: .microseconds(100))
+        }
+
+        @Test(
+            "simulateWork(1ms) actual duration",
+            .timed(iterations: 10, warmup: 2, trackAllocations: false)
+        )
+        func oneMillisecond() {
+            ThroughputBenchmarks.simulateWork(duration: .milliseconds(1))
+        }
     }
 }
 
@@ -47,7 +89,7 @@ extension ThroughputBenchmarks.Test.Performance {
 
         static let fixture = ThreadPoolFixture.shared
         static let operationCount = 1000
-        static let workMicroseconds = 10
+        static let workDuration = Duration.microseconds(10)
 
         @Test(
             "swift-io: 1000 sequential ops (10μs each)",
@@ -57,7 +99,7 @@ extension ThroughputBenchmarks.Test.Performance {
             let lane = Self.fixture.swiftIOLane
             for _ in 0..<Self.operationCount {
                 let result: Result<Int, Never> = try await lane.run(deadline: .none) {
-                    ThroughputBenchmarks.simulateWork(microseconds: Self.workMicroseconds)
+                    ThroughputBenchmarks.simulateWork(duration: Self.workDuration)
                     return 1
                 }
                 switch result {
@@ -74,7 +116,7 @@ extension ThroughputBenchmarks.Test.Performance {
         func nioSequential() async throws {
             for _ in 0..<Self.operationCount {
                 let result = try await Self.fixture.nio.runIfActive {
-                    ThroughputBenchmarks.simulateWork(microseconds: Self.workMicroseconds)
+                    ThroughputBenchmarks.simulateWork(duration: Self.workDuration)
                     return 1
                 }
                 withExtendedLifetime(result) {}
@@ -92,7 +134,7 @@ extension ThroughputBenchmarks.Test.Performance {
 
         static let fixture = ThreadPoolFixture.shared
         static let operationCount = 1000
-        static let workMicroseconds = 10
+        static let workDuration = Duration.microseconds(10)
 
         @Test(
             "swift-io: 1000 concurrent ops (10μs each)",
@@ -104,7 +146,7 @@ extension ThroughputBenchmarks.Test.Performance {
                 for _ in 0..<Self.operationCount {
                     group.addTask {
                         let result: Result<Int, Never> = try await lane.run(deadline: .none) {
-                            ThroughputBenchmarks.simulateWork(microseconds: Self.workMicroseconds)
+                            ThroughputBenchmarks.simulateWork(duration: Self.workDuration)
                             return 1
                         }
                         switch result {
@@ -130,7 +172,7 @@ extension ThroughputBenchmarks.Test.Performance {
                 for _ in 0..<Self.operationCount {
                     group.addTask {
                         try await Self.fixture.nio.runIfActive {
-                            ThroughputBenchmarks.simulateWork(microseconds: Self.workMicroseconds)
+                            ThroughputBenchmarks.simulateWork(duration: Self.workDuration)
                             return 1
                         }
                     }
@@ -154,7 +196,7 @@ extension ThroughputBenchmarks.Test.Performance {
 
         static let fixture = ThreadPoolFixture.shared
         static let operationCount = 100
-        static let workMicroseconds = 1000  // 1ms per operation
+        static let workDuration = Duration.milliseconds(1)  // 1ms per operation
 
         @Test(
             "swift-io: 100 concurrent ops (1ms each)",
@@ -166,7 +208,7 @@ extension ThroughputBenchmarks.Test.Performance {
                 for _ in 0..<Self.operationCount {
                     group.addTask {
                         let result: Result<Int, Never> = try await lane.run(deadline: .none) {
-                            ThroughputBenchmarks.simulateWork(microseconds: Self.workMicroseconds)
+                            ThroughputBenchmarks.simulateWork(duration: Self.workDuration)
                             return 1
                         }
                         switch result {
@@ -192,7 +234,7 @@ extension ThroughputBenchmarks.Test.Performance {
                 for _ in 0..<Self.operationCount {
                     group.addTask {
                         try await Self.fixture.nio.runIfActive {
-                            ThroughputBenchmarks.simulateWork(microseconds: Self.workMicroseconds)
+                            ThroughputBenchmarks.simulateWork(duration: Self.workDuration)
                             return 1
                         }
                     }

@@ -3,6 +3,7 @@
 //  swift-io
 //
 
+import Dimension
 import StandardsTestSupport
 import Testing
 

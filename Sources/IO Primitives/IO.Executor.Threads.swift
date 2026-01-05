@@ -27,7 +27,7 @@ extension IO.Executor {
         ///
         /// Threads start immediately upon pool creation.
         public init(_ options: Options = .init()) {
-            self.executors = (0..<options.count).map { _ in Thread() }
+            self.executors = (0..<Int(options.count)).map { _ in Thread() }
             self.counter = Atomic(0)
         }
     }

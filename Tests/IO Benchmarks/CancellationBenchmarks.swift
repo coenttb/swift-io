@@ -13,6 +13,7 @@
 //  swift test -c release --filter CancellationBenchmarks
 //
 
+import Dimension
 import IO
 import NIOPosix
 import StandardsTestSupport
@@ -39,7 +40,7 @@ extension CancellationBenchmarks.Test.Performance {
         func swiftIOPreAcceptance() async throws {
             // Tiny queue to force waiting
             let options = IO.Blocking.Threads.Options(
-                workers: Self.threadCount,
+                workers: IO.Thread.Count(Self.threadCount),
                 policy: IO.Backpressure.Policy(
                     strategy: .wait,
                     laneQueueLimit: Self.queueLimit
@@ -53,7 +54,7 @@ extension CancellationBenchmarks.Test.Performance {
                     for _ in 0..<(Self.queueLimit + Self.threadCount) {
                         group.addTask {
                             let result: Result<Void, Never> = try await lane.run(deadline: .none) {
-                                ThroughputBenchmarks.simulateWork(microseconds: 10000)
+                                ThroughputBenchmarks.simulateWork(duration: .milliseconds(10))
                             }
                             _ = result
                         }
@@ -116,7 +117,7 @@ extension CancellationBenchmarks.Test.Performance {
                 do {
                     let result: Result<Int, Never> = try await lane.run(deadline: .none) {
                         // Long-running work that will be "cancelled"
-                        ThroughputBenchmarks.simulateWork(microseconds: 5000)
+                        ThroughputBenchmarks.simulateWork(duration: .milliseconds(5))
                         return 42
                     }
                     switch result {
@@ -157,14 +158,14 @@ extension CancellationBenchmarks.Test.Performance {
             .timed(iterations: 10, warmup: 2, trackAllocations: false)
         )
         func swiftIOBatch() async throws {
-            let lane = IO.Blocking.Lane.threads(.init(workers: Self.threadCount))
+            let lane = IO.Blocking.Lane.threads(.init(workers: IO.Thread.Count(Self.threadCount)))
 
             let parentTask = Task {
                 try await withThrowingTaskGroup(of: Int.self) { group in
                     for i in 0..<Self.taskCount {
                         group.addTask {
                             let result: Result<Int, Never> = try await lane.run(deadline: .none) {
-                                ThroughputBenchmarks.simulateWork(microseconds: 1000)
+                                ThroughputBenchmarks.simulateWork(duration: .milliseconds(1))
                                 return i
                             }
                             switch result {
@@ -205,7 +206,7 @@ extension CancellationBenchmarks.Test.Performance {
                     for i in 0..<Self.taskCount {
                         group.addTask {
                             try await pool.runIfActive {
-                                ThroughputBenchmarks.simulateWork(microseconds: 1000)
+                                ThroughputBenchmarks.simulateWork(duration: .milliseconds(1))
                                 return i
                             }
                         }

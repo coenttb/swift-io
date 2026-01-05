@@ -6,6 +6,7 @@
 //
 
 import Synchronization
+public import Dimension
 
 extension IO.Blocking.Lane {
     /// Creates a sharded lane that distributes work across multiple independent lanes.
@@ -56,13 +57,13 @@ extension IO.Blocking.Lane {
     ///   - make: Factory that creates each lane. Called `count` times.
     /// - Returns: A lane that distributes work across the shards.
     public static func sharded(
-        count: Int? = nil,
+        count: IO.Blocking.Lane.Count? = nil,
         make: @Sendable () -> IO.Blocking.Lane
     ) -> IO.Blocking.Lane {
-        let laneCount = count ?? IO.Platform.processorCount
-        precondition(laneCount > 0, "Lane count must be > 0")
+        let laneCount = count ?? IO.Blocking.Lane.Count(IO.Platform.processorCount)
+        precondition(Int(laneCount) > 0, "Lane count must be > 0")
 
-        let lanes = (0..<laneCount).map { _ in make() }
+        let lanes = (0..<Int(laneCount)).map { _ in make() }
         let counter = Atomic<UInt64>(0)
 
         // Compute intersection of capabilities

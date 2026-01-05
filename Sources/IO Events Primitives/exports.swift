@@ -5,4 +5,5 @@
 //  Created by Coen ten Thije Boonkkamp on 05/01/2026.
 //
 
-import Foundation
+@_exported import Kernel
+@_exported import IO_Primitives

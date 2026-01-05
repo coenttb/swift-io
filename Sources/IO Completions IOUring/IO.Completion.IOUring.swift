@@ -8,7 +8,7 @@
 #if os(Linux)
 
     public import Kernel
-    import MMap
+    public import Memory
     @_exported public import IO_Completions_Driver
 
     extension IO.Completion {

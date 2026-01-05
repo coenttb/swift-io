@@ -8,7 +8,7 @@
 #if os(Linux)
 
     public import Kernel
-    import MMap
+    public import Memory
 
     extension IO.Completion.IOUring {
         /// Poll-thread-confined ring state for io_uring.
@@ -39,13 +39,13 @@
             // MARK: - Mmap'd Regions
 
             /// Submission queue ring memory.
-            var sqRing: MMap.Region
+            var sqRing: Memory.Map
 
             /// Completion queue ring memory.
-            var cqRing: MMap.Region
+            var cqRing: Memory.Map
 
             /// Submission queue entries array.
-            var sqeArray: MMap.Region
+            var sqeArray: Memory.Map
 
             // MARK: - Cached SQ Pointers
 
@@ -107,10 +107,10 @@
 
                 // Map SQ ring
                 do {
-                    self.sqRing = try MMap.Region(
+                    self.sqRing = try Memory.Map(
                         fileDescriptor: fd,
                         mmapOffset: Kernel.IOUring.MmapOffset.sqRing,
-                        length: sqRingSize,
+                        length: Kernel.File.Size(sqRingSize),
                         access: [.read, .write],
                         sharing: .shared
                     )
@@ -120,10 +120,10 @@
 
                 // Map CQ ring
                 do {
-                    self.cqRing = try MMap.Region(
+                    self.cqRing = try Memory.Map(
                         fileDescriptor: fd,
                         mmapOffset: Kernel.IOUring.MmapOffset.cqRing,
-                        length: cqRingSize,
+                        length: Kernel.File.Size(cqRingSize),
                         access: [.read, .write],
                         sharing: .shared
                     )
@@ -133,10 +133,10 @@
 
                 // Map SQE array
                 do {
-                    self.sqeArray = try MMap.Region(
+                    self.sqeArray = try Memory.Map(
                         fileDescriptor: fd,
                         mmapOffset: Kernel.IOUring.MmapOffset.sqes,
-                        length: sqeArraySize,
+                        length: Kernel.File.Size(sqeArraySize),
                         access: [.read, .write],
                         sharing: .shared
                     )
@@ -175,7 +175,7 @@
             }
 
             deinit {
-                // MMap.Region handles unmapping in its deinit
+                // Memory.Map handles unmapping in its deinit
                 // We just need to close the fd
                 Kernel.IOUring.close(fd)
             }

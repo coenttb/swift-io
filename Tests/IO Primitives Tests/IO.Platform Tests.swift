@@ -3,6 +3,7 @@
 //  swift-io
 //
 
+import Kernel
 import StandardsTestSupport
 import Testing
 
@@ -17,13 +18,14 @@ extension IO.Platform {
 extension IO.Platform.Test.Unit {
     @Test("processorCount is positive")
     func processorCountPositive() {
-        #expect(IO.Platform.processorCount >= 1)
+        #expect(Int(IO.Platform.processorCount) >= 1)
     }
 
     @Test("processorCount is reasonable")
     func processorCountReasonable() {
         // Processor count should be between 1 and some reasonable upper bound
-        #expect(IO.Platform.processorCount >= 1)
-        #expect(IO.Platform.processorCount <= 1024)
+        let count = Int(IO.Platform.processorCount)
+        #expect(count >= 1)
+        #expect(count <= 1024)
     }
 }

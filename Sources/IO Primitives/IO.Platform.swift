@@ -17,7 +17,7 @@ extension IO.Platform {
     ///
     /// Forwards to `Kernel.System.processorCount`.
     @inlinable
-    public static var processorCount: Int {
+    public static var processorCount: Kernel.System.Processor.Count {
         Kernel.System.processorCount
     }
 }

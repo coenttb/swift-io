@@ -17,6 +17,7 @@
 //  swift test -c release --filter SchedulingLatencyBenchmarks
 //
 
+import Dimension
 import IO
 import StandardsTestSupport
 import Testing

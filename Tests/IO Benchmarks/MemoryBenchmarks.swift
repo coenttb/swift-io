@@ -17,6 +17,7 @@
 //  These benchmarks focus on relative allocation behavior.
 //
 
+import Dimension
 import IO
 import NIOPosix
 import StandardsTestSupport
@@ -181,7 +182,7 @@ extension MemoryBenchmarks.Test.Performance {
             .timed(iterations: 3, warmup: 1, trackAllocations: true)
         )
         func swiftIOSustained() async throws {
-            let lane = IO.Blocking.Lane.threads(.init(workers: Self.threadCount))
+            let lane = IO.Blocking.Lane.threads(.init(workers: IO.Thread.Count(Self.threadCount)))
 
             try await withThrowingTaskGroup(of: [UInt8].self) { group in
                 for _ in 0..<Self.operationCount {

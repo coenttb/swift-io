@@ -136,13 +136,11 @@ extension IO.Blocking.Threads {
                     return
                 }
 
-                // Try to enqueue directly with transition-based signaling
+                // Try to enqueue directly with transition-based wakeup
                 let wasEmpty = state.queue.isEmpty
                 if state.tryEnqueue(job) {
-                    // Signal only on empty→non-empty transition AND if someone is sleeping
-                    if wasEmpty && state.sleepers > 0 {
-                        state.lock.worker.signal()
-                    }
+                    // Wake all sleeping workers if queue transitioned empty→non-empty
+                    state.wakeSleepersIfNeeded(didBecomeNonEmpty: wasEmpty)
                     state.lock.unlock()
                     // Job enqueued - worker will complete via context
                     return
@@ -264,6 +262,38 @@ extension IO.Blocking.Threads {
 
         // Join all threads
         runtime.joinAllThreads()
+    }
+}
+
+// MARK: - Test Observability
+
+extension IO.Blocking.Threads {
+    /// Snapshot of internal state for testing.
+    public struct DebugSnapshot: Sendable {
+        public let sleepers: Int
+        public let queueIsEmpty: Bool
+        public let queueCount: Int
+        public let inFlightCount: Int
+        public let isShutdown: Bool
+    }
+
+    /// Returns a snapshot of internal state under the lock.
+    /// Use for test assertions only.
+    public func debugSnapshot() -> DebugSnapshot {
+        runtime.state.lock.lock()
+        defer { runtime.state.lock.unlock() }
+        return DebugSnapshot(
+            sleepers: runtime.state.sleepers,
+            queueIsEmpty: runtime.state.queue.isEmpty,
+            queueCount: runtime.state.queue.count,
+            inFlightCount: runtime.state.inFlightCount,
+            isShutdown: runtime.state.isShutdown
+        )
+    }
+
+    /// Number of worker threads configured.
+    public var workerCount: Int {
+        Int(runtime.options.workers)
     }
 }
 

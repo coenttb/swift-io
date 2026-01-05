@@ -61,6 +61,30 @@ extension IO.Blocking.Threads.Worker {
             return IO.Blocking.Threads.Ticket(rawValue: raw)
         }
 
+        /// Wake sleeping workers when queue becomes non-empty.
+        ///
+        /// ## Invariant
+        /// Must be called while holding `lock`, after queue transitioned empty→non-empty.
+        ///
+        /// ## Policy
+        /// Always broadcast to wake all sleeping workers. This is the simplest
+        /// canonical condition variable rule and ensures work-conserving behavior.
+        ///
+        /// ## Correctness
+        /// - Amortized cost is ≤k wakeups per busy period (not per job)
+        /// - Thundering herd is bounded by pool size (small, 4-32)
+        /// - Simplest invariant: edge-triggered broadcast
+        ///
+        /// ## Progress Guarantee
+        /// If the queue transitions from empty to non-empty while `sleepers > 0`,
+        /// the system cannot remain in a stable state where `Q ≠ ∅` and `sleepers > 0`
+        /// without further enqueues.
+        @inline(__always)
+        func wakeSleepersIfNeeded(didBecomeNonEmpty: Bool) {
+            guard didBecomeNonEmpty, sleepers > 0 else { return }
+            lock.worker.broadcast()
+        }
+
         /// Try to enqueue a job. Returns true if successful, false if queue is full or shutdown.
         /// Must be called under lock.
         func tryEnqueue(_ job: IO.Blocking.Threads.Job.Instance) -> Bool {
@@ -116,10 +140,8 @@ extension IO.Blocking.Threads.Worker {
                 }
             }
 
-            // Signal once if we transitioned from empty and someone is sleeping
-            if didTransitionFromEmpty && sleepers > 0 {
-                lock.worker.signal()
-            }
+            // Wake all sleeping workers if queue transitioned empty→non-empty
+            wakeSleepersIfNeeded(didBecomeNonEmpty: didTransitionFromEmpty)
         }
 
         /// Mark an acceptance waiter as resumed by ticket. Returns the waiter if found.

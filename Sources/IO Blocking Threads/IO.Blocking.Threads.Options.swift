@@ -5,11 +5,13 @@
 //  Created by Coen ten Thije Boonkkamp on 24/12/2025.
 //
 
+public import Dimension
+
 extension IO.Blocking.Threads {
     /// Configuration options for the Threads lane.
     public struct Options: Sendable {
         /// Number of worker threads.
-        public var workers: Int
+        public var workers: IO.Thread.Count
 
         /// Unified backpressure policy.
         ///
@@ -45,10 +47,13 @@ extension IO.Blocking.Threads {
         ///   - workers: Number of workers (default: processor count).
         ///   - policy: Backpressure policy (default: `.default`).
         public init(
-            workers: Int? = nil,
+            workers: IO.Thread.Count? = nil,
             policy: IO.Backpressure.Policy = .default
         ) {
-            self.workers = max(1, workers ?? IO.Platform.processorCount)
+            self.workers = max(
+                IO.Thread.Count(1),
+                workers ?? IO.Thread.Count(IO.Platform.processorCount)
+            )
             self.policy = policy
         }
 
@@ -60,12 +65,15 @@ extension IO.Blocking.Threads {
         ///   - acceptanceWaitersLimit: Maximum waiters (default: 4 × queueLimit).
         ///   - backpressure: Backpressure strategy (default: `.suspend`).
         public init(
-            workers: Int? = nil,
+            workers: IO.Thread.Count? = nil,
             queueLimit: Int = 256,
             acceptanceWaitersLimit: Int? = nil,
             backpressure: Backpressure = .suspend
         ) {
-            self.workers = max(1, workers ?? IO.Platform.processorCount)
+            self.workers = max(
+                IO.Thread.Count(1),
+                workers ?? IO.Thread.Count(IO.Platform.processorCount)
+            )
             self.policy = IO.Backpressure.Policy(
                 strategy: backpressure.strategy,
                 laneQueueLimit: queueLimit,

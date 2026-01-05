@@ -5,6 +5,8 @@
 //  Created by Coen ten Thije Boonkkamp on 24/12/2025.
 //
 
+public import Dimension
+
 extension IO.Blocking.Threads {
     /// Mutable runtime state for the Threads lane.
     ///
@@ -49,7 +51,7 @@ extension IO.Blocking.Threads {
                 // Start worker threads
                 // Thread creation failure is catastrophic - we use IO.Thread.trap
                 // since the lane cannot function without its worker threads.
-                for i in 0..<runtime.options.workers {
+                for i in 0..<Int(runtime.options.workers) {
                     let worker = Worker(id: i, state: runtime.state)
                     let handle = IO.Thread.trap {
                         worker.run()

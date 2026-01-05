@@ -3,11 +3,12 @@
 //  swift-io
 //
 
+import Dimension
 import Foundation
+import IO_Blocking_Threads
+import IO_Test_Support
 import StandardsTestSupport
 import Testing
-
-@testable import IO_Blocking_Threads
 
 extension IO.Blocking.Threads {
     #TestSuites
@@ -67,6 +68,103 @@ extension IO.Blocking.Threads.Test.Unit {
             #expect(threads.capabilities.executesOnDedicatedThreads == true)
         }.value
         await threads.shutdown()
+    }
+}
+
+// MARK: - Performance Tests
+
+extension IO.Blocking.Threads.Test.Performance {
+    @Test("burst parallelism - multiple workers activate on burst submit", .timeLimit(.minutes(1)))
+    func burstParallelism() async throws {
+        // This test validates the work-conserving property:
+        // When multiple jobs burst-arrive while pool is idle, all sleeping workers must wake.
+        //
+        // Under signal()-on-edge (the bug):
+        //   - Only 1 worker wakes on first job
+        //   - Barrier never reaches target (arrived stuck at 1)
+        //   - Test fails assertion
+        //
+        // Under broadcast()-on-edge (the fix):
+        //   - All sleeping workers wake
+        //   - Barrier reaches target (arrived == workerCount)
+        //   - Test passes
+
+        let workerCount = 4
+        let threads = IO.Blocking.Threads(.init(
+            workers: IO.Thread.Count(workerCount),
+            queueLimit: 64
+        ))
+
+        // Warm up: ensure all workers are spawned
+        let warmupPtr = try await threads.runBoxed(deadline: .none) {
+            IO.Blocking.Box.makeValue(())
+        }
+        IO.Blocking.Box.destroy(warmupPtr)
+
+        // Wait for all workers to go back to sleep
+        let idleReached = await ThreadPoolTesting.waitUntilIdle(
+            threads,
+            workers: workerCount,
+            timeout: .seconds(5)
+        )
+        #expect(idleReached, "Workers should reach idle state before burst test")
+
+        let preSnapshot = threads.debugSnapshot()
+        #expect(preSnapshot.sleepers == workerCount)
+        #expect(preSnapshot.queueIsEmpty)
+
+        // Create barrier that requires all workers to arrive
+        // Uses pthread-based Barrier from IO_Test_Support
+        let barrier = Barrier(count: workerCount)
+
+        // Track if any worker timed out at barrier
+        final class TimeoutTracker: @unchecked Sendable {
+            var timedOut = false
+            let lock = NSLock()
+
+            func markTimeout() {
+                lock.lock()
+                timedOut = true
+                lock.unlock()
+            }
+
+            var hasTimedOut: Bool {
+                lock.lock()
+                defer { lock.unlock() }
+                return timedOut
+            }
+        }
+        let timeoutTracker = TimeoutTracker()
+
+        // Burst-submit workerCount jobs using TaskGroup
+        // Each job arrives at barrier and waits
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<workerCount {
+                group.addTask {
+                    let ptr = try! await threads.runBoxed(deadline: .none) {
+                        // Each job arrives at barrier and waits
+                        let success = barrier.arriveAndWait(timeout: .seconds(5))
+                        if !success {
+                            // Timeout - only some workers woke up
+                            // This indicates signal() instead of broadcast()
+                            timeoutTracker.markTimeout()
+                        }
+                        return IO.Blocking.Box.makeValue(())
+                    }
+                    IO.Blocking.Box.destroy(ptr)
+                }
+            }
+        }
+
+        await threads.shutdown()
+
+        // The barrier should have reached target count
+        // With broadcast(), all sleeping workers wake and reach the barrier.
+        // With signal() (the bug), only 1 worker wakes, causing arrivedCount < workerCount.
+        let arrivedCount = barrier.arrivedCount
+        #expect(!timeoutTracker.hasTimedOut, "No worker should time out at barrier")
+        #expect(arrivedCount == workerCount,
+            "All \(workerCount) workers should reach barrier, but only \(arrivedCount) did")
     }
 }
 
