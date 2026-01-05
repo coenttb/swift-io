@@ -40,7 +40,7 @@ extension CancellationBenchmarks.Test.Performance {
         func swiftIOPreAcceptance() async throws {
             // Tiny queue to force waiting
             let options = IO.Blocking.Threads.Options(
-                workers: IO.Thread.Count(Self.threadCount),
+                workers: Kernel.Thread.Count(Self.threadCount),
                 policy: IO.Backpressure.Policy(
                     strategy: .wait,
                     laneQueueLimit: Self.queueLimit
@@ -158,7 +158,7 @@ extension CancellationBenchmarks.Test.Performance {
             .timed(iterations: 10, warmup: 2, trackAllocations: false)
         )
         func swiftIOBatch() async throws {
-            let lane = IO.Blocking.Lane.threads(.init(workers: IO.Thread.Count(Self.threadCount)))
+            let lane = IO.Blocking.Lane.threads(.init(workers: Kernel.Thread.Count(Self.threadCount)))
 
             let parentTask = Task {
                 try await withThrowingTaskGroup(of: Int.self) { group in

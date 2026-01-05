@@ -32,7 +32,7 @@ final class ThreadPoolFixture: @unchecked Sendable {
 
     /// Create a new fixture with specified thread count.
     static func make(threadCount: Int = defaultThreadCount) -> ThreadPoolFixture {
-        let lane = IO.Blocking.Lane.threads(.init(workers: IO.Thread.Count(threadCount)))
+        let lane = IO.Blocking.Lane.threads(.init(workers: Kernel.Thread.Count(threadCount)))
         let nio = NIOThreadPool(numberOfThreads: threadCount)
         nio.start()
         return ThreadPoolFixture(swiftIOLane: lane, nio: nio, threadCount: threadCount)

@@ -38,7 +38,7 @@ extension LifecycleBenchmarks.Test.Performance {
         )
         func swiftIOCreation() async {
             let lane = IO.Blocking.Lane.threads(
-                .init(workers: IO.Thread.Count(Self.threadCount))
+                .init(workers: Kernel.Thread.Count(Self.threadCount))
             )
             // Ensure threads are started
             _ = try? await lane.run(deadline: .none) { () }
@@ -74,7 +74,7 @@ extension LifecycleBenchmarks.Test.Performance {
         )
         func swiftIOShutdownIdle() async {
             let lane = IO.Blocking.Lane.threads(
-                .init(workers: IO.Thread.Count(Self.threadCount))
+                .init(workers: Kernel.Thread.Count(Self.threadCount))
             )
             // Warm up - ensure threads are started and idle
             _ = try? await lane.run(deadline: .none) { () }

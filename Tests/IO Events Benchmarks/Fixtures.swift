@@ -22,12 +22,12 @@ import Kernel
 /// helper methods for common benchmark patterns.
 final class SelectorFixture: @unchecked Sendable {
     let selector: IO.Event.Selector
-    let executor: IO.Executor.Thread
+    let executor: Kernel.Thread.Executor
 
     /// Creates a new selector fixture.
     /// - Throws: If selector creation fails.
     static func make() async throws -> SelectorFixture {
-        let executor = IO.Executor.Thread()
+        let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
             driver: IO.Event.Kqueue.driver(),
             executor: executor
@@ -35,7 +35,7 @@ final class SelectorFixture: @unchecked Sendable {
         return SelectorFixture(selector: selector, executor: executor)
     }
 
-    private init(selector: IO.Event.Selector, executor: IO.Executor.Thread) {
+    private init(selector: IO.Event.Selector, executor: Kernel.Thread.Executor) {
         self.selector = selector
         self.executor = executor
     }

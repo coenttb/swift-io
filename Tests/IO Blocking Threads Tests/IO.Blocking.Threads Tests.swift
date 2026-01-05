@@ -91,7 +91,7 @@ extension IO.Blocking.Threads.Test.Performance {
 
         let workerCount = 4
         let threads = IO.Blocking.Threads(.init(
-            workers: IO.Thread.Count(workerCount),
+            workers: Kernel.Thread.Count(workerCount),
             queueLimit: 64
         ))
 

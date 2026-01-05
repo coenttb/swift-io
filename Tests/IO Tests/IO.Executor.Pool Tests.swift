@@ -317,7 +317,7 @@ extension IOExecutorPoolTests.Test.Integration {
 
     @Test("init with explicit executor uses that executor")
     func initWithExplicitExecutor() async {
-        let customExecutor = IO.Executor.Thread()
+        let customExecutor = Kernel.Thread.Executor()
         let pool = IO.Executor.Pool<TestResource>(
             lane: .inline,
             executor: customExecutor
@@ -331,7 +331,7 @@ extension IOExecutorPoolTests.Test.Integration {
 
     @Test("two pools can share same executor")
     func poolsShareExecutor() async {
-        let sharedExecutor = IO.Executor.Thread()
+        let sharedExecutor = Kernel.Thread.Executor()
 
         let pool1 = IO.Executor.Pool<TestResource>(lane: .inline, executor: sharedExecutor)
         let pool2 = IO.Executor.Pool<TestResource>(lane: .inline, executor: sharedExecutor)

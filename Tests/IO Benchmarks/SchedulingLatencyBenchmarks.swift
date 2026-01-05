@@ -73,7 +73,7 @@ extension SchedulingLatencyBenchmarks.Test.Performance {
     struct ExecutorThreadScheduling {
 
         /// Shared executor threads for benchmarking.
-        static let executorPool = IO.Executor.Threads(.init(count: 4))
+        static let executors = Kernel.Thread.Executors(.init(count: 4))
 
         @Test(
             "swift-io: task on executor thread latency",
@@ -81,7 +81,7 @@ extension SchedulingLatencyBenchmarks.Test.Performance {
         )
         func taskExecutorLatency() async {
             // Measures: Task creation → executor hop → completion
-            let executor = Self.executorPool.next()
+            let executor = Self.executors.next()
             let result = await Task(executorPreference: executor) {
                 42
             }.value
@@ -95,7 +95,7 @@ extension SchedulingLatencyBenchmarks.Test.Performance {
         func roundRobinLatency() async {
             // Measures scheduling with round-robin distribution
             // Each iteration goes to a different executor thread.
-            let executor = Self.executorPool.next()
+            let executor = Self.executors.next()
             let result = await Task(executorPreference: executor) {
                 42
             }.value

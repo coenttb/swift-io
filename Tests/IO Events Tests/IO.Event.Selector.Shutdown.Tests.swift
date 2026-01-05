@@ -28,7 +28,7 @@ extension IO.Event.Selector.Test {
 extension IO.Event.Selector.Test.Shutdown {
     @Test("shutdown rejects new registrations")
     func shutdownRejectsNewRegistrations() async throws {
-        let executor = IO.Executor.Thread()
+        let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
             driver: IO.Event.Kqueue.driver(),
             executor: executor
@@ -61,7 +61,7 @@ extension IO.Event.Selector.Test.Shutdown {
         // The invariant: if registration fails, it MUST fail with .shutdownInProgress.
 
         for iteration in 0..<10 {
-            let executor = IO.Executor.Thread()
+            let executor = Kernel.Thread.Executor()
             let selector = try await IO.Event.Selector.make(
                 driver: IO.Event.Kqueue.driver(),
                 executor: executor
@@ -122,7 +122,7 @@ extension IO.Event.Selector.Test.Shutdown {
 
     @Test("shutdown gate: operations after shutdown throw")
     func shutdownGate() async throws {
-        let executor = IO.Executor.Thread()
+        let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
             driver: IO.Event.Kqueue.driver(),
             executor: executor
@@ -148,7 +148,7 @@ extension IO.Event.Selector.Test.Shutdown {
 
     @Test("double shutdown is idempotent")
     func doubleShutdownIdempotent() async throws {
-        let executor = IO.Executor.Thread()
+        let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
             driver: IO.Event.Kqueue.driver(),
             executor: executor
@@ -179,7 +179,7 @@ extension IO.Event.Selector.Test {
 extension IO.Event.Selector.Test.Invariants {
     @Test("typed errors: lifecycle is not a leaf error")
     func typedErrorsLifecycleNotLeaf() async throws {
-        let executor = IO.Executor.Thread()
+        let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
             driver: IO.Event.Kqueue.driver(),
             executor: executor

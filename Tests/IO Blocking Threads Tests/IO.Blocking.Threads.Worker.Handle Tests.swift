@@ -18,6 +18,6 @@ extension IO.Blocking.Threads.Worker.Handle.Test.Unit {
     @Test("type exists")
     func typeExists() {
         // IO.Blocking.Threads.Worker.Handle is an internal reference wrapper
-        // for ~Copyable IO.Thread.Handle. This test verifies compilation.
+        // for ~Copyable Kernel.Thread.Handle. This test verifies compilation.
     }
 }

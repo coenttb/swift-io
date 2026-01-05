@@ -46,7 +46,7 @@ extension SelectorDeadlineTests {
 extension SelectorDeadlineTests {
     @Test("arm with deadline times out when no event arrives")
     func armWithDeadlineTimesOut() async throws {
-        let executor = IO.Executor.Thread()
+        let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
             driver: IO.Event.Kqueue.driver(),
             executor: executor
@@ -82,7 +82,7 @@ extension SelectorDeadlineTests {
 
     @Test("event beats timeout when data arrives before deadline")
     func eventBeatsTimeout() async throws {
-        let executor = IO.Executor.Thread()
+        let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
             driver: IO.Event.Kqueue.driver(),
             executor: executor
@@ -118,7 +118,7 @@ extension SelectorDeadlineTests {
     func tickWakesSelectorForDeadlineOnly() async throws {
         // This test verifies the tick() path: poll times out with no events,
         // but deadline has expired, so selector drains and resumes waiter.
-        let executor = IO.Executor.Thread()
+        let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
             driver: IO.Event.Kqueue.driver(),
             executor: executor
@@ -162,7 +162,7 @@ extension SelectorDeadlineTests {
         // Test: arm with short deadline, let it timeout (heap entry created),
         // then register again and arm without deadline. The stale heap entry
         // should be skipped via generation mismatch.
-        let executor = IO.Executor.Thread()
+        let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
             driver: IO.Event.Kqueue.driver(),
             executor: executor
@@ -209,7 +209,7 @@ extension SelectorDeadlineTests {
     @Test("event delivery bumps generation, invalidating pending deadline")
     func eventBumpsGeneration() async throws {
         // Test: arm with long deadline, event arrives, generation bumps.
-        let executor = IO.Executor.Thread()
+        let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
             driver: IO.Event.Kqueue.driver(),
             executor: executor
@@ -250,7 +250,7 @@ extension SelectorDeadlineTests {
     func concurrentDeadlinesBothFire() async throws {
         // Test multiple pending deadlines simultaneously using armTwo.
         // Validates: heap ordering, updateNextPollDeadline, stale entry handling.
-        let executor = IO.Executor.Thread()
+        let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
             driver: IO.Event.Kqueue.driver(),
             executor: executor
@@ -319,7 +319,7 @@ extension SelectorDeadlineTests {
     @Test("sequential deadlines smoke test")
     func sequentialDeadlinesSmoke() async throws {
         // Simple smoke test: two deadlines in sequence both fire.
-        let executor = IO.Executor.Thread()
+        let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
             driver: IO.Event.Kqueue.driver(),
             executor: executor

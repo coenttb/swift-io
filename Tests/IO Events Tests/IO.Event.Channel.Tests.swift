@@ -31,7 +31,7 @@ extension IO.Event.Channel.Test.BasicIO {
 
     @Test("read returns data written to pipe")
     func readReturnsWrittenData() async throws {
-        let executor = IO.Executor.Thread()
+        let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
             driver: IO.Event.Kqueue.driver(),
             executor: executor
@@ -70,7 +70,7 @@ extension IO.Event.Channel.Test.BasicIO {
 
     @Test("write sends data through pipe")
     func writeSendsData() async throws {
-        let executor = IO.Executor.Thread()
+        let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
             driver: IO.Event.Kqueue.driver(),
             executor: executor
@@ -111,7 +111,7 @@ extension IO.Event.Channel.Test.BasicIO {
 
     @Test("zero-capacity buffer returns 0 without EOF")
     func zeroCapacityBufferReturnsZero() async throws {
-        let executor = IO.Executor.Thread()
+        let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
             driver: IO.Event.Kqueue.driver(),
             executor: executor
@@ -152,7 +152,7 @@ extension IO.Event.Channel.Test.BasicIO {
 
     @Test("zero-length write returns 0")
     func zeroLengthWriteReturnsZero() async throws {
-        let executor = IO.Executor.Thread()
+        let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
             driver: IO.Event.Kqueue.driver(),
             executor: executor
@@ -198,7 +198,7 @@ extension IO.Event.Channel.Test.EOF {
 
     @Test("read returns 0 on EOF (peer closed)")
     func readReturnsZeroOnEOF() async throws {
-        let executor = IO.Executor.Thread()
+        let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
             driver: IO.Event.Kqueue.driver(),
             executor: executor
@@ -250,7 +250,7 @@ extension IO.Event.Channel.Test.HalfClose {
 
     @Test("shutdownRead is idempotent")
     func shutdownReadIdempotent() async throws {
-        let executor = IO.Executor.Thread()
+        let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
             driver: IO.Event.Kqueue.driver(),
             executor: executor
@@ -285,7 +285,7 @@ extension IO.Event.Channel.Test.HalfClose {
 
     @Test("shutdownWrite is idempotent")
     func shutdownWriteIdempotent() async throws {
-        let executor = IO.Executor.Thread()
+        let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
             driver: IO.Event.Kqueue.driver(),
             executor: executor
@@ -350,7 +350,7 @@ extension IO.Event.Channel.Test.Close {
 
     @Test("close deregisters from selector")
     func closeDeregisters() async throws {
-        let executor = IO.Executor.Thread()
+        let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
             driver: IO.Event.Kqueue.driver(),
             executor: executor

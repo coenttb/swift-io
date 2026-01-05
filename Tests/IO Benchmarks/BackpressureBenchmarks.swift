@@ -111,7 +111,7 @@ extension BackpressureBenchmarks.Test.Performance {
         func swiftIORejectLatency() async throws {
             // Use larger acceptance waiter limit to avoid .overloaded during setup
             let options = IO.Blocking.Threads.Options(
-                workers: IO.Thread.Count(Self.threadCount),
+                workers: Kernel.Thread.Count(Self.threadCount),
                 policy: IO.Backpressure.Policy(
                     strategy: .failFast,
                     laneQueueLimit: Self.queueLimit,
@@ -352,7 +352,7 @@ extension BackpressureBenchmarks.Test.Performance {
                 let queueLimit = 1
 
                 let options = IO.Blocking.Threads.Options(
-                    workers: IO.Thread.Count(threadCount),
+                    workers: Kernel.Thread.Count(threadCount),
                     policy: IO.Backpressure.Policy(
                         strategy: .failFast,
                         laneQueueLimit: queueLimit,
@@ -538,7 +538,7 @@ extension BackpressureBenchmarks.Test.Performance {
         )
         func suspendUntilCapacity() async throws {
             let options = IO.Blocking.Threads.Options(
-                workers: IO.Thread.Count(Self.threadCount),
+                workers: Kernel.Thread.Count(Self.threadCount),
                 policy: IO.Backpressure.Policy(
                     strategy: .wait,
                     laneQueueLimit: Self.queueLimit
@@ -585,7 +585,7 @@ extension BackpressureBenchmarks.Test.Performance {
         func swiftIOWithinCapacity() async throws {
             // Configure capacity to handle all ops without overload
             let options = IO.Blocking.Threads.Options(
-                workers: IO.Thread.Count(Self.threadCount),
+                workers: Kernel.Thread.Count(Self.threadCount),
                 queueLimit: Self.totalOps,
                 acceptanceWaitersLimit: Self.totalOps,
                 backpressure: .suspend
@@ -653,7 +653,7 @@ extension BackpressureBenchmarks.Test.Performance {
         )
         func swiftIOBeyondCapacity() async throws {
             let options = IO.Blocking.Threads.Options(
-                workers: IO.Thread.Count(Self.threadCount),
+                workers: Kernel.Thread.Count(Self.threadCount),
                 queueLimit: Self.queueLimit,
                 acceptanceWaitersLimit: Self.acceptanceLimit,
                 backpressure: .throw  // Reject immediately when full
