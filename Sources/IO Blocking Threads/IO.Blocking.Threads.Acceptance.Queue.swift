@@ -5,10 +5,12 @@
 //  Created by Coen ten Thije Boonkkamp on 24/12/2025.
 //
 
+import Buffer
+
 extension IO.Blocking.Threads.Acceptance {
     /// A bounded circular buffer queue for acceptance waiters.
     ///
-    /// Uses `Kernel.RingBuffer<Waiter>` internally with domain-specific
+    /// Uses `Buffer.Ring<Waiter>` internally with domain-specific
     /// lazy expiry and ticket-based lookup.
     ///
     /// ## Thread Safety
@@ -25,10 +27,10 @@ extension IO.Blocking.Threads.Acceptance {
     /// - Non-expired waiters behind expired ones are not starved (FIFO order preserved)
     /// - Capacity is recovered as resumed entries are drained
     struct Queue {
-        private var ring: Kernel.RingBuffer<Waiter>
+        private var ring: Buffer.Ring<Waiter>
 
         init(capacity: Int) {
-            self.ring = Kernel.RingBuffer(capacity: capacity)
+            self.ring = Buffer.Ring(capacity: capacity)
         }
 
         var count: Int { ring.count }
@@ -63,7 +65,7 @@ extension IO.Blocking.Threads.Acceptance {
         ///
         /// Returns the waiter with `resumed = false` so the caller can call `resume*` on it.
         /// The storage copy is marked `resumed = true` so `dequeue` will skip it.
-        mutating func markResumed(ticket: IO.Blocking.Threads.Ticket) -> Waiter? {
+        mutating func markResumed(ticket: IO.Blocking.Ticket) -> Waiter? {
             for i in 0..<ring.count {
                 guard let waiter = ring[i], !waiter.resumed else { continue }
                 if waiter.ticket == ticket {

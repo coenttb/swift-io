@@ -5,6 +5,8 @@
 //  Created by Coen ten Thije Boonkkamp on 24/12/2025.
 //
 
+import Buffer
+
 extension IO.Blocking.Threads {
     /// Worker loop running on a dedicated OS thread.
     ///

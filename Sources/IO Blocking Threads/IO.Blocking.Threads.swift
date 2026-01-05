@@ -5,6 +5,7 @@
 //  Created by Coen ten Thije Boonkkamp on 24/12/2025.
 //
 
+import Buffer
 import Synchronization
 
 // MARK: - Future: Platform Executor Adaptation
@@ -12,6 +13,19 @@ import Synchronization
 // Do not assume Threads is the only Lane implementation.
 
 extension IO.Blocking {
+    /// A unique identifier for an accepted job.
+    ///
+    /// Tickets are assigned at acceptance time and used to correlate
+    /// job completion with waiting callers. Each ticket is unique
+    /// within a Threads instance.
+    public struct Ticket: Hashable, Sendable {
+        public let rawValue: UInt64
+
+        public init(rawValue: UInt64) {
+            self.rawValue = rawValue
+        }
+    }
+
     /// A lane implementation backed by dedicated OS threads.
     ///
     /// ## Design
@@ -24,8 +38,8 @@ extension IO.Blocking {
     /// - `guaranteesRunOnceEnqueued`: true
     ///
     /// ## Backpressure
-    /// - `.suspend`: Callers wait for queue capacity (bounded by deadline).
-    /// - `.throw`: Callers receive `.queueFull` immediately if queue is full.
+    /// - `.wait`: Callers wait for queue capacity (bounded by deadline).
+    /// - `.failFast`: Callers receive `.queueFull` immediately if queue is full.
     public final class Threads: Sendable {
         private let runtime: Runtime
 
@@ -99,7 +113,7 @@ extension IO.Blocking.Threads {
         let options = runtime.options
 
         // Generate ticket (lock-free atomic)
-        let ticket: Ticket = state.makeTicket()
+        let ticket: IO.Blocking.Ticket = state.makeTicket()
 
         // Shared context reference for cancellation handler
         // Uses Mutex to safely share between continuation body and onCancel
