@@ -8,12 +8,15 @@
 extension IO.Blocking.Threads.Acceptance {
     /// A bounded circular buffer queue for acceptance waiters.
     ///
+    /// Uses `Kernel.RingBuffer<Waiter>` internally with domain-specific
+    /// lazy expiry and ticket-based lookup.
+    ///
     /// ## Thread Safety
     /// All access must be protected by Worker.State.lock.
     ///
     /// ## Invariants
     /// - All mutations must be externally synchronized (actor-isolated or under lock)
-    /// - Ring buffer scan uses `_count` at entry; concurrent mutations would violate this
+    /// - Ring buffer scan uses `count` at entry; concurrent mutations would violate this
     ///
     /// ## Lazy Expiry & Hole Reclamation
     /// Expired and cancelled waiters are not eagerly removed. The `resumed` flag marks
@@ -22,28 +25,20 @@ extension IO.Blocking.Threads.Acceptance {
     /// - Non-expired waiters behind expired ones are not starved (FIFO order preserved)
     /// - Capacity is recovered as resumed entries are drained
     struct Queue {
-        private var storage: [Waiter?]
-        private var head: Int = 0
-        private var tail: Int = 0
-        private var _count: Int = 0
-        let capacity: Int
+        private var ring: Kernel.RingBuffer<Waiter>
 
         init(capacity: Int) {
-            self.capacity = max(capacity, 1)
-            self.storage = [Waiter?](repeating: nil, count: self.capacity)
+            self.ring = Kernel.RingBuffer(capacity: capacity)
         }
 
-        var count: Int { _count }
-        var isEmpty: Bool { _count == 0 }
-        var isFull: Bool { _count >= capacity }
+        var count: Int { ring.count }
+        var isEmpty: Bool { ring.isEmpty }
+        var isFull: Bool { ring.isFull }
+        var capacity: Int { ring.capacity }
 
         /// Enqueue a waiter. Returns false if queue is full (caller should fail with .overloaded).
         mutating func enqueue(_ waiter: Waiter) -> Bool {
-            guard _count < capacity else { return false }
-            storage[tail] = waiter
-            tail = (tail + 1) % capacity
-            _count += 1
-            return true
+            ring.enqueue(waiter)
         }
 
         /// Dequeue the next non-resumed waiter, reclaiming resumed entries.
@@ -51,16 +46,12 @@ extension IO.Blocking.Threads.Acceptance {
         /// Skips entries where `resumed == true` or slot is nil, decrementing count
         /// to reclaim capacity.
         mutating func dequeue() -> Waiter? {
-            while _count > 0 {
-                let waiter = storage[head]
-                storage[head] = nil
-                head = (head + 1) % capacity
-                _count -= 1
-
-                if let waiter = waiter, !waiter.resumed {
+            while !ring.isEmpty {
+                guard let waiter = ring.dequeue() else { break }
+                if !waiter.resumed {
                     return waiter
                 }
-                // Resumed or nil entry - slot reclaimed, continue
+                // Resumed entry - slot reclaimed, continue
             }
             return nil
         }
@@ -73,19 +64,16 @@ extension IO.Blocking.Threads.Acceptance {
         /// Returns the waiter with `resumed = false` so the caller can call `resume*` on it.
         /// The storage copy is marked `resumed = true` so `dequeue` will skip it.
         mutating func markResumed(ticket: IO.Blocking.Threads.Ticket) -> Waiter? {
-            var idx = head
-            var remaining = _count
-            while remaining > 0 {
-                if let waiter = storage[idx], waiter.ticket == ticket, !waiter.resumed {
+            for i in 0..<ring.count {
+                guard let waiter = ring[i], !waiter.resumed else { continue }
+                if waiter.ticket == ticket {
                     // Mark storage copy as resumed (so dequeue will skip it)
                     var markedWaiter = waiter
                     markedWaiter.resumed = true
-                    storage[idx] = markedWaiter
+                    ring[i] = markedWaiter
                     // Return original waiter (resumed = false) for caller to resume
                     return waiter
                 }
-                idx = (idx + 1) % capacity
-                remaining -= 1
             }
             return nil
         }
@@ -94,31 +82,13 @@ extension IO.Blocking.Threads.Acceptance {
         ///
         /// Used by external code that iterates and modifies waiters.
         subscript(logicalIndex: Int) -> Waiter? {
-            get {
-                guard logicalIndex < _count else { return nil }
-                let actualIndex = (head + logicalIndex) % capacity
-                return storage[actualIndex]
-            }
-            set {
-                guard logicalIndex < _count else { return }
-                let actualIndex = (head + logicalIndex) % capacity
-                storage[actualIndex] = newValue
-            }
+            get { ring[logicalIndex] }
+            set { ring[logicalIndex] = newValue }
         }
 
         /// Drain all remaining waiters. Used during shutdown.
         mutating func drain() -> [Waiter] {
-            var result: [Waiter] = []
-            result.reserveCapacity(_count)
-            while _count > 0 {
-                if let waiter = storage[head] {
-                    result.append(waiter)
-                }
-                storage[head] = nil
-                head = (head + 1) % capacity
-                _count -= 1
-            }
-            return result
+            ring.drain()
         }
     }
 }
