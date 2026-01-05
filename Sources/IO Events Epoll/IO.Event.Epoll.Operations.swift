@@ -255,14 +255,13 @@
             let timeoutMs: Int32
             if let deadline = deadline {
                 let now = Kernel.Time.monotonicNanoseconds()
-                let deadlineNanos = Int64(bitPattern: deadline.nanoseconds)
-                let remaining = deadlineNanos - now
-                if remaining <= 0 {
+                if now >= deadline.nanoseconds {
                     timeoutMs = 0
                 } else {
                     // Convert nanoseconds to milliseconds, clamping to Int32.max
+                    let remaining = deadline.nanoseconds - now
                     let ms = remaining / 1_000_000
-                    timeoutMs = ms > Int64(Int32.max) ? -1 : Int32(ms)
+                    timeoutMs = ms > UInt64(Int32.max) ? -1 : Int32(ms)
                 }
             } else {
                 timeoutMs = -1  // Block indefinitely

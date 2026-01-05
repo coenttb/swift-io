@@ -10,12 +10,6 @@ import Testing
 
 @testable import IO_Events
 
-#if canImport(Darwin)
-    import Darwin
-#elseif canImport(Glibc)
-    import Glibc
-#endif
-
 extension IO.Event.Channel {
     #TestSuites
 }
@@ -27,23 +21,12 @@ extension IO.Event.Channel.Test {
 }
 
 extension IO.Event.Channel.Test.BasicIO {
-    /// Helper to create a non-blocking pipe
-    private static func makeNonBlockingPipe() throws -> (read: Int32, write: Int32) {
-        var fds: (Int32, Int32) = (0, 0)
-        let result = withUnsafeMutablePointer(to: &fds) { ptr in
-            ptr.withMemoryRebound(to: Int32.self, capacity: 2) { pipe($0) }
-        }
-        guard result == 0 else {
-            throw IO.Event.Error.platform(.posix(errno))
-        }
-
-        // Set non-blocking mode
-        var flags = fcntl(fds.0, F_GETFL)
-        _ = fcntl(fds.0, F_SETFL, flags | O_NONBLOCK)
-        flags = fcntl(fds.1, F_GETFL)
-        _ = fcntl(fds.1, F_SETFL, flags | O_NONBLOCK)
-
-        return fds
+    /// Helper to create a non-blocking pipe using swift-kernel APIs
+    private static func makeNonBlockingPipe() throws -> (read: Kernel.Descriptor, write: Kernel.Descriptor) {
+        let pipe = try Kernel.Pipe.create()
+        try Kernel.File.Control.setNonBlocking(pipe.read)
+        try Kernel.File.Control.setNonBlocking(pipe.write)
+        return pipe
     }
 
     @Test("read returns data written to pipe")
@@ -56,13 +39,15 @@ extension IO.Event.Channel.Test.BasicIO {
 
         let pipe = try Self.makeNonBlockingPipe()
         defer {
-            close(pipe.read)
-            close(pipe.write)
+            try? Kernel.Close.close(pipe.read)
+            try? Kernel.Close.close(pipe.write)
         }
 
         // Write some data to the pipe
         let testData: [UInt8] = [1, 2, 3, 4, 5]
-        _ = Darwin.write(pipe.write, testData, testData.count)
+        try testData.withUnsafeBytes { buffer in
+            _ = try Kernel.IO.Write.write(pipe.write, from: buffer)
+        }
 
         // Create channel for reading
         var channel = try await IO.Event.Channel.wrap(
@@ -93,8 +78,8 @@ extension IO.Event.Channel.Test.BasicIO {
 
         let pipe = try Self.makeNonBlockingPipe()
         defer {
-            close(pipe.read)
-            close(pipe.write)
+            try? Kernel.Close.close(pipe.read)
+            try? Kernel.Close.close(pipe.write)
         }
 
         // Create channel for writing
@@ -112,7 +97,9 @@ extension IO.Event.Channel.Test.BasicIO {
 
         // Read from the other end to verify
         var buffer = [UInt8](repeating: 0, count: 10)
-        let bytesRead = Darwin.read(pipe.read, &buffer, buffer.count)
+        let bytesRead = try buffer.withUnsafeMutableBytes { buf in
+            try Kernel.IO.Read.read(pipe.read, into: buf)
+        }
 
         #expect(bytesRead == 5)
         #expect(Array(buffer[..<bytesRead]) == testData)
@@ -132,12 +119,15 @@ extension IO.Event.Channel.Test.BasicIO {
 
         let pipe = try Self.makeNonBlockingPipe()
         defer {
-            close(pipe.read)
-            close(pipe.write)
+            try? Kernel.Close.close(pipe.read)
+            try? Kernel.Close.close(pipe.write)
         }
 
         // Write some data so EOF isn't expected
-        _ = Darwin.write(pipe.write, [UInt8]([1, 2, 3]), 3)
+        let writeData: [UInt8] = [1, 2, 3]
+        try writeData.withUnsafeBytes { buffer in
+            _ = try Kernel.IO.Write.write(pipe.write, from: buffer)
+        }
 
         var channel = try await IO.Event.Channel.wrap(
             pipe.read,
@@ -170,8 +160,8 @@ extension IO.Event.Channel.Test.BasicIO {
 
         let pipe = try Self.makeNonBlockingPipe()
         defer {
-            close(pipe.read)
-            close(pipe.write)
+            try? Kernel.Close.close(pipe.read)
+            try? Kernel.Close.close(pipe.write)
         }
 
         var channel = try await IO.Event.Channel.wrap(
@@ -198,23 +188,12 @@ extension IO.Event.Channel.Test {
 }
 
 extension IO.Event.Channel.Test.EOF {
-    /// Helper to create a non-blocking pipe
-    private static func makeNonBlockingPipe() throws -> (read: Int32, write: Int32) {
-        var fds: (Int32, Int32) = (0, 0)
-        let result = withUnsafeMutablePointer(to: &fds) { ptr in
-            ptr.withMemoryRebound(to: Int32.self, capacity: 2) { pipe($0) }
-        }
-        guard result == 0 else {
-            throw IO.Event.Error.platform(.posix(errno))
-        }
-
-        // Set non-blocking mode
-        var flags = fcntl(fds.0, F_GETFL)
-        _ = fcntl(fds.0, F_SETFL, flags | O_NONBLOCK)
-        flags = fcntl(fds.1, F_GETFL)
-        _ = fcntl(fds.1, F_SETFL, flags | O_NONBLOCK)
-
-        return fds
+    /// Helper to create a non-blocking pipe using swift-kernel APIs
+    private static func makeNonBlockingPipe() throws -> (read: Kernel.Descriptor, write: Kernel.Descriptor) {
+        let pipe = try Kernel.Pipe.create()
+        try Kernel.File.Control.setNonBlocking(pipe.read)
+        try Kernel.File.Control.setNonBlocking(pipe.write)
+        return pipe
     }
 
     @Test("read returns 0 on EOF (peer closed)")
@@ -227,11 +206,11 @@ extension IO.Event.Channel.Test.EOF {
 
         let pipe = try Self.makeNonBlockingPipe()
         defer {
-            close(pipe.read)
+            try? Kernel.Close.close(pipe.read)
         }
 
         // Close write end to signal EOF
-        close(pipe.write)
+        try Kernel.Close.close(pipe.write)
 
         var channel = try await IO.Event.Channel.wrap(
             pipe.read,
@@ -261,25 +240,12 @@ extension IO.Event.Channel.Test {
 }
 
 extension IO.Event.Channel.Test.HalfClose {
-    /// Helper to create a non-blocking socket pair
-    private static func makeNonBlockingSocketPair() throws -> (Int32, Int32) {
-        var fds: (Int32, Int32) = (0, 0)
-        let result = withUnsafeMutablePointer(to: &fds) { ptr in
-            ptr.withMemoryRebound(to: Int32.self, capacity: 2) {
-                socketpair(AF_UNIX, SOCK_STREAM, 0, $0)
-            }
-        }
-        guard result == 0 else {
-            throw IO.Event.Error.platform(.posix(errno))
-        }
-
-        // Set non-blocking mode
-        var flags = fcntl(fds.0, F_GETFL)
-        _ = fcntl(fds.0, F_SETFL, flags | O_NONBLOCK)
-        flags = fcntl(fds.1, F_GETFL)
-        _ = fcntl(fds.1, F_SETFL, flags | O_NONBLOCK)
-
-        return fds
+    /// Helper to create a non-blocking socket pair using swift-kernel APIs
+    private static func makeNonBlockingSocketPair() throws -> (Kernel.Socket.Descriptor, Kernel.Socket.Descriptor) {
+        let sockets = try Kernel.Socket.Pair.create()
+        try Kernel.File.Control.setNonBlocking(Kernel.Descriptor(rawValue: sockets.0.rawValue))
+        try Kernel.File.Control.setNonBlocking(Kernel.Descriptor(rawValue: sockets.1.rawValue))
+        return sockets
     }
 
     @Test("shutdownRead is idempotent")
@@ -292,12 +258,12 @@ extension IO.Event.Channel.Test.HalfClose {
 
         let sockets = try Self.makeNonBlockingSocketPair()
         defer {
-            close(sockets.0)
-            close(sockets.1)
+            try? Kernel.Close.close(Kernel.Descriptor(rawValue: sockets.0.rawValue))
+            try? Kernel.Close.close(Kernel.Descriptor(rawValue: sockets.1.rawValue))
         }
 
         var channel = try await IO.Event.Channel.wrap(
-            sockets.0,
+            Kernel.Descriptor(rawValue: sockets.0.rawValue),
             selector: selector,
             interest: .read
         )
@@ -327,12 +293,12 @@ extension IO.Event.Channel.Test.HalfClose {
 
         let sockets = try Self.makeNonBlockingSocketPair()
         defer {
-            close(sockets.0)
-            close(sockets.1)
+            try? Kernel.Close.close(Kernel.Descriptor(rawValue: sockets.0.rawValue))
+            try? Kernel.Close.close(Kernel.Descriptor(rawValue: sockets.1.rawValue))
         }
 
         var channel = try await IO.Event.Channel.wrap(
-            sockets.0,
+            Kernel.Descriptor(rawValue: sockets.0.rawValue),
             selector: selector,
             interest: .write
         )
@@ -374,23 +340,12 @@ extension IO.Event.Channel.Test {
 }
 
 extension IO.Event.Channel.Test.Close {
-    /// Helper to create a non-blocking pipe
-    private static func makeNonBlockingPipe() throws -> (read: Int32, write: Int32) {
-        var fds: (Int32, Int32) = (0, 0)
-        let result = withUnsafeMutablePointer(to: &fds) { ptr in
-            ptr.withMemoryRebound(to: Int32.self, capacity: 2) { pipe($0) }
-        }
-        guard result == 0 else {
-            throw IO.Event.Error.platform(.posix(errno))
-        }
-
-        // Set non-blocking mode
-        var flags = fcntl(fds.0, F_GETFL)
-        _ = fcntl(fds.0, F_SETFL, flags | O_NONBLOCK)
-        flags = fcntl(fds.1, F_GETFL)
-        _ = fcntl(fds.1, F_SETFL, flags | O_NONBLOCK)
-
-        return fds
+    /// Helper to create a non-blocking pipe using swift-kernel APIs
+    private static func makeNonBlockingPipe() throws -> (read: Kernel.Descriptor, write: Kernel.Descriptor) {
+        let pipe = try Kernel.Pipe.create()
+        try Kernel.File.Control.setNonBlocking(pipe.read)
+        try Kernel.File.Control.setNonBlocking(pipe.write)
+        return pipe
     }
 
     @Test("close deregisters from selector")
@@ -404,7 +359,7 @@ extension IO.Event.Channel.Test.Close {
         let pipe = try Self.makeNonBlockingPipe()
         defer {
             // Pipe read end will be closed by channel
-            close(pipe.write)
+            try? Kernel.Close.close(pipe.write)
         }
 
         var channel = try await IO.Event.Channel.wrap(

@@ -55,7 +55,7 @@ extension IO.Event {
         private let selector: Selector
 
         /// The underlying file descriptor.
-        private let descriptor: Int32
+        private let descriptor: Kernel.Descriptor
 
         /// The registration ID.
         private let id: ID
@@ -71,7 +71,7 @@ extension IO.Event {
         /// Private initializer - use `wrap()` factory.
         private init(
             selector: Selector,
-            descriptor: Int32,
+            descriptor: Kernel.Descriptor,
             id: ID,
             token: consuming Token<Registering>
         ) {
@@ -96,11 +96,11 @@ extension IO.Event {
         /// - Returns: A new Channel.
         /// - Throws: If registration fails.
         public static func wrap(
-            _ descriptor: Int32,
+            _ descriptor: Kernel.Descriptor,
             selector: Selector,
             interest: Interest
         ) async throws(Failure) -> Channel {
-            let result = try await selector.register(descriptor, interest: interest)
+            let result = try await selector.register(descriptor.rawValue, interest: interest)
             return Channel(
                 selector: selector,
                 descriptor: descriptor,
@@ -149,7 +149,7 @@ extension IO.Event {
                 buffer.withUnsafeMutableBytes { ptr in
                     do {
                         let n = try Kernel.IO.Read.read(
-                            Kernel.Descriptor(rawValue: descriptor),
+                            descriptor,
                             into: ptr
                         )
                         result = n == 0 ? .eof : .read(n)
@@ -226,7 +226,7 @@ extension IO.Event {
                 buffer.withUnsafeBytes { ptr in
                     do {
                         let n = try Kernel.IO.Write.write(
-                            Kernel.Descriptor(rawValue: descriptor),
+                            descriptor,
                             from: ptr
                         )
                         if n > 0 {
@@ -387,7 +387,7 @@ extension IO.Event {
             // Perform syscall, normalize errors for idempotence
             do {
                 try Kernel.Socket.Shutdown.shutdown(
-                    Kernel.Socket.Descriptor(rawValue: descriptor),
+                    Kernel.Socket.Descriptor(descriptor),
                     how: .read
                 )
             } catch {
@@ -425,7 +425,7 @@ extension IO.Event {
             // Perform syscall, normalize errors for idempotence
             do {
                 try Kernel.Socket.Shutdown.shutdown(
-                    Kernel.Socket.Descriptor(rawValue: descriptor),
+                    Kernel.Socket.Descriptor(descriptor),
                     how: .write
                 )
             } catch {
@@ -471,7 +471,7 @@ extension IO.Event {
                     try await selector.deregister(taken)
                 } catch {
                     // Deregister failed - best effort: close the fd anyway
-                    try? Kernel.Close.close(Kernel.Descriptor(rawValue: descriptor))
+                    try? Kernel.Close.close(descriptor)
                     throw error
                 }
             } else {
@@ -483,7 +483,7 @@ extension IO.Event {
                         try await selector.deregister(taken)
                     } catch {
                         // Deregister failed - best effort: close the fd anyway
-                        try? Kernel.Close.close(Kernel.Descriptor(rawValue: descriptor))
+                        try? Kernel.Close.close(descriptor)
                         throw error
                     }
                 }
@@ -492,7 +492,7 @@ extension IO.Event {
 
             // Close file descriptor
             do {
-                try Kernel.Close.close(Kernel.Descriptor(rawValue: descriptor))
+                try Kernel.Close.close(descriptor)
             } catch {
                 // EBADF means already closed - treat as success
                 switch error {
@@ -514,7 +514,7 @@ extension IO.Event {
         /// - Returns: The pending error code, or nil if no error.
         private func pendingSocketError() -> Kernel.Error.Code? {
             do {
-                let code = try Kernel.Socket.getError(Kernel.Socket.Descriptor(rawValue: descriptor))
+                let code = try Kernel.Socket.getError(Kernel.Socket.Descriptor(descriptor))
                 // Check if there's an actual error (non-zero code)
                 switch code {
                 case .posix(0), .win32(0):

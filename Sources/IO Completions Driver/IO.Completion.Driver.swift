@@ -259,7 +259,7 @@ extension IO.Completion {
 
         /// Gets the current monotonic time in nanoseconds.
         private static func monotonicNanoseconds() -> UInt64 {
-            UInt64(bitPattern: Kernel.Time.monotonicNanoseconds())
+            Kernel.Time.monotonicNanoseconds()
         }
     }
 }

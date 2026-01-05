@@ -328,12 +328,11 @@
             var duration: Duration? = nil
             if let deadline = deadline {
                 let now = Kernel.Time.monotonicNanoseconds()
-                let deadlineNanos = Int64(bitPattern: deadline.nanoseconds)
-                let remaining = deadlineNanos - now
-                if remaining <= 0 {
+                if now >= deadline.nanoseconds {
                     duration = .zero
                 } else {
-                    duration = .nanoseconds(remaining)
+                    let remaining = deadline.nanoseconds - now
+                    duration = .nanoseconds(Int64(remaining))
                 }
             }
 

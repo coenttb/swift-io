@@ -44,20 +44,20 @@
         ///
         /// Headers are heap-allocated during submission (poll thread) and
         /// deallocated on completion (also poll thread). Single-threaded access.
-        public struct Header {
+        struct Header {
             /// OVERLAPPED must be the FIRST field for container-of to work.
             ///
             /// Windows kernel uses this for async I/O state.
-            public var overlapped: OVERLAPPED
+            var overlapped: OVERLAPPED
 
             /// The operation ID for correlation.
-            public let id: IO.Completion.ID
+            let id: IO.Completion.ID
 
             /// The operation kind.
-            public let kind: IO.Completion.Kind
+            let kind: IO.Completion.Kind
 
             /// Creates a header for an operation.
-            public init(id: IO.Completion.ID, kind: IO.Completion.Kind) {
+            init(id: IO.Completion.ID, kind: IO.Completion.Kind) {
                 self.overlapped = OVERLAPPED()
                 self.id = id
                 self.kind = kind
@@ -70,14 +70,14 @@
             /// - Parameter overlapped: The OVERLAPPED pointer from completion.
             /// - Returns: The containing Header.
             @inlinable
-            public static func from(overlapped: UnsafeMutablePointer<OVERLAPPED>) -> UnsafeMutablePointer<Header> {
+            static func from(overlapped: UnsafeMutablePointer<OVERLAPPED>) -> UnsafeMutablePointer<Header> {
                 // OVERLAPPED is at offset 0, so the pointer is the same
                 return UnsafeMutableRawPointer(overlapped).assumingMemoryBound(to: Header.self)
             }
 
             /// Gets a pointer to the overlapped field for Win32 APIs.
             @inlinable
-            public mutating func overlappedPointer() -> UnsafeMutablePointer<OVERLAPPED> {
+            mutating func overlappedPointer() -> UnsafeMutablePointer<OVERLAPPED> {
                 withUnsafeMutablePointer(to: &overlapped) { $0 }
             }
         }
@@ -91,7 +91,7 @@
         /// Called once at startup to catch layout changes at runtime.
         /// In debug builds, this will trap if the assumption is violated.
         @inlinable
-        public static func verifyLayout() {
+        static func verifyLayout() {
             assert(
                 MemoryLayout<Self>.offset(of: \.overlapped) == 0,
                 "OVERLAPPED must be at offset 0 for container-of pattern"

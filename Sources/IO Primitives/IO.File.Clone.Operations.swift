@@ -134,8 +134,8 @@ extension IO.File.Clone {
             let cloned: Bool
             do {
                 cloned = try Kernel.File.Clone.Ficlone.attempt(
-                    sourceFd: srcDescriptor.rawValue,
-                    destFd: dstDescriptor.rawValue
+                    source: srcDescriptor,
+                    destination: dstDescriptor
                 )
             } catch let error as Kernel.File.Clone.Error.Syscall {
                 try? Kernel.Unlink.unlink(destination)
@@ -239,8 +239,8 @@ extension IO.File.Clone {
             var reflinked = false
             do {
                 reflinked = try Kernel.File.Clone.Ficlone.attempt(
-                    sourceFd: srcDescriptor.rawValue,
-                    destFd: dstDescriptor.rawValue
+                    source: srcDescriptor,
+                    destination: dstDescriptor
                 )
             } catch {
                 reflinked = false
@@ -253,8 +253,8 @@ extension IO.File.Clone {
             // Use copy_file_range
             do {
                 try Kernel.File.Clone.CopyRange.copy(
-                    sourceFd: srcDescriptor.rawValue,
-                    destFd: dstDescriptor.rawValue,
+                    source: srcDescriptor,
+                    destination: dstDescriptor,
                     length: size
                 )
                 return .copied
@@ -339,8 +339,8 @@ extension IO.File.Clone {
 
             do {
                 try Kernel.File.Clone.CopyRange.copy(
-                    sourceFd: srcDescriptor.rawValue,
-                    destFd: dstDescriptor.rawValue,
+                    source: srcDescriptor,
+                    destination: dstDescriptor,
                     length: size
                 )
             } catch {

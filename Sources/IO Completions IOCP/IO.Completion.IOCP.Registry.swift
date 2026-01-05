@@ -21,13 +21,13 @@
         ///
         /// This type is only used within the poll-thread-confined `Registry`.
         /// Do not share across threads.
-        public enum Resource: Equatable {
+        enum Resource: Equatable {
             case file(HANDLE)
             case socket(SOCKET)
 
             /// Returns the underlying Windows HANDLE.
             @inlinable
-            public var handle: HANDLE {
+            var handle: HANDLE {
                 switch self {
                 case .file(let h):
                     return h
@@ -79,24 +79,24 @@
         ///   2. Call CancelIoEx with overlapped pointer
         ///   3. Completion (success or cancelled) arrives later via poll
         /// ```
-        public struct Registry {
+        struct Registry {
             /// Entry for a pending operation.
-            public struct Entry {
+            struct Entry {
                 /// The operation ID.
-                public let id: IO.Completion.ID
+                let id: IO.Completion.ID
 
                 /// The operation kind.
-                public let kind: IO.Completion.Kind
+                let kind: IO.Completion.Kind
 
                 /// The underlying resource (file or socket).
-                public let resource: Resource
+                let resource: Resource
 
                 /// Heap-allocated header containing OVERLAPPED.
-                public let header: UnsafeMutablePointer<Header>
+                let header: UnsafeMutablePointer<Header>
 
                 /// Pointer to the OVERLAPPED structure for Win32 APIs.
                 @inlinable
-                public var overlapped: UnsafeMutablePointer<OVERLAPPED> {
+                var overlapped: UnsafeMutablePointer<OVERLAPPED> {
                     withUnsafeMutablePointer(to: &header.pointee.overlapped) { $0 }
                 }
             }
@@ -106,7 +106,7 @@
 
             /// Creates an empty registry.
             @inlinable
-            public init() {}
+            init() {}
 
             /// Inserts an entry into the registry.
             ///
@@ -121,7 +121,7 @@
             ///   - resource: The underlying file or socket.
             ///   - header: Heap-allocated header (ownership transferred to registry).
             @inlinable
-            public mutating func insert(
+            mutating func insert(
                 id: IO.Completion.ID,
                 kind: IO.Completion.Kind,
                 resource: Resource,
@@ -142,7 +142,7 @@
             /// - Parameter id: The operation ID.
             /// - Returns: The entry if found, `nil` otherwise.
             @inlinable
-            public func peek(id: IO.Completion.ID) -> Entry? {
+            func peek(id: IO.Completion.ID) -> Entry? {
                 entries[id]
             }
 
@@ -154,7 +154,7 @@
             /// - Parameter id: The operation ID.
             /// - Returns: The removed entry, or `nil` if not found.
             @inlinable
-            public mutating func remove(id: IO.Completion.ID) -> Entry? {
+            mutating func remove(id: IO.Completion.ID) -> Entry? {
                 entries.removeValue(forKey: id)
             }
 
@@ -164,14 +164,14 @@
             ///
             /// - Returns: Array of all removed entries.
             @inlinable
-            public mutating func removeAll() -> [Entry] {
+            mutating func removeAll() -> [Entry] {
                 defer { entries.removeAll(keepingCapacity: false) }
                 return Array(entries.values)
             }
 
             /// The number of pending operations.
             @inlinable
-            public var count: Int {
+            var count: Int {
                 entries.count
             }
         }
