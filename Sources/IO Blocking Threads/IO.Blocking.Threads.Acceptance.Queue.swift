@@ -14,7 +14,7 @@ extension IO.Blocking.Threads.Acceptance {
     /// lazy expiry and ticket-based lookup.
     ///
     /// ## Thread Safety
-    /// All access must be protected by Worker.State.lock.
+    /// All access must be protected by Runtime.State.lock.
     ///
     /// ## Invariants
     /// - All mutations must be externally synchronized (actor-isolated or under lock)

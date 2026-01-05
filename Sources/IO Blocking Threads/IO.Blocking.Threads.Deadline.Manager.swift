@@ -29,9 +29,9 @@ extension IO.Blocking.Threads.Deadline {
         // This ensures:
         // - Non-expired waiters behind expired ones are not starved
         // - Capacity is recovered as expired entries are drained
-        private let state: IO.Blocking.Threads.Worker.State
+        private let state: IO.Blocking.Threads.Runtime.State
 
-        init(state: IO.Blocking.Threads.Worker.State) {
+        init(state: IO.Blocking.Threads.Runtime.State) {
             self.state = state
         }
 

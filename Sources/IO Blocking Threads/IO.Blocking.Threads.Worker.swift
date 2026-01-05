@@ -19,7 +19,7 @@ extension IO.Blocking.Threads {
     /// 5. Exits when shutdown flag is set and queue is drained
     struct Worker {
         let id: Int
-        let state: State
+        let state: Runtime.State
     }
 }
 
