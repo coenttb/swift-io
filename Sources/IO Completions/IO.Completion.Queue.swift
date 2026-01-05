@@ -99,7 +99,7 @@ extension IO.Completion {
         let shutdownFlag: PollLoop.Shutdown.Flag
 
         /// The poll thread handle.
-        var pollThreadHandle: IO.Thread.Handle?
+        var pollThreadHandle: Kernel.Thread.Handle?
 
         /// Unified entry tracking.
         ///
@@ -182,12 +182,12 @@ extension IO.Completion {
                 shutdownFlag: shutdownFlag
             )
 
-            // Spawn poll thread using IO.Handoff.Cell for ownership transfer
-            let cell = IO.Handoff.Cell(context)
+            // Spawn poll thread using Kernel.Handoff.Cell for ownership transfer
+            let cell = Kernel.Handoff.Cell(context)
             let token = cell.token()
 
             do {
-                self.pollThreadHandle = try IO.Thread.spawn {
+                self.pollThreadHandle = try Kernel.Thread.spawn {
                     let ctx = token.take()
                     PollLoop.run(ctx)
                 }

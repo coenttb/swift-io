@@ -6,12 +6,13 @@
 //
 
 public import Dimension
+public import Kernel
 
 extension IO.Blocking.Threads {
     /// Configuration options for the Threads lane.
     public struct Options: Sendable {
         /// Number of worker threads.
-        public var workers: IO.Thread.Count
+        public var workers: Kernel.Thread.Count
 
         /// Unified backpressure policy.
         ///
@@ -47,12 +48,12 @@ extension IO.Blocking.Threads {
         ///   - workers: Number of workers (default: processor count).
         ///   - policy: Backpressure policy (default: `.default`).
         public init(
-            workers: IO.Thread.Count? = nil,
+            workers: Kernel.Thread.Count? = nil,
             policy: IO.Backpressure.Policy = .default
         ) {
             self.workers = max(
-                IO.Thread.Count(1),
-                workers ?? IO.Thread.Count(IO.Platform.processorCount)
+                Kernel.Thread.Count(1),
+                workers ?? Kernel.Thread.Count(Kernel.System.processorCount)
             )
             self.policy = policy
         }
@@ -65,14 +66,14 @@ extension IO.Blocking.Threads {
         ///   - acceptanceWaitersLimit: Maximum waiters (default: 4 × queueLimit).
         ///   - backpressure: Backpressure strategy (default: `.suspend`).
         public init(
-            workers: IO.Thread.Count? = nil,
+            workers: Kernel.Thread.Count? = nil,
             queueLimit: Int = 256,
             acceptanceWaitersLimit: Int? = nil,
             backpressure: Backpressure = .suspend
         ) {
             self.workers = max(
-                IO.Thread.Count(1),
-                workers ?? IO.Thread.Count(IO.Platform.processorCount)
+                Kernel.Thread.Count(1),
+                workers ?? Kernel.Thread.Count(Kernel.System.processorCount)
             )
             self.policy = IO.Backpressure.Policy(
                 strategy: backpressure.strategy,

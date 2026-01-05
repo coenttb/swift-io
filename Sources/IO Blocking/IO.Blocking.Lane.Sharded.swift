@@ -7,6 +7,7 @@
 
 import Synchronization
 public import Dimension
+public import Kernel
 
 extension IO.Blocking.Lane {
     /// Creates a sharded lane that distributes work across multiple independent lanes.
@@ -60,7 +61,7 @@ extension IO.Blocking.Lane {
         count: IO.Blocking.Lane.Count? = nil,
         make: @Sendable () -> IO.Blocking.Lane
     ) -> IO.Blocking.Lane {
-        let laneCount = count ?? IO.Blocking.Lane.Count(IO.Platform.processorCount)
+        let laneCount = count ?? IO.Blocking.Lane.Count(Kernel.System.processorCount)
         precondition(Int(laneCount) > 0, "Lane count must be > 0")
 
         let lanes = (0..<Int(laneCount)).map { _ in make() }

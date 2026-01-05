@@ -17,7 +17,7 @@ extension IO.Blocking.Threads {
     ///
     /// ## Thread Handle Storage
     /// Uses `Worker.Handle` reference wrappers to store ~Copyable
-    /// `IO.Thread.Handle` values in arrays. The reference wrapper enforces
+    /// `Kernel.Thread.Handle` values in arrays. The reference wrapper enforces
     /// exactly-once join semantics while allowing Copyable array storage.
     final class Runtime: @unchecked Sendable {
         let state: Worker.State
@@ -49,11 +49,11 @@ extension IO.Blocking.Threads {
                 runtime.isStarted = true
 
                 // Start worker threads
-                // Thread creation failure is catastrophic - we use IO.Thread.trap
+                // Thread creation failure is catastrophic - we use Kernel.Thread.trap
                 // since the lane cannot function without its worker threads.
                 for i in 0..<Int(runtime.options.workers) {
                     let worker = Worker(id: i, state: runtime.state)
-                    let handle = IO.Thread.trap {
+                    let handle = Kernel.Thread.trap {
                         worker.run()
                     }
                     runtime.threads.append(Worker.Handle(handle))
@@ -61,7 +61,7 @@ extension IO.Blocking.Threads {
 
                 // Start deadline manager thread
                 let deadlineManager = Deadline.Manager(state: runtime.state)
-                let handle = IO.Thread.trap {
+                let handle = Kernel.Thread.trap {
                     deadlineManager.run()
                 }
                 runtime.deadlineManagerThread = Worker.Handle(handle)

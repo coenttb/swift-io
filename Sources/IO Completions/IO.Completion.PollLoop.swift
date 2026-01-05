@@ -67,7 +67,7 @@ extension IO.Completion.PollLoop {
     /// ## Creation
     ///
     /// Created by the queue actor during initialization, then transferred
-    /// to the poll thread via `IO.Handoff.Cell`.
+    /// to the poll thread via `Kernel.Handoff.Cell`.
     public struct Context: ~Copyable, @unchecked Sendable {
         /// The driver backend.
         public let driver: IO.Completion.Driver
