@@ -79,13 +79,13 @@ extension IO.Event {
         private var registrations: [ID: Registration] = [:]
 
         /// Waiter storage keyed by (ID, Interest).
-        private var waiters: [PermitKey: Waiter] = [:]
+        private var waiters: [Permit.Key: Waiter] = [:]
 
         /// Permit storage keyed by (ID, Interest).
-        private var permits: [PermitKey: IO.Event.Flags] = [:]
+        private var permits: [Permit.Key: IO.Event.Flags] = [:]
 
         /// Current lifecycle state.
-        private var state: LifecycleState = .running
+        private var state: Lifecycle.State = .running
 
         // MARK: - Deadline State
 
@@ -99,9 +99,9 @@ extension IO.Event {
         ///
         /// When a waiter completes (success, cancelled, timeout, deregistered),
         /// its generation is bumped. Heap entries with stale generations are skipped.
-        private var deadlineGeneration: [PermitKey: UInt64] = [:]
+        private var deadlineGeneration: [Permit.Key: UInt64] = [:]
 
-        /// Pending registration reply continuations keyed by ReplyID.
+        /// Pending registration reply continuations keyed by Reply.ID.
         ///
         /// Selector owns these continuations and resumes them when replies arrive.
         /// This enforces the single resumption funnel invariant.
@@ -110,7 +110,7 @@ extension IO.Event {
         /// - Poll thread produces `Result<Payload, IO.Event.Error>` (leaf errors)
         /// - Selector wraps leaf errors in `.failure(.failure(leaf))`
         /// - Shutdown drains with `.failure(.shutdownInProgress)` (lifecycle error)
-        private var pendingReplies: [IO.Event.Registration.ReplyID: CheckedContinuation<Result<IO.Event.Registration.Payload, Failure>, Never>] = [:]
+        private var pendingReplies: [IO.Event.Registration.Reply.ID: CheckedContinuation<Result<IO.Event.Registration.Payload, Failure>, Never>] = [:]
 
         /// Counter for generating reply IDs.
         private var nextReplyID: UInt64 = 0
@@ -262,7 +262,7 @@ extension IO.Event {
             }
 
             // Generate reply ID for matching request to reply
-            let replyID = IO.Event.Registration.ReplyID( nextReplyID)
+            let replyID = IO.Event.Registration.Reply.ID(nextReplyID)
             nextReplyID &+= 1  // Wrapping add OK
 
             // Store continuation and enqueue request
@@ -412,7 +412,7 @@ extension IO.Event {
             let id = token.id
             _ = consume token  // Token consumed
 
-            let key = PermitKey(id: id, interest: interest)
+            let key = Permit.Key(id: id, interest: interest)
 
             // Check for existing permit (event already arrived)
             if let flags = permits.removeValue(forKey: key) {
@@ -609,7 +609,7 @@ extension IO.Event {
                 throw .shutdownInProgress
             }
 
-            let key = PermitKey(id: id, interest: interest)
+            let key = Permit.Key(id: id, interest: interest)
 
             // Check for existing permit for this specific interest.
             // A permit means an edge already occurred before we armed;
@@ -673,7 +673,7 @@ extension IO.Event {
         /// Schedule a deadline for a waiter.
         ///
         /// Adds an entry to the deadline heap and updates the poll deadline atomic.
-        private func scheduleDeadline(_ deadline: Deadline, for key: PermitKey) {
+        private func scheduleDeadline(_ deadline: Deadline, for key: Permit.Key) {
             let gen = deadlineGeneration[key, default: 0] + 1
             deadlineGeneration[key] = gen
 
@@ -729,13 +729,13 @@ extension IO.Event {
 
             // Remove permits and deadline generation for this ID
             for interest in [Interest.read, .write, .priority] {
-                let key = PermitKey(id: id, interest: interest)
+                let key = Permit.Key(id: id, interest: interest)
                 permits.removeValue(forKey: key)
                 deadlineGeneration.removeValue(forKey: key)
             }
 
             // Generate reply ID for matching request to reply
-            let replyID = IO.Event.Registration.ReplyID( nextReplyID)
+            let replyID = IO.Event.Registration.Reply.ID(nextReplyID)
             nextReplyID &+= 1
 
             // Store continuation and enqueue request
@@ -890,7 +890,7 @@ extension IO.Event {
         }
 
         /// Bump the generation for a key, invalidating any stale heap entries.
-        private func bumpGeneration(for key: PermitKey) {
+        private func bumpGeneration(for key: Permit.Key) {
             deadlineGeneration[key, default: 0] += 1
         }
 
@@ -928,7 +928,7 @@ extension IO.Event {
         private func processEvent(_ event: IO.Event) {
             // For each interest bit in the event
             for interest in [Interest.read, .write, .priority] where event.interest.contains(interest) {
-                let key = PermitKey(id: event.id, interest: interest)
+                let key = Permit.Key(id: event.id, interest: interest)
 
                 if let waiter = waiters.removeValue(forKey: key) {
                     // Always bump generation when removing a waiter for this key.
@@ -1013,231 +1013,6 @@ extension IO.Event {
             pollThreadHandle.take()?.join()
 
             state = .shutdown
-        }
-    }
-}
-
-// MARK: - Construction
-
-extension IO.Event.Selector {
-    /// Namespace for selector construction.
-    public enum Make {
-        /// Errors that can occur during selector construction.
-        ///
-        /// This is a construction-specific error type, separate from runtime
-        /// I/O errors (`IO.Event.Error`) and lifecycle errors (`Failure`).
-        public enum Error: Swift.Error, Sendable {
-            /// Driver failed to create handle or wakeup channel.
-            case driver(IO.Event.Error)
-
-            /// Typed conversion helper for driver operations.
-            ///
-            /// Converts `throws(IO.Event.Error)` to `throws(Make.Error)`
-            /// without existential widening or `as` casts in catch clauses.
-            @inline(__always)
-            static func driver<T: ~Copyable>(
-                _ body: () throws(IO.Event.Error) -> T
-            ) throws(IO.Event.Selector.Make.Error) -> T {
-                do { return try body() } catch let e { throw .driver(e) }
-            }
-        }
-    }
-}
-
-// MARK: - Supporting Types
-
-extension IO.Event.Selector {
-    /// Lifecycle state of the selector.
-    enum LifecycleState {
-        case running
-        case shuttingDown
-        case shutdown
-    }
-
-    /// A registered descriptor.
-    struct Registration {
-        let descriptor: Int32
-        var interest: IO.Event.Interest
-    }
-
-    /// Key for permit storage.
-    struct PermitKey: Hashable {
-        let id: IO.Event.ID
-        let interest: IO.Event.Interest
-    }
-}
-
-// MARK: - Result Types
-
-extension IO.Event {
-    /// Namespace for registration-related types.
-    public enum Register {
-        /// Result of registering a descriptor.
-        ///
-        /// Contains the registration ID and a token for arming.
-        /// This struct is ~Copyable because it contains a move-only Token.
-        @frozen
-        public struct Result: ~Copyable, Sendable {
-            /// The registration ID.
-            public let id: ID
-
-            /// Token for arming the registration.
-            public var token: Token<Registering>
-
-            @usableFromInline
-            package init(id: ID, token: consuming Token<Registering>) {
-                self.id = id
-                self.token = token
-            }
-        }
-    }
-
-    /// Namespace for arm-related types.
-    public enum Arm {
-        /// Result of arming a registration.
-        ///
-        /// Contains an armed token and the event that triggered it.
-        /// This struct is ~Copyable because it contains a move-only Token.
-        @frozen
-        public struct Result: ~Copyable, Sendable {
-            /// Token for modifying, deregistering, or cancelling.
-            public var token: Token<IO.Event.Armed>
-
-            /// The event that triggered readiness.
-            public let event: IO.Event
-
-            @usableFromInline
-            package init(token: consuming Token<IO.Event.Armed>, event: IO.Event) {
-                self.token = token
-                self.event = event
-            }
-        }
-
-        // MARK: - Two-Phase Arm Types
-
-        /// Handle for a pending arm operation.
-        ///
-        /// Returned by `beginArmDiscardingToken` and consumed by `awaitArm`.
-        /// This is `Copyable` (unlike tokens) so it can be captured in `async let`.
-        ///
-        /// The handle includes a generation number to detect stale completions.
-        /// If the underlying waiter is removed (event, deregister, shutdown) before
-        /// `awaitArm` is called, the generation mismatch causes immediate failure.
-        @frozen
-        public struct Handle: Sendable, Hashable {
-            /// The registration ID.
-            public let id: ID
-
-            /// The interest this handle is waiting for.
-            public let interest: Interest
-
-            /// Generation at the time of handle creation.
-            ///
-            /// Used to detect if the waiter was already consumed by an event
-            /// or invalidated by deregistration before `awaitArm` was called.
-            public let generation: UInt64
-
-            /// Internal key for permit/waiter lookup.
-            var key: IO.Event.Selector.PermitKey {
-                IO.Event.Selector.PermitKey(id: id, interest: interest)
-            }
-        }
-
-        /// Result of beginning an arm operation.
-        ///
-        /// Phase 1 (`beginArmDiscardingToken`) returns either:
-        /// - `.ready(IO.Event)`: A permit existed, readiness is immediate
-        /// - `.pending(Handle)`: No permit, use handle with `awaitArm`
-        ///
-        /// ## Single-Consumer Semantics
-        ///
-        /// **Permits are consumed exactly once in phase 1.** The `.ready` case
-        /// means the permit was consumed; `awaitArm` does NOT check permits.
-        /// This ensures clean phase separation and prevents double-consumption.
-        ///
-        /// If an event arrives between phase 1 (`.pending`) and phase 2 (`awaitArm`),
-        /// `processEvent` converts the readiness to a permit and removes the unarmed
-        /// waiter. The subsequent `awaitArm` fails with `.cancelled` due to the
-        /// missing waiter - the permit is available for a future `beginArmDiscardingToken`.
-        @frozen
-        public enum Begin: Sendable {
-            /// Readiness was already available (permit consumed).
-            /// No need to call `awaitArm`.
-            case ready(IO.Event)
-
-            /// No readiness yet. Use the handle with `awaitArm` to suspend.
-            case pending(Handle)
-        }
-
-        /// Simplified outcome for batch operations.
-        ///
-        /// Unlike `Arm.Registering.Outcome`, this is `Copyable` because it doesn't
-        /// return tokens. Use when you don't need tokens back (e.g., testing timeouts).
-        @frozen
-        public enum Outcome: Sendable {
-            /// Arming succeeded - includes the event that triggered it.
-            case armed(IO.Event)
-            /// Arming failed - includes the failure reason.
-            case failed(Failure)
-        }
-
-        /// A request to arm a registration with optional deadline.
-        ///
-        /// Used with `armTwo` and similar batch methods.
-        /// This enables concurrent deadline testing and efficient multi-connection setup.
-        @frozen
-        public struct Request: ~Copyable, Sendable {
-            /// The token to arm (consumed).
-            public var token: Token<IO.Event.Registering>
-
-            /// The interest to wait for.
-            public let interest: Interest
-
-            /// Optional deadline for this arm operation.
-            public let deadline: Deadline?
-
-            /// Creates an arm request.
-            public init(
-                token: consuming Token<IO.Event.Registering>,
-                interest: Interest,
-                deadline: Deadline? = nil
-            ) {
-                self.token = token
-                self.interest = interest
-                self.deadline = deadline
-            }
-        }
-
-        // MARK: - Token-Preserving Outcome Types
-
-        /// Namespace for arming from `Token<Registering>`.
-        public enum Registering {
-            /// Outcome of arming from a `Token<Registering>`.
-            ///
-            /// Uses an outcome enum instead of throwing because Swift's `Error` protocol
-            /// requires `Copyable`, which is incompatible with move-only tokens.
-            /// This enum makes token loss unrepresentable at the API boundary.
-            public enum Outcome: ~Copyable, Sendable {
-                /// Arming succeeded - returns the armed result with token and event.
-                case armed(Result)
-                /// Arming failed - returns the original token for restoration.
-                case failed(token: Token<IO.Event.Registering>, failure: Failure)
-            }
-        }
-
-        /// Namespace for arming from `Token<Armed>`.
-        public enum Armed {
-            /// Outcome of arming from a `Token<Armed>`.
-            ///
-            /// Uses an outcome enum instead of throwing because Swift's `Error` protocol
-            /// requires `Copyable`, which is incompatible with move-only tokens.
-            /// This enum makes token loss unrepresentable at the API boundary.
-            public enum Outcome: ~Copyable, Sendable {
-                /// Arming succeeded - returns the armed result with token and event.
-                case armed(Result)
-                /// Arming failed - returns the original token for restoration.
-                case failed(token: Token<IO.Event.Armed>, failure: Failure)
-            }
         }
     }
 }
