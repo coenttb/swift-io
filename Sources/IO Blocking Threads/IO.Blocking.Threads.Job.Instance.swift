@@ -20,6 +20,10 @@ extension IO.Blocking.Threads.Job {
     /// ## Exactly-Once Completion
     /// - If `context.complete()` returns false, the context was already cancelled
     /// - In that case, the box is destroyed to prevent leaks
+    ///
+    /// ## Timestamps (for metrics)
+    /// - `enqueueTimestamp`: Set when job is enqueued (for enqueue-to-start latency)
+    /// - `acceptanceTimestamp`: Set when job enters acceptance queue (for acceptance wait time)
     struct Instance: @unchecked Sendable {
         /// The ticket identifying this job (for debugging/logging).
         let ticket: IO.Blocking.Ticket
@@ -30,20 +34,33 @@ extension IO.Blocking.Threads.Job {
         /// The operation that produces the boxed result.
         private let operation: @Sendable () -> UnsafeMutableRawPointer
 
+        /// Timestamp when this job was enqueued (for enqueue-to-start latency).
+        var enqueueTimestamp: IO.Blocking.Deadline?
+
+        /// Timestamp when this job entered the acceptance queue (for acceptance wait time).
+        /// Only set for jobs that went through acceptance waiting.
+        var acceptanceTimestamp: IO.Blocking.Deadline?
+
         /// Creates a job with a bundled completion context.
         ///
         /// - Parameters:
         ///   - ticket: Unique identifier for this job
         ///   - context: The completion context (owns the continuation)
         ///   - operation: The blocking operation that produces a boxed result
+        ///   - enqueueTimestamp: When the job was created (for latency tracking)
+        ///   - acceptanceTimestamp: When the job entered acceptance queue (optional)
         init(
             ticket: IO.Blocking.Ticket,
             context: IO.Blocking.Threads.Completion.Context,
-            operation: @Sendable @escaping () -> UnsafeMutableRawPointer
+            operation: @Sendable @escaping () -> UnsafeMutableRawPointer,
+            enqueueTimestamp: IO.Blocking.Deadline? = nil,
+            acceptanceTimestamp: IO.Blocking.Deadline? = nil
         ) {
             self.ticket = ticket
             self.context = context
             self.operation = operation
+            self.enqueueTimestamp = enqueueTimestamp
+            self.acceptanceTimestamp = acceptanceTimestamp
         }
 
         /// Execute the job and complete via the context.

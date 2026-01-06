@@ -98,9 +98,13 @@ extension IO.Blocking.Threads {
 
         let state = runtime.state
         let options = runtime.options
+        let onTransition = options.onStateTransition
 
         // Generate ticket (lock-free atomic)
         let ticket: IO.Blocking.Ticket = state.makeTicket()
+
+        // Capture enqueue timestamp for latency tracking
+        let enqueueTimestamp = IO.Blocking.Deadline.now
 
         // Shared context reference for cancellation handler
         // Uses Mutex to safely share between continuation body and onCancel
@@ -121,11 +125,12 @@ extension IO.Blocking.Threads {
                     return
                 }
 
-                // Create job with bundled context
-                let job = Job.Instance(
+                // Create job with bundled context and timestamp
+                var job = Job.Instance(
                     ticket: ticket,
                     context: context,
-                    operation: operation
+                    operation: operation,
+                    enqueueTimestamp: enqueueTimestamp
                 )
 
                 state.lock.lock()
@@ -137,12 +142,33 @@ extension IO.Blocking.Threads {
                     return
                 }
 
-                // Try to enqueue directly with transition-based wakeup
+                // Capture state before enqueue for transition detection
                 let wasEmpty = state.queue.isEmpty
+                let wasFull = state.queue.isFull
+
+                // Try to enqueue directly with transition-based wakeup
                 if state.tryEnqueue(job) {
+                    // Detect state transitions
+                    var transitions: [State.Transition] = []
+                    if wasEmpty {
+                        transitions.append(.becameNonEmpty)
+                    }
+                    // Check if queue became saturated (was not full, now full)
+                    if !wasFull && state.queue.isFull {
+                        transitions.append(.becameSaturated)
+                    }
+
                     // Wake all sleeping workers if queue transitioned empty→non-empty
                     state.wakeSleepersIfNeeded(didBecomeNonEmpty: wasEmpty)
                     state.lock.unlock()
+
+                    // Deliver state transitions out-of-lock
+                    if let onTransition = onTransition {
+                        for transition in transitions {
+                            onTransition(transition)
+                        }
+                    }
+
                     // Job enqueued - worker will complete via context
                     return
                 }
@@ -150,10 +176,14 @@ extension IO.Blocking.Threads {
                 // Queue is full - handle based on backpressure policy
                 switch options.strategy {
                 case .failFast:
+                    state.failFastTotal &+= 1
                     state.lock.unlock()
                     _ = context.fail(.failure(.queueFull))
 
                 case .wait:
+                    // Set acceptance timestamp for wait time tracking
+                    job.acceptanceTimestamp = IO.Blocking.Deadline.now
+
                     // Register acceptance waiter (job already has context)
                     let waiter = Acceptance.Waiter(
                         job: job,
@@ -162,6 +192,7 @@ extension IO.Blocking.Threads {
                     )
                     // Bounded queue - fail fast if full
                     guard state.acceptanceWaiters.enqueue(waiter) else {
+                        state.overloadedTotal &+= 1
                         state.lock.unlock()
                         _ = context.fail(.failure(.overloaded))
                         return
@@ -177,10 +208,18 @@ extension IO.Blocking.Threads {
         } onCancel: {
             // Try to cancel via context
             // May fail if already completed/failed - that's fine
-            contextHolder.withLock { context in
+            let didCancel = contextHolder.withLock { context -> Bool in
                 if let context = context {
-                    _ = context.cancel(.cancellation)
+                    return context.cancel(.cancellation)
                 }
+                return false
+            }
+
+            // Increment cancelled counter if we actually cancelled
+            if didCancel {
+                state.lock.lock()
+                state.cancelledTotal &+= 1
+                state.lock.unlock()
             }
 
             // Also try to mark acceptance waiter as resumed
@@ -266,6 +305,46 @@ extension IO.Blocking.Threads {
     }
 }
 
+// MARK: - Metrics
+
+extension IO.Blocking.Threads {
+    /// Returns current metrics snapshot.
+    ///
+    /// All values are read atomically under the runtime lock,
+    /// ensuring a consistent snapshot.
+    ///
+    /// ## Usage
+    /// Call periodically to monitor lane health:
+    /// ```swift
+    /// let m = lane.metrics()
+    /// print("Queue depth: \(m.queueDepth)")
+    /// print("Executing: \(m.executingCount)")
+    /// ```
+    public func metrics() -> Metrics {
+        let state = runtime.state
+        state.lock.lock()
+        defer { state.lock.unlock() }
+
+        return Metrics(
+            queueDepth: state.queue.count,
+            acceptanceWaitersDepth: state.acceptanceWaiters.count,
+            executingCount: state.inFlightCount,
+            sleepingWorkers: state.lock.worker.waiterCount,
+            enqueuedTotal: state.enqueuedTotal,
+            startedTotal: state.startedTotal,
+            completedTotal: state.completedTotal,
+            acceptancePromotedTotal: state.acceptancePromotedTotal,
+            acceptanceTimeoutTotal: state.acceptanceTimeoutTotal,
+            failFastTotal: state.failFastTotal,
+            overloadedTotal: state.overloadedTotal,
+            cancelledTotal: state.cancelledTotal,
+            enqueueToStart: state.enqueueToStartAggregate.snapshot(),
+            execution: state.executionAggregate.snapshot(),
+            acceptanceWait: state.acceptanceWaitAggregate.snapshot()
+        )
+    }
+}
+
 // MARK: - Test Observability
 
 extension IO.Blocking.Threads {
@@ -288,6 +367,184 @@ extension IO.Blocking.Threads {
         Int(runtime.options.workers)
     }
 }
+
+// MARK: - Test-Only Enqueue API
+
+#if IO_TESTING
+extension IO.Blocking.Threads {
+    /// Test-only: Execute with a callback when enqueued.
+    ///
+    /// The callback is invoked outside the lock, immediately after successful enqueue.
+    /// This allows deterministic testing of queue ordering without polling.
+    ///
+    /// ## Usage
+    /// ```swift
+    /// let enqueued = Signal()
+    /// let task = Task {
+    ///     try await threads.runBoxedWithEnqueueCallback(
+    ///         deadline: nil,
+    ///         onEnqueued: { enqueued.signal() }
+    ///     ) { ... }
+    /// }
+    /// enqueued.wait()  // Now job is definitely in queue
+    /// ```
+    ///
+    /// ## Note
+    /// The callback is only invoked for direct enqueue success. Jobs that go through
+    /// acceptance waiting (backpressure `.wait` with full queue) do not invoke the callback
+    /// until promoted to the main queue.
+    public func runBoxedWithEnqueueCallback(
+        deadline: IO.Blocking.Deadline?,
+        onEnqueued: @Sendable @escaping () -> Void,
+        _ operation: @Sendable @escaping () -> UnsafeMutableRawPointer
+    ) async throws(IO.Lifecycle.Error<IO.Blocking.Lane.Error>) -> UnsafeMutableRawPointer {
+        // Check cancellation upfront
+        if Task.isCancelled {
+            throw .cancellation
+        }
+
+        // Lazy start workers
+        runtime.start.ifNeeded()
+
+        let state = runtime.state
+        let options = runtime.options
+        let onTransition = options.onStateTransition
+
+        // Generate ticket (lock-free atomic)
+        let ticket: IO.Blocking.Ticket = state.makeTicket()
+
+        // Capture enqueue timestamp for latency tracking
+        let enqueueTimestamp = IO.Blocking.Deadline.now
+
+        // Shared context reference for cancellation handler
+        let contextHolder = Mutex<Completion.Context?>(nil)
+
+        // Use non-throwing continuation with Result
+        let result: Completion.Result = await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Completion.Result, Never>) in
+                // Create context with continuation
+                let context = Completion.Context(continuation: continuation)
+
+                // Store in holder for cancellation handler access
+                contextHolder.withLock { $0 = context }
+
+                // Check cancellation inside continuation
+                if Task.isCancelled {
+                    _ = context.fail(.cancellation)
+                    return
+                }
+
+                // Create job with bundled context and timestamp
+                var job = Job.Instance(
+                    ticket: ticket,
+                    context: context,
+                    operation: operation,
+                    enqueueTimestamp: enqueueTimestamp
+                )
+
+                state.lock.lock()
+
+                // Check shutdown
+                if state.isShutdown {
+                    state.lock.unlock()
+                    _ = context.fail(.shutdownInProgress)
+                    return
+                }
+
+                // Capture state before enqueue for transition detection
+                let wasEmpty = state.queue.isEmpty
+                let wasFull = state.queue.isFull
+
+                // Try to enqueue directly
+                if state.tryEnqueue(job) {
+                    // Detect state transitions
+                    var transitions: [State.Transition] = []
+                    if wasEmpty {
+                        transitions.append(.becameNonEmpty)
+                    }
+                    if !wasFull && state.queue.isFull {
+                        transitions.append(.becameSaturated)
+                    }
+
+                    // Wake sleeping workers if needed
+                    state.wakeSleepersIfNeeded(didBecomeNonEmpty: wasEmpty)
+                    state.lock.unlock()
+
+                    // Deliver state transitions out-of-lock
+                    if let onTransition = onTransition {
+                        for transition in transitions {
+                            onTransition(transition)
+                        }
+                    }
+
+                    // >>> TEST HOOK: Signal enqueue success <<<
+                    onEnqueued()
+
+                    // Job enqueued - worker will complete via context
+                    return
+                }
+
+                // Queue is full - handle based on backpressure policy
+                switch options.strategy {
+                case .failFast:
+                    state.failFastTotal &+= 1
+                    state.lock.unlock()
+                    _ = context.fail(.failure(.queueFull))
+
+                case .wait:
+                    // Set acceptance timestamp for wait time tracking
+                    job.acceptanceTimestamp = IO.Blocking.Deadline.now
+
+                    // Register acceptance waiter
+                    let waiter = Acceptance.Waiter(
+                        job: job,
+                        deadline: deadline,
+                        resumed: false
+                    )
+                    guard state.acceptanceWaiters.enqueue(waiter) else {
+                        state.overloadedTotal &+= 1
+                        state.lock.unlock()
+                        _ = context.fail(.failure(.overloaded))
+                        return
+                    }
+                    if deadline != nil {
+                        state.lock.deadline.signal()
+                    }
+                    state.lock.unlock()
+                    // Note: onEnqueued NOT called for acceptance waiters
+                }
+            }
+        } onCancel: {
+            let didCancel = contextHolder.withLock { context -> Bool in
+                if let context = context {
+                    return context.cancel(.cancellation)
+                }
+                return false
+            }
+
+            if didCancel {
+                state.lock.lock()
+                state.cancelledTotal &+= 1
+                state.lock.unlock()
+            }
+
+            state.lock.lock()
+            if let waiter = state.removeAcceptanceWaiter(ticket: ticket) {
+                _ = waiter
+            }
+            state.lock.unlock()
+        }
+
+        // Convert Result to typed throws
+        switch result {
+        case .success(let boxPointer):
+            return boxPointer.raw
+        case .failure(let error):
+            throw error
+        }
+    }
+}
+#endif
 
 // MARK: - Lane Factory
 

@@ -83,4 +83,19 @@ extension IO.Blocking.Deadline {
         let c = d.components
         return c.seconds * 1_000_000_000 + Int64(c.attoseconds / 1_000_000_000)
     }
+
+    /// Nanoseconds elapsed since another instant (for latency tracking).
+    ///
+    /// - Parameter other: The earlier instant.
+    /// - Returns: Nanoseconds elapsed, or 0 if `other` is in the future.
+    public func nanosecondsSince(_ other: Self) -> UInt64 {
+        if self <= other {
+            return 0
+        }
+        let d = other.duration(to: self)
+        let c = d.components
+        // Duration is positive since self > other
+        let ns = c.seconds * 1_000_000_000 + Int64(c.attoseconds / 1_000_000_000)
+        return UInt64(ns)
+    }
 }

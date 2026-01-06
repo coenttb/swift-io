@@ -42,6 +42,23 @@ extension IO.Blocking.Threads.Runtime {
         // Bounded ring buffer - fails with .overloaded when full
         var acceptanceWaiters: IO.Blocking.Threads.Acceptance.Queue
 
+        // MARK: - Metrics Counters (protected by lock)
+
+        var enqueuedTotal: UInt64 = 0
+        var startedTotal: UInt64 = 0
+        var completedTotal: UInt64 = 0
+        var acceptancePromotedTotal: UInt64 = 0
+        var acceptanceTimeoutTotal: UInt64 = 0
+        var failFastTotal: UInt64 = 0
+        var overloadedTotal: UInt64 = 0
+        var cancelledTotal: UInt64 = 0
+
+        // MARK: - Latency Aggregates (protected by lock)
+
+        var enqueueToStartAggregate = IO.Blocking.Threads.Aggregate.Mutable()
+        var executionAggregate = IO.Blocking.Threads.Aggregate.Mutable()
+        var acceptanceWaitAggregate = IO.Blocking.Threads.Aggregate.Mutable()
+
         init(queueLimit: Int, acceptanceWaitersLimit: Int) {
             self.lock = Kernel.Thread.Executor.DualSync()
             self.queue = Buffer.Ring(capacity: queueLimit)
@@ -87,7 +104,8 @@ extension IO.Blocking.Threads.Runtime {
         func tryEnqueue(_ job: IO.Blocking.Threads.Job.Instance) -> Bool {
             guard !isShutdown else { return false }
             guard !queue.isFull else { return false }
-            queue.enqueue(job)
+            _ = queue.enqueue(job)
+            enqueuedTotal &+= 1
             return true
         }
 
@@ -104,9 +122,13 @@ extension IO.Blocking.Threads.Runtime {
         /// ## Lazy Expiry
         /// Expired waiters are failed via `context.fail(.deadlineExceeded)`.
         ///
+        /// ## Metrics
+        /// Tracks `acceptancePromotedTotal`, `acceptanceTimeoutTotal`, and `acceptanceWaitAggregate`.
+        ///
         /// Must be called under lock.
         func promoteAcceptanceWaiters() {
             var didTransitionFromEmpty = false
+            let now = IO.Blocking.Deadline.now
 
             while !queue.isFull, !acceptanceWaiters.isEmpty {
                 if isShutdown { break }
@@ -118,6 +140,7 @@ extension IO.Blocking.Threads.Runtime {
                 if let deadline = waiter.deadline, deadline.hasExpired {
                     // Fail via context - atomic, exactly-once
                     _ = waiter.job.context.fail(.timeout)
+                    acceptanceTimeoutTotal &+= 1
                     continue
                 }
 
@@ -126,6 +149,12 @@ extension IO.Blocking.Threads.Runtime {
 
                 // Enqueue the job (already has context bundled)
                 if tryEnqueue(waiter.job) {
+                    acceptancePromotedTotal &+= 1
+                    // Record acceptance wait time if timestamp available
+                    if let acceptanceTimestamp = waiter.job.acceptanceTimestamp {
+                        let waitNs = now.nanosecondsSince(acceptanceTimestamp)
+                        acceptanceWaitAggregate.record(waitNs)
+                    }
                     if wasEmpty {
                         didTransitionFromEmpty = true
                     }

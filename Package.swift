@@ -148,6 +148,7 @@ let package = Package(
             name: "IO Test Support",
             dependencies: [
                 "IO Blocking Threads",
+                .product(name: "Kernel Test Support", package: "swift-kernel"),
             ],
             path: "Tests/Support"
         ),

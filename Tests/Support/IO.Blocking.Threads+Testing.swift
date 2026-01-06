@@ -7,6 +7,7 @@
 //
 
 public import IO_Blocking_Threads
+@_exported public import Kernel_Test_Support
 
 #if canImport(Darwin)
 import Darwin

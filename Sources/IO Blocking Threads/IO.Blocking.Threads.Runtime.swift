@@ -51,8 +51,15 @@ extension IO.Blocking.Threads {
                 // Start worker threads
                 // Thread creation failure is catastrophic - we use Kernel.Thread.trap
                 // since the lane cannot function without its worker threads.
+                let scheduling = runtime.options.scheduling
+                let onTransition = runtime.options.onStateTransition
                 for i in 0..<Int(runtime.options.workers) {
-                    let worker = Worker(id: i, state: runtime.state)
+                    let worker = Worker(
+                        id: i,
+                        state: runtime.state,
+                        scheduling: scheduling,
+                        onTransition: onTransition
+                    )
                     let handle = Kernel.Thread.trap {
                         worker.run()
                     }

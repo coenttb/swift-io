@@ -20,6 +20,8 @@ extension IO.Blocking.Threads {
     struct Worker {
         let id: Int
         let state: Runtime.State
+        let scheduling: Scheduling
+        let onTransition: (@Sendable (State.Transition) -> Void)?
     }
 }
 
@@ -55,12 +57,39 @@ extension IO.Blocking.Threads.Worker {
             // Drain loop: process up to drainLimit jobs before going back to wait
             var drained = 0
             while drained < Self.drainLimit {
-                // Dequeue job
-                guard let job = state.queue.dequeue() else {
+                // Capture state before dequeue for transition detection
+                let wasFull = state.queue.isFull
+
+                // Dequeue job based on scheduling policy
+                let job: IO.Blocking.Threads.Job.Instance?
+                switch scheduling {
+                case .fifo:
+                    job = state.queue.dequeue()
+                case .lifo:
+                    job = state.queue.dequeueLast()
+                }
+                guard let job else {
                     break
                 }
 
+                // Detect transitions from dequeue
+                var transitions: [IO.Blocking.Threads.State.Transition] = []
+                if wasFull {
+                    transitions.append(.becameNotSaturated)
+                }
+                if state.queue.isEmpty {
+                    transitions.append(.becameEmpty)
+                }
+
                 state.inFlightCount += 1
+                state.startedTotal &+= 1
+
+                // Record enqueue-to-start latency
+                let startTime = IO.Blocking.Deadline.now
+                if let enqueueTime = job.enqueueTimestamp {
+                    let latencyNs = startTime.nanosecondsSince(enqueueTime)
+                    state.enqueueToStartAggregate.record(latencyNs)
+                }
 
                 // Promote acceptance waiters now that we have capacity
                 // With unified design, this enqueues jobs directly -
@@ -69,15 +98,30 @@ extension IO.Blocking.Threads.Worker {
 
                 state.lock.unlock()
 
+                // Deliver state transitions out-of-lock
+                if let onTransition = onTransition {
+                    for transition in transitions {
+                        onTransition(transition)
+                    }
+                }
+
                 // Execute job outside lock
                 // Job.run() calls context.complete() directly
                 job.run()
+
+                // Capture end time outside lock
+                let endTime = IO.Blocking.Deadline.now
 
                 drained += 1
 
                 // Re-acquire lock for next iteration or completion
                 state.lock.lock()
                 state.inFlightCount -= 1
+                state.completedTotal &+= 1
+
+                // Record execution latency
+                let executionNs = endTime.nanosecondsSince(startTime)
+                state.executionAggregate.record(executionNs)
 
                 // Check shutdown condition
                 if state.isShutdown && state.queue.isEmpty && state.inFlightCount == 0 {
