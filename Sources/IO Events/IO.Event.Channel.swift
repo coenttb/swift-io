@@ -42,8 +42,8 @@ extension IO.Event {
     /// ## Half-Close
     ///
     /// Channels support independent shutdown of read and write directions:
-    /// - `shutdownRead()`: Signals no more reads, kernel may send FIN
-    /// - `shutdownWrite()`: Signals no more writes, kernel sends FIN
+    /// - `shutdown.read()`: Signals no more reads, kernel may send FIN
+    /// - `shutdown.write()`: Signals no more writes, kernel sends FIN
     /// - `close()`: Closes both directions and releases resources
     ///
     /// ## Cancellation
@@ -369,80 +369,15 @@ extension IO.Event {
 
         // MARK: - Half-Close
 
-        /// Shutdown the read direction.
+        /// Accessor for shutdown operations.
         ///
-        /// After this call, reads return 0 (EOF). The kernel may send
-        /// a FIN to the peer depending on the socket type.
-        ///
-        /// This operation is idempotent - calling it multiple times is a no-op.
-        ///
-        /// - Throws: `Failure` on error.
-        public mutating func shutdownRead() async throws(Failure) {
-            // Idempotent - no-op if already read-closed
-            if await lifecycle.isReadClosed {
-                return
-            }
-            await lifecycle.close.read()
-
-            // Perform syscall, normalize errors for idempotence
-            do {
-                try Kernel.Socket.Shutdown.shutdown(
-                    Kernel.Socket.Descriptor(descriptor),
-                    how: .read
-                )
-            } catch {
-                // Ignore most shutdown errors for idempotence:
-                // - ENOTCONN (not connected) is expected for datagram sockets
-                // - EINVAL (invalid) can mean already shut down
-                // Only propagate serious I/O errors
-                if case .io(let ioError) = error {
-                    // Propagate hardware/reset errors
-                    switch ioError {
-                    case .hardware, .reset:
-                        throw .failure(IO.Event.Error(error))
-                    default:
-                        break
-                    }
-                }
-            }
-        }
-
-        /// Shutdown the write direction.
-        ///
-        /// After this call, writes throw `.failure(.writeClosed)`.
-        /// The kernel sends a FIN to the peer.
-        ///
-        /// This operation is idempotent - calling it multiple times is a no-op.
-        ///
-        /// - Throws: `Failure` on error.
-        public mutating func shutdownWrite() async throws(Failure) {
-            // Idempotent - no-op if already write-closed
-            if await lifecycle.isWriteClosed {
-                return
-            }
-            await lifecycle.close.write()
-
-            // Perform syscall, normalize errors for idempotence
-            do {
-                try Kernel.Socket.Shutdown.shutdown(
-                    Kernel.Socket.Descriptor(descriptor),
-                    how: .write
-                )
-            } catch {
-                // Ignore most shutdown errors for idempotence:
-                // - ENOTCONN (not connected) is expected for datagram sockets
-                // - EINVAL (invalid) can mean already shut down
-                // Only propagate serious I/O errors
-                if case .io(let ioError) = error {
-                    // Propagate hardware/reset errors
-                    switch ioError {
-                    case .hardware, .reset:
-                        throw .failure(IO.Event.Error(error))
-                    default:
-                        break
-                    }
-                }
-            }
+        /// Usage:
+        /// ```swift
+        /// try await channel.shutdown.read()
+        /// try await channel.shutdown.write()
+        /// ```
+        public var shutdown: Shutdown {
+            Shutdown(lifecycle: lifecycle, descriptor: descriptor)
         }
 
         // MARK: - Close
@@ -529,113 +464,6 @@ extension IO.Event {
     }
 }
 
-// MARK: - Lifecycle Actor
-
-extension IO.Event.Channel {
-    /// Actor for half-close state synchronization.
-    ///
-    /// This actor manages only the lifecycle state transitions.
-    /// I/O operations and token management are handled by Channel directly.
-    actor Lifecycle {
-        private var state: HalfCloseState = .open
-
-        var isReadClosed: Bool {
-            switch state {
-            case .readClosed, .closed: return true
-            case .open, .writeClosed: return false
-            }
-        }
-
-        var isWriteClosed: Bool {
-            switch state {
-            case .writeClosed, .closed: return true
-            case .open, .readClosed: return false
-            }
-        }
-
-        var isClosed: Bool {
-            state == .closed
-        }
-
-        // MARK: - Close Accessor
-
-        /// Accessor for close operations.
-        struct Close {
-            let lifecycle: Lifecycle
-
-            /// Transition to read-closed state.
-            func read() async {
-                await lifecycle.closeRead()
-            }
-
-            /// Transition to write-closed state.
-            func write() async {
-                await lifecycle.closeWrite()
-            }
-
-            /// Transition to fully closed state.
-            /// - Returns: `true` if already closed (no-op), `false` if transition occurred.
-            func callAsFunction() async -> Bool {
-                await lifecycle.closeAll()
-            }
-        }
-
-        /// Accessor for close operations.
-        nonisolated var close: Close { Close(lifecycle: self) }
-
-        /// Internal: Transition to read-closed state.
-        private func closeRead() {
-            switch state {
-            case .open:
-                state = .readClosed
-            case .writeClosed:
-                state = .closed
-            case .readClosed, .closed:
-                break  // Already done
-            }
-        }
-
-        /// Internal: Transition to write-closed state.
-        private func closeWrite() {
-            switch state {
-            case .open:
-                state = .writeClosed
-            case .readClosed:
-                state = .closed
-            case .writeClosed, .closed:
-                break  // Already done
-            }
-        }
-
-        /// Internal: Transition to fully closed state.
-        /// - Returns: `true` if already closed (no-op), `false` if transition occurred.
-        private func closeAll() -> Bool {
-            if state == .closed {
-                return true
-            }
-            state = .closed
-            return false
-        }
-    }
-}
-
-// MARK: - Half-Close State
-
-extension IO.Event.Channel {
-    /// Half-close state of a channel.
-    ///
-    /// Tracks which directions of the channel are open for I/O.
-    enum HalfCloseState: Sendable {
-        /// Both directions open.
-        case open
-        /// Read direction closed (EOF received or shutdownRead called).
-        case readClosed
-        /// Write direction closed (shutdownWrite called).
-        case writeClosed
-        /// Both directions closed.
-        case closed
-    }
-}
 
 // MARK: - Internal Result Types
 
