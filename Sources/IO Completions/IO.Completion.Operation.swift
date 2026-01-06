@@ -104,48 +104,33 @@ extension IO.Completion.Operation {
         @usableFromInline
         package var completion: IO.Completion.Event?
 
-        #if os(Linux)
-            /// io_uring user_data for pointer recovery.
-            @usableFromInline
-            package var userData: UInt64
+        /// Backend-specific user data for pointer recovery.
+        ///
+        /// Used by io_uring on Linux to store the self pointer for CQE processing.
+        /// Unused on other platforms but present unconditionally per Section 7
+        /// (no `#if` in shared primitives layer).
+        @usableFromInline
+        package var userData: UInt64
 
-            /// Creates storage for Linux.
-            @usableFromInline
-            package init(
-                id: IO.Completion.ID,
-                kind: IO.Completion.Kind,
-                descriptor: Kernel.Descriptor,
-                buffer: consuming Buffer.Aligned?,
-                offset: Int64
-            ) {
-                self.id = id
-                self.kind = kind
-                self.descriptor = descriptor
-                self.buffer = buffer
-                self.offset = offset
-                self.completion = nil
-                self.userData = 0
-                // Now that all properties are initialized, set userData to self pointer
-                self.userData = UInt64(UInt(bitPattern: Unmanaged.passUnretained(self).toOpaque()))
-            }
-        #else
-            /// Creates storage.
-            @usableFromInline
-            package init(
-                id: IO.Completion.ID,
-                kind: IO.Completion.Kind,
-                descriptor: Kernel.Descriptor,
-                buffer: consuming Buffer.Aligned?,
-                offset: Int64
-            ) {
-                self.id = id
-                self.kind = kind
-                self.descriptor = descriptor
-                self.buffer = buffer
-                self.offset = offset
-                self.completion = nil
-            }
-        #endif
+        /// Creates storage.
+        @usableFromInline
+        package init(
+            id: IO.Completion.ID,
+            kind: IO.Completion.Kind,
+            descriptor: Kernel.Descriptor,
+            buffer: consuming Buffer.Aligned?,
+            offset: Int64
+        ) {
+            self.id = id
+            self.kind = kind
+            self.descriptor = descriptor
+            self.buffer = buffer
+            self.offset = offset
+            self.completion = nil
+            self.userData = 0
+            // Backend sets userData to self pointer if needed (e.g., io_uring)
+            self.userData = UInt64(UInt(bitPattern: Unmanaged.passUnretained(self).toOpaque()))
+        }
     }
 }
 
