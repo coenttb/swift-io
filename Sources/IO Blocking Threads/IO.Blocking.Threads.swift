@@ -22,7 +22,7 @@ extension IO.Blocking {
     ///
     /// ## Capabilities
     /// - `executesOnDedicatedThreads`: true
-    /// - `guaranteesRunOnceEnqueued`: true
+    /// - `executionSemantics`: `.guaranteed`
     ///
     /// ## Backpressure
     /// - `.wait`: Callers wait for queue capacity (bounded by deadline).
@@ -54,7 +54,7 @@ extension IO.Blocking.Threads {
     public var capabilities: IO.Blocking.Capabilities {
         IO.Blocking.Capabilities(
             executesOnDedicatedThreads: true,
-            guaranteesRunOnceEnqueued: true
+            executionSemantics: .guaranteed
         )
     }
 }

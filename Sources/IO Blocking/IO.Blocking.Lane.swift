@@ -27,7 +27,7 @@ extension IO.Blocking {
     /// ## Cancellation Contract
     /// - **Before acceptance**: If task is cancelled before the lane accepts the job,
     ///   `run()` throws `.cancellationRequested` immediately without enqueuing.
-    /// - **After acceptance**: If `guaranteesRunOnceEnqueued` is true, the job runs
+    /// - **After acceptance**: If `executionSemantics` is `.guaranteed`, the job runs
     ///   to completion. The caller may observe `.cancellationRequested` upon return,
     ///   but the operation's side effects occur.
     ///
@@ -171,7 +171,7 @@ extension IO.Blocking.Lane {
     ///
     /// ## Capabilities
     /// - `executesOnDedicatedThreads`: false
-    /// - `guaranteesRunOnceEnqueued`: true (immediate execution)
+    /// - `executionSemantics`: `.guaranteed` (immediate execution)
     ///
     /// ## Deadline Behavior
     /// Deadlines are checked once before execution. No queue exists,
@@ -184,7 +184,7 @@ extension IO.Blocking.Lane {
         Self(
             capabilities: IO.Blocking.Capabilities(
                 executesOnDedicatedThreads: false,
-                guaranteesRunOnceEnqueued: true
+                executionSemantics: .guaranteed
             ),
             run: {
                 (
@@ -265,19 +265,19 @@ extension IO.Blocking.Lane {
         let lanes = (0..<Int(laneCount)).map { _ in make() }
         let counter = Atomic<UInt64>(0)
 
-        // Compute intersection of capabilities
+        // Compute composite capabilities (weakest-wins for semantics, AND for booleans)
         let capabilities: IO.Blocking.Capabilities = {
             guard let first = lanes.first else {
                 return IO.Blocking.Capabilities(
                     executesOnDedicatedThreads: false,
-                    guaranteesRunOnceEnqueued: false
+                    executionSemantics: .bestEffort
                 )
             }
             var caps = first.capabilities
             for lane in lanes.dropFirst() {
                 caps = IO.Blocking.Capabilities(
                     executesOnDedicatedThreads: caps.executesOnDedicatedThreads && lane.capabilities.executesOnDedicatedThreads,
-                    guaranteesRunOnceEnqueued: caps.guaranteesRunOnceEnqueued && lane.capabilities.guaranteesRunOnceEnqueued
+                    executionSemantics: caps.executionSemantics.weakest(lane.capabilities.executionSemantics)
                 )
             }
             return caps

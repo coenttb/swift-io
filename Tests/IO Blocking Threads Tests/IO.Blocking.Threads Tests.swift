@@ -22,7 +22,7 @@ extension IO.Blocking.Threads.Test.Unit {
     func initDefaultOptions() async {
         let threads = IO.Blocking.Threads()
         #expect(threads.capabilities.executesOnDedicatedThreads == true)
-        #expect(threads.capabilities.guaranteesRunOnceEnqueued == true)
+        #expect(threads.capabilities.executionSemantics == .guaranteed)
         await threads.shutdown()
     }
 
@@ -38,7 +38,7 @@ extension IO.Blocking.Threads.Test.Unit {
     func capabilitiesCorrect() async {
         let threads = IO.Blocking.Threads()
         #expect(threads.capabilities.executesOnDedicatedThreads == true)
-        #expect(threads.capabilities.guaranteesRunOnceEnqueued == true)
+        #expect(threads.capabilities.executionSemantics == .guaranteed)
         await threads.shutdown()
     }
 

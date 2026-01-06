@@ -17,6 +17,7 @@ let package = Package(
         .library(name: "IO Blocking Threads", targets: ["IO Blocking Threads"]),
         .library(name: "IO Events", targets: ["IO Events"]),
         .library(name: "IO Completions", targets: ["IO Completions"]),
+        .library(name: "IO Test Support", targets: ["IO Test Support"]),
     ],
     traits: [
         .trait(name: "Codable", description: "Enable Codable conformances for Handle.ID and other types"),
@@ -156,6 +157,13 @@ let package = Package(
             ],
             path: "Tests/IO Events Benchmarks"
         ),
+        .testTarget(
+            name: "IO Test Support Tests",
+            dependencies: [
+                "IO Test Support",
+                .product(name: "StandardsTestSupport", package: "swift-standards"),
+            ]
+        ),
     ]
 )
 
@@ -168,3 +176,5 @@ for target in package.targets where ![.system, .binary, .plugin].contains(target
     ]
     target.swiftSettings = (target.swiftSettings ?? []) + settings
 }
+ 
+

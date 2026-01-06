@@ -22,26 +22,18 @@ extension IO.Blocking {
         /// - Sustained blocking may affect unrelated async work.
         public var executesOnDedicatedThreads: Bool
 
-        /// Whether accepted jobs are guaranteed to run.
+        /// The execution guarantee this lane provides for accepted jobs.
         ///
-        /// When true:
-        /// - Once a job is accepted (run() doesn't throw before enqueue),
-        ///   it will execute to completion regardless of caller cancellation.
-        /// - Enables safe mutation semantics: the operation runs, caller may
-        ///   just not observe the result.
-        ///
-        /// When false:
-        /// - Accepted jobs may be dropped on shutdown or cancellation.
-        /// - Callers cannot rely on "run once accepted" semantics.
-        public var guaranteesRunOnceEnqueued: Bool
+        /// See ``IO.Blocking.Execution.Semantics`` for the full lattice of guarantees.
+        public var executionSemantics: Execution.Semantics
 
         /// Creates capabilities with explicit values.
         public init(
             executesOnDedicatedThreads: Bool,
-            guaranteesRunOnceEnqueued: Bool
+            executionSemantics: Execution.Semantics
         ) {
             self.executesOnDedicatedThreads = executesOnDedicatedThreads
-            self.guaranteesRunOnceEnqueued = guaranteesRunOnceEnqueued
+            self.executionSemantics = executionSemantics
         }
     }
 }

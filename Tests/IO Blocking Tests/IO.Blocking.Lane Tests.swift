@@ -19,7 +19,7 @@ extension IO.Blocking.Lane.Test.Unit {
     func inlineLaneCapabilities() {
         let lane = IO.Blocking.Lane.inline
         #expect(lane.capabilities.executesOnDedicatedThreads == false)
-        #expect(lane.capabilities.guaranteesRunOnceEnqueued == true)
+        #expect(lane.capabilities.executionSemantics == .guaranteed)
     }
 
     @Test("inline lane run executes non-throwing operation")
@@ -40,7 +40,7 @@ extension IO.Blocking.Lane.Test.Unit {
     func sendableConformance() async {
         let lane = IO.Blocking.Lane.inline
         await Task {
-            #expect(lane.capabilities.guaranteesRunOnceEnqueued == true)
+            #expect(lane.capabilities.executionSemantics == .guaranteed)
         }.value
     }
 }

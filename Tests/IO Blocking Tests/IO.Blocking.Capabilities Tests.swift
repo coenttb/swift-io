@@ -19,21 +19,21 @@ extension IO.Blocking.Capabilities.Test.Unit {
     func initSetsProperties() {
         let caps = IO.Blocking.Capabilities(
             executesOnDedicatedThreads: true,
-            guaranteesRunOnceEnqueued: false
+            executionSemantics: .bestEffort
         )
         #expect(caps.executesOnDedicatedThreads == true)
-        #expect(caps.guaranteesRunOnceEnqueued == false)
+        #expect(caps.executionSemantics == .bestEffort)
     }
 
     @Test("Equatable conformance - equal")
     func equatableEqual() {
         let caps1 = IO.Blocking.Capabilities(
             executesOnDedicatedThreads: true,
-            guaranteesRunOnceEnqueued: true
+            executionSemantics: .guaranteed
         )
         let caps2 = IO.Blocking.Capabilities(
             executesOnDedicatedThreads: true,
-            guaranteesRunOnceEnqueued: true
+            executionSemantics: .guaranteed
         )
         #expect(caps1 == caps2)
     }
@@ -42,11 +42,11 @@ extension IO.Blocking.Capabilities.Test.Unit {
     func equatableNotEqual() {
         let caps1 = IO.Blocking.Capabilities(
             executesOnDedicatedThreads: true,
-            guaranteesRunOnceEnqueued: true
+            executionSemantics: .guaranteed
         )
         let caps2 = IO.Blocking.Capabilities(
             executesOnDedicatedThreads: false,
-            guaranteesRunOnceEnqueued: true
+            executionSemantics: .guaranteed
         )
         #expect(caps1 != caps2)
     }
@@ -55,7 +55,7 @@ extension IO.Blocking.Capabilities.Test.Unit {
     func sendableConformance() async {
         let caps = IO.Blocking.Capabilities(
             executesOnDedicatedThreads: true,
-            guaranteesRunOnceEnqueued: true
+            executionSemantics: .guaranteed
         )
         await Task {
             #expect(caps.executesOnDedicatedThreads == true)
@@ -66,23 +66,23 @@ extension IO.Blocking.Capabilities.Test.Unit {
 // MARK: - Edge Cases
 
 extension IO.Blocking.Capabilities.Test.EdgeCase {
-    @Test("all false capabilities")
-    func allFalse() {
+    @Test("weakest semantics capabilities")
+    func weakestSemantics() {
         let caps = IO.Blocking.Capabilities(
             executesOnDedicatedThreads: false,
-            guaranteesRunOnceEnqueued: false
+            executionSemantics: .abandonOnExecutionTimeout
         )
         #expect(caps.executesOnDedicatedThreads == false)
-        #expect(caps.guaranteesRunOnceEnqueued == false)
+        #expect(caps.executionSemantics == .abandonOnExecutionTimeout)
     }
 
-    @Test("all true capabilities")
-    func allTrue() {
+    @Test("strongest semantics capabilities")
+    func strongestSemantics() {
         let caps = IO.Blocking.Capabilities(
             executesOnDedicatedThreads: true,
-            guaranteesRunOnceEnqueued: true
+            executionSemantics: .guaranteed
         )
         #expect(caps.executesOnDedicatedThreads == true)
-        #expect(caps.guaranteesRunOnceEnqueued == true)
+        #expect(caps.executionSemantics == .guaranteed)
     }
 }

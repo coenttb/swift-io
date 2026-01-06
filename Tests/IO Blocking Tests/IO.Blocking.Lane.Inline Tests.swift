@@ -33,9 +33,9 @@ extension IO.Blocking.Lane.Inline.Test.Unit {
         #expect(lane.capabilities.executesOnDedicatedThreads == false)
     }
 
-    @Test("inline guarantees run once enqueued")
-    func inlineGuaranteesRunOnceEnqueued() {
+    @Test("inline has guaranteed execution semantics")
+    func inlineGuaranteedSemantics() {
         let lane = IO.Blocking.Lane.inline
-        #expect(lane.capabilities.guaranteesRunOnceEnqueued == true)
+        #expect(lane.capabilities.executionSemantics == .guaranteed)
     }
 }
