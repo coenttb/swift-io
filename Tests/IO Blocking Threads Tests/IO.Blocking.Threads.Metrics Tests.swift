@@ -244,17 +244,12 @@ struct MetricsStateTransitionTests {
             }
         ))
 
-        // Ensure workers are idle first
-        let idleReached = await ThreadPoolTesting.waitUntilIdle(threads, workers: 1)
-        #expect(idleReached)
-
-        // Submit a job - should trigger becameNonEmpty
+        // Submit a job - should trigger becameNonEmpty (queue was empty)
+        // Workers are lazily started, so this is the first job
         let ptr = try await threads.runBoxed(deadline: nil) {
             Kernel.Handoff.Box.makeValue(42)
         }
         let _: Int = Kernel.Handoff.Box.takeValue(ptr)
-
-        try await Task.sleep(for: .milliseconds(100))
 
         let recorded = transitions.withLock { $0 }
         #expect(recorded.contains(.becameNonEmpty))
