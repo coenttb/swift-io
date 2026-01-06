@@ -176,7 +176,7 @@ extension IO.Event {
             let eventBridge = IO.Event.Bridge()
             let replyBridge = IO.Event.Registration.Reply.Bridge()
             let registrationQueue = IO.Event.Registration.Queue()
-            let shutdownFlag = Poll.Loop.Shutdown.Flag()
+            let shutdownFlag = Poll.Loop.Shutdown.Flag(.init())
             let nextDeadline = Poll.Loop.Deadline.Next()
 
             // Create context for poll thread
@@ -973,7 +973,7 @@ extension IO.Event {
             state = .shuttingDown
 
             // Signal shutdown to poll thread
-            shutdownFlag.set()
+            shutdownFlag.rawValue.set()
             wakeupChannel.wake()
 
             // Drain all waiters with shutdown error using state machine

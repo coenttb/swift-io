@@ -18,6 +18,6 @@ extension IO.Event.Poll.Loop {
         ///
         /// ## Thread Safety
         /// Safe to read from poll thread and set from selector actor.
-        public typealias Flag = Kernel.Atomic.Flag
+        public typealias Flag = Tagged<Self, Kernel.Atomic.Flag>
     }
 }

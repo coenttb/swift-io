@@ -59,7 +59,7 @@ extension IO.Event.Poll {
                 count: driver.capabilities.maxEvents
             )
 
-            while !shutdownFlag.isSet {
+            while !shutdownFlag.rawValue.isSet {
                 // Process any pending registration requests
                 processRequests(
                     driver: driver,
