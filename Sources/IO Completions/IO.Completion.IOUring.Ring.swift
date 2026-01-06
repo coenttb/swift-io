@@ -182,40 +182,56 @@
         }
     }
 
-    // MARK: - SQE Access
+    // MARK: - Queue Accessor
 
     extension IO.Completion.IOUring.Ring {
-        /// Gets the next available SQE slot.
-        ///
-        /// - Returns: Pointer to the next SQE, or nil if the ring is full.
-        func getNextSQE() -> UnsafeMutablePointer<io_uring_sqe>? {
-            // Check if ring is full
-            let head = Kernel.Atomic.load(sqHead, ordering: .acquiring)
-            let tail = localSqTail
-            let available = params.sqEntries &- (tail &- head)
+        /// Accessor for queue operations.
+        var queue: Queue { Queue(ring: self) }
 
-            guard available > 0 else {
-                return nil
+        /// Queue operations (submission and completion).
+        struct Queue {
+            let ring: IO.Completion.IOUring.Ring
+
+            /// Accessor for submission queue operations.
+            var submission: Submission { Submission(ring: ring) }
+
+            /// Submission queue operations.
+            struct Submission {
+                let ring: IO.Completion.IOUring.Ring
+
+                /// Gets the next available entry slot.
+                ///
+                /// - Returns: Pointer to the next SQE, or nil if the queue is full.
+                func next() -> UnsafeMutablePointer<io_uring_sqe>? {
+                    // Check if ring is full
+                    let head = Kernel.Atomic.load(ring.sqHead, ordering: .acquiring)
+                    let tail = ring.localSqTail
+                    let available = ring.params.sqEntries &- (tail &- head)
+
+                    guard available > 0 else {
+                        return nil
+                    }
+
+                    let index = tail & ring.sqMask
+                    return ring.sqes.advanced(by: Int(index))
+                }
+
+                /// Advances the local tail after filling an entry.
+                func advance() {
+                    // Update the SQ array with the SQE index
+                    let tail = ring.localSqTail
+                    let index = tail & ring.sqMask
+                    ring.sqArray[Int(index)] = index
+
+                    // Advance local tail
+                    ring.localSqTail = tail &+ 1
+                }
+
+                /// Returns the number of pending submissions.
+                var pending: UInt32 {
+                    ring.localSqTail &- Kernel.Atomic.load(ring.sqTail, ordering: .acquiring)
+                }
             }
-
-            let index = tail & sqMask
-            return sqes.advanced(by: Int(index))
-        }
-
-        /// Advances the local SQ tail after filling an SQE.
-        func advanceSQTail() {
-            // Update the SQ array with the SQE index
-            let tail = localSqTail
-            let index = tail & sqMask
-            sqArray[Int(index)] = index
-
-            // Advance local tail
-            localSqTail = tail &+ 1
-        }
-
-        /// Returns the number of pending submissions.
-        var pendingSubmissions: UInt32 {
-            localSqTail &- Kernel.Atomic.load(sqTail, ordering: .acquiring)
         }
     }
 

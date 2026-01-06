@@ -130,7 +130,7 @@
 
         /// Gets the Ring from a handle.
         @inline(__always)
-        private static func getRing(from handle: borrowing IO.Completion.Driver.Handle) -> Ring {
+        private static func ring(from handle: borrowing IO.Completion.Driver.Handle) -> Ring {
             Unmanaged<Ring>.fromOpaque(handle.ringPtr!).takeUnretainedValue()
         }
 
@@ -143,10 +143,10 @@
                 throw .capability(.backendUnavailable)
             }
 
-            let ring = getRing(from: handle)
+            let ring = ring(from: handle)
 
             // Get next SQE slot
-            guard let sqePtr = ring.getNextSQE() else {
+            guard let sqePtr = ring.queue.submission.next() else {
                 throw .operation(.queueFull)
             }
 
@@ -209,7 +209,7 @@
             }
 
             // Advance the SQ tail
-            ring.advanceSQTail()
+            ring.queue.submission.advance()
         }
 
         /// Flushes pending submissions.
@@ -218,9 +218,9 @@
                 return 0
             }
 
-            let ring = getRing(from: handle)
+            let ring = ring(from: handle)
 
-            let toSubmit = ring.pendingSubmissions
+            let toSubmit = ring.queue.submission.pending
             guard toSubmit > 0 else { return 0 }
 
             // Write memory barrier then update kernel-visible tail
@@ -253,7 +253,7 @@
                 return 0
             }
 
-            let ring = getRing(from: handle)
+            let ring = ring(from: handle)
 
             // Read CQ head/tail with memory barriers
             var head = Kernel.Atomic.load(ring.cqHead, ordering: .acquiring)
