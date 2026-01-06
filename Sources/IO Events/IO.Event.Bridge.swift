@@ -5,37 +5,39 @@
 //  Created by Coen ten Thije Boonkkamp on 28/12/2025.
 //
 
-import Synchronization
+public import Runtime
 
 extension IO.Event {
     /// Thread-safe bridge for poll thread → selector actor event handoff.
     ///
-    /// The `Bridge` solves the fundamental problem of transferring
-    /// events from a synchronous OS thread (poll thread) to an async actor
-    /// (selector) without blocking the poll thread or losing events.
+    /// The `Bridge` transfers `IO.Event.Poll` values from the poll thread
+    /// (synchronous) to the selector actor (async).
     ///
     /// ## Pattern
-    /// - Poll thread calls `push(_:)` (synchronous, never blocks indefinitely)
-    /// - Selector actor calls `next()` (async, suspends until events available)
+    /// - Poll thread calls `push(.events(batch))` or `push(.tick)`
+    /// - Selector actor calls `next()` (async, suspends until available)
+    ///
+    /// ## Usage
+    /// ```swift
+    /// // Poll thread
+    /// if count > 0 {
+    ///     bridge.push(.events(batch))
+    /// } else {
+    ///     bridge.push(.tick)  // Explicit control signal
+    /// }
+    ///
+    /// // Selector
+    /// switch await bridge.next() {
+    /// case .events(let batch):
+    ///     // Process events
+    /// case .tick:
+    ///     // Drain deadlines only
+    /// case nil:
+    ///     // Bridge finished
+    /// }
+    /// ```
     ///
     /// ## Thread Safety
-    /// `@unchecked Sendable` because it provides internal synchronization via `Mutex`.
-    ///
-    /// ## Shutdown
-    /// Call `shutdown()` to signal the bridge is closing. Any pending `next()`
-    /// call will return `nil`, and future `next()` calls return `nil` immediately.
-    public final class Bridge: @unchecked Sendable {
-        let state: Mutex<State>
-
-        struct State {
-            var batches: [[IO.Event]] = []
-            var continuation: CheckedContinuation<[IO.Event]?, Never>?
-            var isShutdown: Bool = false
-        }
-
-        /// Creates a new event bridge.
-        public init() {
-            self.state = Mutex(State())
-        }
-    }
+    /// All operations are protected by internal synchronization.
+    public typealias Bridge = Runtime.Async.Bridge<IO.Event.Poll>
 }

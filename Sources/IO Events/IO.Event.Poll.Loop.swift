@@ -1,20 +1,21 @@
 //
-//  IO.Event.PollLoop.swift
+//  IO.Event.Poll.Loop.swift
 //  swift-io
 //
 //  Created by Coen ten Thije Boonkkamp on 28/12/2025.
 //
 
-import Synchronization
+public import Kernel
+public import Runtime
 
-extension IO.Event {
+extension IO.Event.Poll {
     /// Poll loop running on a dedicated OS thread.
     ///
     /// The poll loop is the heart of the non-blocking I/O system. It:
     /// 1. Blocks in `driver.poll()` waiting for kernel events
     /// 2. Processes registration requests from the selector
     /// 3. Pushes events to the selector via `Event.Bridge`
-    /// 4. Pushes registration replies via `Registration.Reply.Bridge`
+    /// 4. Pushes registration replies via `IO.Event.Registration.Reply.Bridge`
     ///
     /// ## Thread Safety
     /// The poll loop owns the driver handle for its entire lifetime.
@@ -22,7 +23,7 @@ extension IO.Event {
     ///
     /// ## Single Resumption Funnel
     /// The poll thread NEVER resumes selector-owned continuations directly.
-    /// Instead, it pushes replies to `Registration.Reply.Bridge`, and the
+    /// Instead, it pushes replies to `IO.Event.Registration.Reply.Bridge`, and the
     /// selector resumes continuations on its executor.
     ///
     /// ## Lifecycle
@@ -30,7 +31,7 @@ extension IO.Event {
     /// 2. Runs until shutdown is signaled via `Wakeup.Channel`
     /// 3. Processes remaining deregistrations during shutdown
     /// 4. Closes the driver handle before exiting
-    public enum PollLoop {
+    public enum Loop {
         /// Run the poll loop.
         ///
         /// This function does not return until shutdown is signaled.
@@ -45,13 +46,13 @@ extension IO.Event {
         ///   - shutdownFlag: Atomic flag indicating shutdown.
         ///   - nextDeadline: Atomic deadline for poll timeout.
         public static func run(
-            driver: Driver,
-            handle: consuming Driver.Handle,
+            driver: IO.Event.Driver,
+            handle: consuming IO.Event.Driver.Handle,
             eventBridge: IO.Event.Bridge,
-            replyBridge: Registration.Reply.Bridge,
-            registrationQueue: Registration.Queue,
+            replyBridge: IO.Event.Registration.Reply.Bridge,
+            registrationQueue: IO.Event.Registration.Queue,
             shutdownFlag: Shutdown.Flag,
-            nextDeadline: NextDeadline
+            nextDeadline: Deadline.Next
         ) {
             var eventBuffer = [IO.Event](
                 repeating: .empty,
@@ -79,15 +80,15 @@ extension IO.Event {
                     if count > 0 {
                         // Copy events to a new array and push to bridge
                         let batch = Array(eventBuffer.prefix(count))
-                        eventBridge.push(batch)
+                        eventBridge.push(.events(batch))
                     } else {
                         // Timeout with no events - tick to wake selector for deadline drain
-                        eventBridge.tick()
+                        eventBridge.push(.tick)
                     }
                 } catch {
                     // Poll error - signal shutdown
-                    eventBridge.shutdown()
-                    replyBridge.shutdown()
+                    eventBridge.finish()
+                    replyBridge.finish()
                     break
                 }
             }
@@ -106,10 +107,10 @@ extension IO.Event {
         /// Pushes replies to `replyBridge` instead of resuming continuations directly.
         /// This ensures all continuations are resumed on the selector executor.
         private static func processRequests(
-            driver: Driver,
-            handle: borrowing Driver.Handle,
-            queue: Registration.Queue,
-            replyBridge: Registration.Reply.Bridge
+            driver: IO.Event.Driver,
+            handle: borrowing IO.Event.Driver.Handle,
+            queue: IO.Event.Registration.Queue,
+            replyBridge: IO.Event.Registration.Reply.Bridge
         ) {
             while let request = queue.dequeue() {
                 switch request {
@@ -120,28 +121,28 @@ extension IO.Event {
                             descriptor: descriptor,
                             interest: interest
                         )
-                        replyBridge.push(Registration.Reply(id: replyID, result: .success(.registered(id))))
+                        replyBridge.push(IO.Event.Registration.Reply(id: replyID, result: .success(.registered(id))))
                     } catch {
-                        replyBridge.push(Registration.Reply(id: replyID, result: .failure(error)))
+                        replyBridge.push(IO.Event.Registration.Reply(id: replyID, result: .failure(error)))
                     }
 
                 case .modify(let id, let interest, let replyID):
                     do {
                         try driver.modify(handle, id: id, interest: interest)
-                        replyBridge.push(Registration.Reply(id: replyID, result: .success(.modified)))
+                        replyBridge.push(IO.Event.Registration.Reply(id: replyID, result: .success(.modified)))
                     } catch {
-                        replyBridge.push(Registration.Reply(id: replyID, result: .failure(error)))
+                        replyBridge.push(IO.Event.Registration.Reply(id: replyID, result: .failure(error)))
                     }
 
                 case .deregister(let id, let replyID):
                     do {
                         try driver.deregister(handle, id: id)
                         if let replyID {
-                            replyBridge.push(Registration.Reply(id: replyID, result: .success(.deregistered)))
+                            replyBridge.push(IO.Event.Registration.Reply(id: replyID, result: .success(.deregistered)))
                         }
                     } catch {
                         if let replyID {
-                            replyBridge.push(Registration.Reply(id: replyID, result: .failure(error)))
+                            replyBridge.push(IO.Event.Registration.Reply(id: replyID, result: .failure(error)))
                         }
                     }
 
@@ -156,10 +157,10 @@ extension IO.Event {
 
         /// Handle shutdown sequence.
         private static func handleShutdown(
-            driver: Driver,
-            handle: consuming Driver.Handle,
-            registrationQueue: Registration.Queue,
-            replyBridge: Registration.Reply.Bridge
+            driver: IO.Event.Driver,
+            handle: consuming IO.Event.Driver.Handle,
+            registrationQueue: IO.Event.Registration.Queue,
+            replyBridge: IO.Event.Registration.Reply.Bridge
         ) {
             // Process remaining deregistration requests
             for request in registrationQueue.dequeue.all() {
@@ -168,20 +169,20 @@ extension IO.Event {
                     do {
                         try driver.deregister(handle, id: id)
                         if let replyID {
-                            replyBridge.push(Registration.Reply(id: replyID, result: .success(.deregistered)))
+                            replyBridge.push(IO.Event.Registration.Reply(id: replyID, result: .success(.deregistered)))
                         }
                     } catch {
                         if let replyID {
-                            replyBridge.push(Registration.Reply(id: replyID, result: .failure(error)))
+                            replyBridge.push(IO.Event.Registration.Reply(id: replyID, result: .failure(error)))
                         }
                     }
                 case .register(_, _, let replyID):
                     // Reject new registrations during shutdown with a sentinel error.
                     // The selector wraps this in IO.Lifecycle.Error.shutdownInProgress.
-                    replyBridge.push(Registration.Reply(id: replyID, result: .failure(.invalidDescriptor)))
+                    replyBridge.push(IO.Event.Registration.Reply(id: replyID, result: .failure(.invalidDescriptor)))
                 case .modify(_, _, let replyID):
                     // Reject modifications during shutdown with a sentinel error.
-                    replyBridge.push(Registration.Reply(id: replyID, result: .failure(.notRegistered)))
+                    replyBridge.push(IO.Event.Registration.Reply(id: replyID, result: .failure(.notRegistered)))
                 case .arm:
                     // Ignore arm requests during shutdown - waiter will be
                     // resumed with shutdownInProgress by selector.
@@ -192,56 +193,5 @@ extension IO.Event {
             // Close driver handle (consumes it)
             driver.close(handle)
         }
-    }
-}
-
-// MARK: - Context
-
-extension IO.Event.PollLoop {
-    /// Context passed to the poll thread during initialization.
-    ///
-    /// This struct bundles all the data needed by the poll thread.
-    /// It is ~Copyable because it contains the driver handle.
-    public struct Context: ~Copyable, Sendable {
-        public let driver: IO.Event.Driver
-        public var handle: IO.Event.Driver.Handle
-        public let eventBridge: IO.Event.Bridge
-        public let replyBridge: IO.Event.Registration.Reply.Bridge
-        public let registrationQueue: IO.Event.Registration.Queue
-        public let shutdownFlag: IO.Event.PollLoop.Shutdown.Flag
-        public let nextDeadline: IO.Event.PollLoop.NextDeadline
-
-        public init(
-            driver: IO.Event.Driver,
-            handle: consuming IO.Event.Driver.Handle,
-            eventBridge: IO.Event.Bridge,
-            replyBridge: IO.Event.Registration.Reply.Bridge,
-            registrationQueue: IO.Event.Registration.Queue,
-            shutdownFlag: IO.Event.PollLoop.Shutdown.Flag,
-            nextDeadline: IO.Event.PollLoop.NextDeadline
-        ) {
-            self.driver = driver
-            self.handle = handle
-            self.eventBridge = eventBridge
-            self.replyBridge = replyBridge
-            self.registrationQueue = registrationQueue
-            self.shutdownFlag = shutdownFlag
-            self.nextDeadline = nextDeadline
-        }
-    }
-
-    /// Run the poll loop with a context.
-    ///
-    /// - Parameter context: The poll thread context (consumed).
-    public static func run(_ context: consuming Context) {
-        run(
-            driver: context.driver,
-            handle: context.handle,
-            eventBridge: context.eventBridge,
-            replyBridge: context.replyBridge,
-            registrationQueue: context.registrationQueue,
-            shutdownFlag: context.shutdownFlag,
-            nextDeadline: context.nextDeadline
-        )
     }
 }

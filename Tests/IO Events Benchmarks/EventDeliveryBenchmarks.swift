@@ -50,15 +50,17 @@ extension EventDeliveryBenchmarks.Test.Performance {
                         interest: .read,
                         flags: []
                     )
-                    bridge.push([event])
+                    bridge.push(.events([event]))
                 }
-                bridge.shutdown()
+                bridge.finish()
             }
 
             // Consumer
             var count = 0
-            while let batch = await bridge.next() {
-                count += batch.count
+            while let poll = await bridge.next() {
+                if case .events(let batch) = poll {
+                    count += batch.count
+                }
             }
 
             await producerTask.value
@@ -81,7 +83,7 @@ extension EventDeliveryBenchmarks.Test.Performance {
                     )
                     bridge.push(reply)
                 }
-                bridge.shutdown()
+                bridge.finish()
             }
 
             // Consumer
@@ -113,15 +115,17 @@ extension EventDeliveryBenchmarks.Test.Performance {
                         )
                         batch.append(event)
                     }
-                    bridge.push(batch)
+                    bridge.push(.events(batch))
                 }
-                bridge.shutdown()
+                bridge.finish()
             }
 
             // Consumer
             var count = 0
-            while let batch = await bridge.next() {
-                count += batch.count
+            while let poll = await bridge.next() {
+                if case .events(let batch) = poll {
+                    count += batch.count
+                }
             }
 
             await producerTask.value
@@ -156,20 +160,22 @@ extension EventDeliveryBenchmarks.Test.Performance {
                                 interest: .read,
                                 flags: []
                             )
-                            bridge.push([event])
+                            bridge.push(.events([event]))
                         }
                     }
                 }
 
                 // Wait for all producers
                 await group.waitForAll()
-                bridge.shutdown()
+                bridge.finish()
             }
 
             // Consume any remaining
             var count = 0
-            while let batch = await bridge.next() {
-                count += batch.count
+            while let poll = await bridge.next() {
+                if case .events(let batch) = poll {
+                    count += batch.count
+                }
             }
             withExtendedLifetime(count) {}
         }

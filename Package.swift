@@ -26,6 +26,7 @@ let package = Package(
         .package(url: "https://github.com/swift-standards/swift-standards", from: "0.24.1"),
         .package(url: "https://github.com/apple/swift-nio", from: "2.70.0"),
         .package(path: "../swift-kernel"),
+        .package(path: "../swift-runtime"),
         .package(path: "../swift-memory"),
 //        .package(url: "https://github.com/coenttb/swift-kernel.git", from: "0.2.0"),
 //        .package(url: "https://github.com/coenttb/swift-memory.git", from: "0.1.0"),
@@ -68,6 +69,7 @@ let package = Package(
             dependencies: [
                 "IO Primitives",
                 .product(name: "Kernel", package: "swift-kernel"),
+                .product(name: "Runtime", package: "swift-runtime"),
                 .product(name: "Binary", package: "swift-standards"),
             ]
         ),

@@ -5,7 +5,7 @@
 //  Created by Coen ten Thije Boonkkamp on 28/12/2025.
 //
 
-import Synchronization
+public import Runtime
 
 extension IO.Event.Registration {
     /// Thread-safe queue for registration requests from selector to poll thread.
@@ -14,23 +14,11 @@ extension IO.Event.Registration {
     /// that the poll thread processes between poll cycles.
     ///
     /// ## Thread Safety
-    /// `@unchecked Sendable` because it provides internal synchronization via `Mutex`.
+    /// All operations are protected by internal synchronization.
     ///
     /// ## Pattern
     /// - Selector enqueues requests via `enqueue(_:)`
-    /// - Poll thread dequeues via `dequeue()`
+    /// - Poll thread dequeues via `dequeue.one()` or `dequeue()`
     /// - Shutdown drains remaining requests via `dequeue.all()`
-    public final class Queue: @unchecked Sendable {
-        let state: Mutex<State>
-
-        struct State {
-            var requests: [Request] = []
-            var isShutdown: Bool = false
-        }
-
-        /// Creates a new registration queue.
-        public init() {
-            self.state = Mutex(State())
-        }
-    }
+    public typealias Queue = Runtime.Mutex.Queue<IO.Event.Registration.Request>
 }

@@ -10,15 +10,19 @@ import Testing
 
 // MARK: - Event.Bridge Tests
 
-extension IO.Event.Bridge {
-    #TestSuites
+extension IO.Event.Poll {
+    fileprivate var events: [IO.Event]? {
+        if case .events(let e) = self { return e }
+        return nil
+    }
 }
 
-extension IO.Event.Bridge.Test.Unit {
+@Suite("Event.Bridge")
+struct EventBridgeTests {
     @Test("next returns nil after shutdown")
     func nextReturnsNilAfterShutdown() async {
         let bridge = IO.Event.Bridge()
-        bridge.shutdown()
+        bridge.finish()
         let result = await bridge.next()
         #expect(result == nil)
     }
@@ -26,17 +30,15 @@ extension IO.Event.Bridge.Test.Unit {
     @Test("push after shutdown is ignored")
     func pushAfterShutdownIsIgnored() async {
         let bridge = IO.Event.Bridge()
-        bridge.shutdown()
+        bridge.finish()
 
-        // Push should be silently ignored
         let event = IO.Event(
             id: IO.Event.ID(1),
             interest: .read,
             flags: []
         )
-        bridge.push([event])
+        bridge.push(.events([event]))
 
-        // next() should still return nil (no queued events)
         let result = await bridge.next()
         #expect(result == nil)
     }
@@ -49,43 +51,38 @@ extension IO.Event.Bridge.Test.Unit {
             interest: .read,
             flags: []
         )
-        bridge.push([event])
+        bridge.push(.events([event]))
 
         let batch = await bridge.next()
         #expect(batch != nil)
-        #expect(batch?.count == 1)
-        #expect(batch?.first?.id.rawValue == 42)
+        #expect(batch?.events?.count == 1)
+        #expect(batch?.events?.first?.id.rawValue == 42)
 
-        bridge.shutdown()
+        bridge.finish()
     }
 
     @Test("next then push resumes exactly once")
     func nextThenPushResumesExactlyOnce() async {
         let bridge = IO.Event.Bridge()
 
-        // Start awaiting in background
         async let batchTask = bridge.next()
 
-        // Small yield to ensure next() has suspended
         try? await Task.sleep(for: .milliseconds(10))
 
-        // Push should resume the awaiting task
         let event = IO.Event(
             id: IO.Event.ID(99),
             interest: .write,
             flags: []
         )
-        bridge.push([event])
+        bridge.push(.events([event]))
 
         let batch = await batchTask
         #expect(batch != nil)
-        #expect(batch?.first?.id.rawValue == 99)
+        #expect(batch?.events?.first?.id.rawValue == 99)
 
-        bridge.shutdown()
+        bridge.finish()
     }
-}
 
-extension IO.Event.Bridge.Test.EdgeCase {
     @Test("multiple pushes queue correctly")
     func multiplePushesQueueCorrectly() async {
         let bridge = IO.Event.Bridge()
@@ -93,16 +90,16 @@ extension IO.Event.Bridge.Test.EdgeCase {
         let event1 = IO.Event(id: IO.Event.ID(1), interest: .read, flags: [])
         let event2 = IO.Event(id: IO.Event.ID(2), interest: .write, flags: [])
 
-        bridge.push([event1])
-        bridge.push([event2])
+        bridge.push(.events([event1]))
+        bridge.push(.events([event2]))
 
         let batch1 = await bridge.next()
         let batch2 = await bridge.next()
 
-        #expect(batch1?.first?.id.rawValue == 1)
-        #expect(batch2?.first?.id.rawValue == 2)
+        #expect(batch1?.events?.first?.id.rawValue == 1)
+        #expect(batch2?.events?.first?.id.rawValue == 2)
 
-        bridge.shutdown()
+        bridge.finish()
     }
 
     @Test("shutdown while awaiting next returns nil")
@@ -111,10 +108,9 @@ extension IO.Event.Bridge.Test.EdgeCase {
 
         async let batchTask = bridge.next()
 
-        // Small yield to ensure next() has suspended
         try? await Task.sleep(for: .milliseconds(10))
 
-        bridge.shutdown()
+        bridge.finish()
 
         let batch = await batchTask
         #expect(batch == nil)
@@ -123,15 +119,12 @@ extension IO.Event.Bridge.Test.EdgeCase {
 
 // MARK: - Registration.Reply.Bridge Tests
 
-extension IO.Event.Registration.Reply.Bridge {
-    #TestSuites
-}
-
-extension IO.Event.Registration.Reply.Bridge.Test.Unit {
+@Suite("Registration.Reply.Bridge")
+struct RegistrationReplyBridgeTests {
     @Test("next returns nil after shutdown")
     func nextReturnsNilAfterShutdown() async {
         let bridge = IO.Event.Registration.Reply.Bridge()
-        bridge.shutdown()
+        bridge.finish()
         let result = await bridge.next()
         #expect(result == nil)
     }
@@ -139,7 +132,7 @@ extension IO.Event.Registration.Reply.Bridge.Test.Unit {
     @Test("push after shutdown is ignored")
     func pushAfterShutdownIsIgnored() async {
         let bridge = IO.Event.Registration.Reply.Bridge()
-        bridge.shutdown()
+        bridge.finish()
 
         let reply = IO.Event.Registration.Reply(
             id: IO.Event.Registration.ReplyID( 1),
@@ -169,7 +162,7 @@ extension IO.Event.Registration.Reply.Bridge.Test.Unit {
             Issue.record("Expected .registered payload")
         }
 
-        bridge.shutdown()
+        bridge.finish()
     }
 
     @Test("next then push resumes exactly once")
@@ -190,11 +183,9 @@ extension IO.Event.Registration.Reply.Bridge.Test.Unit {
         #expect(received != nil)
         #expect(received?.id.rawValue == 77)
 
-        bridge.shutdown()
+        bridge.finish()
     }
-}
 
-extension IO.Event.Registration.Reply.Bridge.Test.EdgeCase {
     @Test("multiple pushes queue correctly")
     func multiplePushesQueueCorrectly() async {
         let bridge = IO.Event.Registration.Reply.Bridge()
@@ -217,7 +208,7 @@ extension IO.Event.Registration.Reply.Bridge.Test.EdgeCase {
         #expect(received1?.id.rawValue == 1)
         #expect(received2?.id.rawValue == 2)
 
-        bridge.shutdown()
+        bridge.finish()
     }
 
     @Test("shutdown while awaiting next returns nil")
@@ -228,7 +219,7 @@ extension IO.Event.Registration.Reply.Bridge.Test.EdgeCase {
 
         try? await Task.sleep(for: .milliseconds(10))
 
-        bridge.shutdown()
+        bridge.finish()
 
         let reply = await replyTask
         #expect(reply == nil)
@@ -252,6 +243,6 @@ extension IO.Event.Registration.Reply.Bridge.Test.EdgeCase {
             Issue.record("Expected .notRegistered error")
         }
 
-        bridge.shutdown()
+        bridge.finish()
     }
 }

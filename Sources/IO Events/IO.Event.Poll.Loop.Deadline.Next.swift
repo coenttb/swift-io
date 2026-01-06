@@ -1,5 +1,5 @@
 //
-//  IO.Event.PollLoop.NextDeadline.swift
+//  IO.Event.Poll.Loop.Deadline.Next.swift
 //  swift-io
 //
 //  Created by Coen ten Thije Boonkkamp on 30/12/2025.
@@ -7,7 +7,12 @@
 
 import Synchronization
 
-extension IO.Event.PollLoop {
+extension IO.Event.Poll.Loop {
+    /// Namespace for deadline-related types.
+    public enum Deadline {}
+}
+
+extension IO.Event.Poll.Loop.Deadline {
     /// Atomic next poll deadline for coordinating timeout between selector and poll thread.
     ///
     /// The selector writes the earliest deadline from its heap, and the poll thread
@@ -19,7 +24,7 @@ extension IO.Event.PollLoop {
     ///
     /// ## Thread Safety
     /// `Sendable` because it provides internal synchronization via `Atomic`.
-    public final class NextDeadline: Sendable {
+    public final class Next: Sendable {
         let _value: Atomic<UInt64>
 
         /// Creates a new next deadline (initially .max = no deadline).
@@ -31,7 +36,7 @@ extension IO.Event.PollLoop {
 
 // MARK: - Methods
 
-extension IO.Event.PollLoop.NextDeadline {
+extension IO.Event.Poll.Loop.Deadline.Next {
     /// The current next deadline in nanoseconds.
     ///
     /// Returns `UInt64.max` if there is no deadline.

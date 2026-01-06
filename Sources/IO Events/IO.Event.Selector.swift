@@ -5,6 +5,9 @@
 //  Created by Coen ten Thije Boonkkamp on 28/12/2025.
 //
 
+public import Kernel
+public import Runtime
+
 extension IO.Event {
     /// The central runtime for non-blocking I/O operations.
     ///
@@ -66,7 +69,7 @@ extension IO.Event {
         private let registrationQueue: IO.Event.Registration.Queue
 
         /// Flag for signaling shutdown to poll thread.
-        private let shutdownFlag: PollLoop.Shutdown.Flag
+        private let shutdownFlag: Poll.Loop.Shutdown.Flag
 
         /// Handle to the poll thread (consumed on shutdown).
         private var pollThreadHandle: Kernel.Thread.Handle?
@@ -86,7 +89,7 @@ extension IO.Event {
         // MARK: - Deadline State
 
         /// Atomic next poll deadline shared with poll thread.
-        private let nextDeadline: PollLoop.NextDeadline
+        private let nextDeadline: Poll.Loop.Deadline.Next
 
         /// Min-heap of deadline entries for scheduling.
         private var deadlineHeap: DeadlineScheduling.MinHeap = .init()
@@ -130,8 +133,8 @@ extension IO.Event {
             eventBridge: IO.Event.Bridge,
             replyBridge: IO.Event.Registration.Reply.Bridge,
             registrationQueue: IO.Event.Registration.Queue,
-            shutdownFlag: PollLoop.Shutdown.Flag,
-            nextDeadline: PollLoop.NextDeadline,
+            shutdownFlag: Poll.Loop.Shutdown.Flag,
+            nextDeadline: Poll.Loop.Deadline.Next,
             pollThreadHandle: consuming Kernel.Thread.Handle
         ) {
             self.driver = driver
@@ -173,11 +176,11 @@ extension IO.Event {
             let eventBridge = IO.Event.Bridge()
             let replyBridge = IO.Event.Registration.Reply.Bridge()
             let registrationQueue = IO.Event.Registration.Queue()
-            let shutdownFlag = PollLoop.Shutdown.Flag()
-            let nextDeadline = PollLoop.NextDeadline()
+            let shutdownFlag = Poll.Loop.Shutdown.Flag()
+            let nextDeadline = Poll.Loop.Deadline.Next()
 
             // Create context for poll thread
-            let context = PollLoop.Context(
+            let context = Poll.Loop.Context(
                 driver: driver,
                 handle: handle,
                 eventBridge: eventBridge,
@@ -190,7 +193,7 @@ extension IO.Event {
             // Start poll thread with context
             // Uses trap because thread spawn failure is unrecoverable for the selector runtime
             let pollThreadHandle = Kernel.Thread.trap(context) { context in
-                PollLoop.run(context)
+                Poll.Loop.run(context)
             }
 
             let selector = Selector(
@@ -766,11 +769,17 @@ extension IO.Event {
         /// This order ensures "event wins over timeout" semantics when both
         /// occur in the same selector turn.
         public func runEventLoop() async {
-            while let batch = await eventBridge.next() {
-                for event in batch {
-                    processEvent(event)
+            while let poll = await eventBridge.next() {
+                switch poll {
+                case .events(let batch):
+                    for event in batch {
+                        processEvent(event)
+                    }
+                case .tick:
+                    // No events, just drain deadlines
+                    break
                 }
-                // Drain any waiters that were cancelled during this touch
+                // Drain any waiters that were cancelled during this turn
                 drainCancelledWaiters()
                 // Drain expired deadlines (get time once per turn)
                 let now = Deadline.now.nanoseconds
@@ -996,8 +1005,8 @@ extension IO.Event {
             registrations.removeAll()
 
             // Signal shutdown to bridges
-            eventBridge.shutdown()
-            replyBridge.shutdown()
+            eventBridge.finish()
+            replyBridge.finish()
 
             // Wait for poll thread to complete (consume the handle)
             pollThreadHandle.take()?.join()
