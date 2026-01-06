@@ -7,6 +7,7 @@
 
 import Buffer
 public import Kernel
+public import Runtime
 
 extension IO.Completion {
     /// The completion queue manages async I/O operations.
@@ -151,9 +152,9 @@ extension IO.Completion {
             self.driver = driver
 
             // Create thread-safe primitives
-            self.submissions = Submission.Queue()
-            self.bridge = Bridge()
-            self.shutdownFlag = PollLoop.Shutdown.Flag()
+            self.submissions = Submission.Queue(.init())
+            self.bridge = Bridge(.init())
+            self.shutdownFlag = PollLoop.Shutdown.Flag(.init())
 
             // Create driver handle
             let handle: IO.Completion.Driver.Handle
@@ -199,7 +200,7 @@ extension IO.Completion {
 
             // Start bridge drain task
             self.drainTask = Task { [weak self] in
-                while let events = await self?.bridge.next() {
+                while let events = await self?.bridge.rawValue.next() {
                     await self?.drain(events)
                 }
             }
@@ -261,7 +262,7 @@ extension IO.Completion {
                     }
 
                     // Submit to poll thread via submission queue
-                    submissions.push(storage)
+                    submissions.rawValue.enqueue(storage)
                     wakeup.wake()
 
                     // Early completion: If completion arrived before we armed,
@@ -462,10 +463,10 @@ extension IO.Completion {
             // immediately (continuation resumes) and see isShutdown after await.
 
             // Set shutdown flag for poll loop
-            shutdownFlag.set()
+            shutdownFlag.rawValue.set()
 
             // Signal bridge shutdown
-            bridge.shutdown()
+            bridge.rawValue.finish()
 
             // Wake poll thread to exit
             wakeupChannel.wake()

@@ -173,7 +173,7 @@
 
             let timeout: DWORD
             if let deadline {
-                let remaining = deadline.remainingNanoseconds
+                let remaining = deadline.rawValue.remainingNanoseconds
                 if remaining <= 0 {
                     timeout = 0
                 } else {

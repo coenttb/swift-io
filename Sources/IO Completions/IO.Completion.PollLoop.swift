@@ -5,7 +5,9 @@
 //  Created by Coen ten Thije Boonkkamp on 31/12/2025.
 //
 
-import Synchronization
+public import Dimension
+public import Kernel
+public import Runtime
 
 extension IO.Completion {
     /// Namespace for poll loop types.
@@ -22,32 +24,9 @@ extension IO.Completion.PollLoop {
 extension IO.Completion.PollLoop.Shutdown {
     /// Atomic flag for signaling poll loop shutdown.
     ///
-    /// The flag is set by the queue actor and checked by the poll thread.
-    /// Uses acquire/release ordering for proper synchronization.
-    ///
-    /// ## Thread Safety
-    ///
-    /// `@unchecked Sendable` because it provides internal synchronization via `Atomic`.
-    public final class Flag: @unchecked Sendable {
-        private let _isSet: Atomic<Bool>
-
-        /// Creates an unset shutdown flag.
-        public init() {
-            self._isSet = Atomic(false)
-        }
-
-        /// Whether the shutdown flag is set.
-        public var isSet: Bool {
-            _isSet.load(ordering: .acquiring)
-        }
-
-        /// Sets the shutdown flag.
-        ///
-        /// After calling this, the poll loop will exit on its next iteration.
-        public func set() {
-            _isSet.store(true, ordering: .releasing)
-        }
-    }
+    /// Delegates to `Kernel.Atomic.Flag` for atomic boolean handling.
+    /// Access underlying API via `.rawValue`.
+    public typealias Flag = Tagged<IO.Completion.PollLoop.Shutdown, Kernel.Atomic.Flag>
 }
 
 // MARK: - Context
@@ -147,10 +126,10 @@ extension IO.Completion.PollLoop {
         eventBuffer.reserveCapacity(driver.capabilities.maxCompletions)
 
         // Main loop
-        while !shutdownFlag.isSet {
+        while !shutdownFlag.rawValue.isSet {
             // 1. Drain submissions
             submissionBuffer.removeAll(keepingCapacity: true)
-            _ = submissions.drain(into: &submissionBuffer)
+            _ = submissions.rawValue.dequeue.all(into: &submissionBuffer)
 
             // 2. Submit to driver
             for storage in submissionBuffer {
@@ -180,7 +159,7 @@ extension IO.Completion.PollLoop {
 
                 // 5. Push events to bridge
                 if count > 0 {
-                    bridge.push(eventBuffer)
+                    bridge.rawValue.push(eventBuffer)
                 }
             } catch {
                 // Log error but continue - poll failures are often transient

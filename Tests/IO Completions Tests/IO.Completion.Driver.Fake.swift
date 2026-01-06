@@ -214,7 +214,7 @@ extension IO.Completion.Driver {
 
             // Wait until we have events, wakeup, or shutdown
             while state.completionQueue.isEmpty && !state.wakeupSignaled && !state.isShutdown {
-                if let deadline = deadline, deadline.hasExpired {
+                if let deadline = deadline, deadline.rawValue.hasExpired {
                     break
                 }
                 wait()
