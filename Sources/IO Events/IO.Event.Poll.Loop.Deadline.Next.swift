@@ -59,6 +59,6 @@ extension IO.Event.Poll.Loop.Deadline.Next {
         if ns == .max {
             return nil
         }
-        return IO.Event.Deadline(nanoseconds: ns)
+        return .init(.init(nanoseconds: ns))
     }
 }

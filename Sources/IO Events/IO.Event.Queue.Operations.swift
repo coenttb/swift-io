@@ -1,48 +1,37 @@
 //
-//  IO.Event.Kqueue.Operations.swift
+//  IO.Event.Queue.Operations.swift
 //  swift-io
 //
-//  Created by Coen ten Thije Boonkkamp on 28/12/2025.
+//  Kqueue operation implementations for Darwin platforms.
 //
 
 #if canImport(Darwin)
 
-    public import Kernel
-    import Synchronization
+import Kernel
+import Synchronization
 
-    // MARK: - Registration Mapping
+// MARK: - Error Conversion
 
-    /// Per-registration state tracking descriptor and current interests.
-    private struct RegistrationEntry: Sendable {
-        let descriptor: Int32
-        var interest: IO.Event.Interest
-    }
-
-    /// Module-level registry mapping kqueue fd → (ID → registration).
-    ///
-    /// Thread-safe via Mutex. Each kqueue's entries are accessed only by its poll thread,
-    /// so contention is minimal (only during concurrent Selector creation/destruction).
-    private let registry = Mutex<[Int32: [IO.Event.ID: RegistrationEntry]]>([:])
-
-    // MARK: - Error Conversion
-
-    extension IO.Event.Error {
-        /// Creates an IO.Event.Error from a Kernel.Kqueue.Error.
-        init(_ kqueueError: Kernel.Kqueue.Error) {
-            switch kqueueError {
-            case .create(let code):
-                self = .platform(code)
-            case .kevent(let code):
-                self = .platform(code)
-            case .interrupted:
-                // Map interrupted to EINTR platform error
-                self = .platform(.posix(Kernel.Error.Number.interrupted.rawValue))
-            }
+extension IO.Event.Error {
+    /// Creates an IO.Event.Error from a Kernel.Kqueue.Error.
+    init(_ kqueueError: Kernel.Kqueue.Error) {
+        switch kqueueError {
+        case .create(let code):
+            self = .platform(code)
+        case .kevent(let code):
+            self = .platform(code)
+        case .interrupted:
+            // Map interrupted to EINTR platform error
+            self = .platform(.posix(Kernel.Error.Number.interrupted.rawValue))
         }
     }
+}
 
+// MARK: - Operations
+
+extension IO.Event.Queue {
     /// Internal implementation of kqueue operations.
-    enum KqueueOperations {
+    enum Operations {
         /// Counter for generating unique registration IDs.
         ///
         /// ## Global State (PATTERN REQUIREMENTS §6.6)
@@ -64,7 +53,7 @@
             let kq = descriptor.rawValue
 
             // Initialize empty registry for this kqueue
-            registry.withLock { $0[kq] = [:] }
+            IO.Event.Registry.shared.withLock { $0[kq] = [:] }
 
             return IO.Event.Driver.Handle(rawValue: kq)
         }
@@ -109,8 +98,8 @@
 
             guard !events.isEmpty else {
                 // Still store the mapping even with no interests
-                registry.withLock { registrations in
-                    registrations[kq]?[id] = RegistrationEntry(descriptor: descriptor, interest: interest)
+                IO.Event.Registry.shared.withLock { registrations in
+                    registrations[kq]?[id] = IO.Event.Registration.Entry(descriptor: descriptor, interest: interest)
                 }
                 return id
             }
@@ -122,8 +111,8 @@
             }
 
             // Store the mapping for future modify/deregister
-            registry.withLock { registrations in
-                registrations[kq]?[id] = RegistrationEntry(descriptor: descriptor, interest: interest)
+            IO.Event.Registry.shared.withLock { registrations in
+                registrations[kq]?[id] = IO.Event.Registration.Entry(descriptor: descriptor, interest: interest)
             }
 
             return id
@@ -138,7 +127,7 @@
             let kq = handle.rawValue
 
             // Look up the registration
-            let entry: RegistrationEntry? = registry.withLock { $0[kq]?[id] }
+            let entry: IO.Event.Registration.Entry? = IO.Event.Registry.shared.withLock { $0[kq]?[id] }
             guard let entry else {
                 throw IO.Event.Error.notRegistered
             }
@@ -198,7 +187,7 @@
             }
 
             // Update stored interest
-            registry.withLock { registrations in
+            IO.Event.Registry.shared.withLock { registrations in
                 registrations[kq]?[id]?.interest = newInterest
             }
         }
@@ -214,7 +203,7 @@
             let kq = handle.rawValue
 
             // Remove from registry and get the entry atomically
-            let entry: RegistrationEntry? = registry.withLock { registrations in
+            let entry: IO.Event.Registration.Entry? = IO.Event.Registry.shared.withLock { registrations in
                 registrations[kq]?.removeValue(forKey: id)
             }
 
@@ -276,7 +265,7 @@
             let kq = handle.rawValue
 
             // Look up the registration
-            let entry: RegistrationEntry? = registry.withLock { $0[kq]?[id] }
+            let entry: IO.Event.Registration.Entry? = IO.Event.Registry.shared.withLock { $0[kq]?[id] }
             guard let entry else {
                 throw IO.Event.Error.notRegistered
             }
@@ -327,10 +316,10 @@
             var duration: Duration? = nil
             if let deadline = deadline {
                 let now = Kernel.Time.monotonicNanoseconds()
-                if now >= deadline.nanoseconds {
+                if now >= deadline.rawValue.nanoseconds {
                     duration = .zero
                 } else {
-                    let remaining = deadline.nanoseconds - now
+                    let remaining = deadline.rawValue.nanoseconds - now
                     duration = .nanoseconds(Int64(remaining))
                 }
             }
@@ -358,7 +347,7 @@
 
             // Get current registrations for filtering stale events
             let kq = handle.rawValue
-            let registeredIDs: Set<IO.Event.ID> = registry.withLock { registrations in
+            let registeredIDs: Set<IO.Event.ID> = IO.Event.Registry.shared.withLock { registrations in
                 if let ids = registrations[kq]?.keys {
                     return Set(ids)
                 }
@@ -418,7 +407,7 @@
             let kq = handle.rawValue
 
             // Clean up the registry
-            _ = registry.withLock { $0.removeValue(forKey: kq) }
+            _ = IO.Event.Registry.shared.withLock { $0.removeValue(forKey: kq) }
 
             // Use Kernel.Close, ignoring any errors (fire-and-forget)
             try? Kernel.Close.close(Kernel.Descriptor(rawValue: kq))
@@ -466,5 +455,6 @@
             }
         }
     }
+}
 
 #endif

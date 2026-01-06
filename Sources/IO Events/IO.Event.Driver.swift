@@ -214,78 +214,62 @@ extension IO.Event {
 extension IO.Event {
     /// A point in time for timeout calculations.
     ///
-    /// Deadlines are used instead of durations to avoid drift
-    /// when poll is interrupted and restarted.
+    /// Alias to `Kernel.Time.Deadline`. Convenience extensions in this package
+    /// add `hasExpired`, `remainingNanoseconds`, and `remaining` properties.
+    public typealias Deadline = Tagged<Self, Kernel.Time.Deadline>
+}
+
+
+#if canImport(Darwin)
+
+extension IO.Event.Driver {
+    /// Creates a kqueue-based driver.
     ///
-    /// ## Clock
-    /// Uses monotonic time (`CLOCK_MONOTONIC` on POSIX systems) to ensure
-    /// consistent timing regardless of system clock adjustments.
-    public struct Deadline: Sendable, Comparable {
-        /// Nanoseconds since an arbitrary epoch (typically system boot).
-        public let nanoseconds: UInt64
-
-        /// Creates a deadline at the given nanosecond value.
-        public init(nanoseconds: UInt64) {
-            self.nanoseconds = nanoseconds
-        }
-
-        /// A deadline in the infinite future (no timeout).
-        public static let never = Deadline(nanoseconds: .max)
-
-        // MARK: - Clock Helpers
-
-        /// The current monotonic time as a deadline.
-        public static var now: Deadline {
-            Deadline(nanoseconds: monotonicNanoseconds())
-        }
-
-        /// Creates a deadline at a given duration from now.
-        ///
-        /// - Parameter nanoseconds: Duration from now in nanoseconds.
-        /// - Returns: A deadline at `now + nanoseconds`.
-        public static func after(nanoseconds: Int64) -> Deadline {
-            let current = monotonicNanoseconds()
-            if nanoseconds <= 0 {
-                return Deadline(nanoseconds: current)
-            }
-            // Saturating add to avoid overflow
-            let result = current.addingReportingOverflow(UInt64(nanoseconds))
-            return Deadline(nanoseconds: result.overflow ? .max : result.partialValue)
-        }
-
-        /// Creates a deadline at a given duration from now.
-        ///
-        /// - Parameter milliseconds: Duration from now in milliseconds.
-        /// - Returns: A deadline at `now + milliseconds`.
-        public static func after(milliseconds: Int64) -> Deadline {
-            after(nanoseconds: milliseconds * 1_000_000)
-        }
-
-        /// Whether this deadline has passed.
-        public var hasExpired: Bool {
-            Self.monotonicNanoseconds() >= nanoseconds
-        }
-
-        /// Nanoseconds remaining until deadline, or 0 if expired.
-        public var remainingNanoseconds: Int64 {
-            let current = Self.monotonicNanoseconds()
-            if current >= nanoseconds {
-                return 0
-            }
-            return Int64(nanoseconds - current)
-        }
-
-        // MARK: - Comparable
-
-        public static func < (lhs: Deadline, rhs: Deadline) -> Bool {
-            lhs.nanoseconds < rhs.nanoseconds
-        }
-
-        // MARK: - Private
-
-        /// Gets the current monotonic time in nanoseconds.
-        private static func monotonicNanoseconds() -> UInt64 {
-            Kernel.Time.monotonicNanoseconds()
-        }
+    /// - Returns: A driver configured for kqueue operations.
+    public static func kqueue() -> IO.Event.Driver {
+        IO.Event.Driver(
+            capabilities: IO.Event.Driver.Capabilities(
+                maxEvents: 256,
+                supportsEdgeTriggered: true,
+                isCompletionBased: false
+            ),
+            create: IO.Event.Queue.Operations.create,
+            register: IO.Event.Queue.Operations.register,
+            modify: IO.Event.Queue.Operations.modify,
+            deregister: IO.Event.Queue.Operations.deregister,
+            arm: IO.Event.Queue.Operations.arm,
+            poll: IO.Event.Queue.Operations.poll,
+            close: IO.Event.Queue.Operations.close,
+            createWakeupChannel: IO.Event.Queue.Operations.createWakeupChannel
+        )
     }
 }
+
+#endif
+
+#if canImport(Glibc)
+
+extension IO.Event.Driver {
+    /// Creates an epoll-based driver.
+    ///
+    /// - Returns: A driver configured for epoll operations.
+    public static func epoll() -> IO.Event.Driver {
+        IO.Event.Driver(
+            capabilities: IO.Event.Driver.Capabilities(
+                maxEvents: 256,
+                supportsEdgeTriggered: true,
+                isCompletionBased: false
+            ),
+            create: IO.Event.Poll.Operations.create,
+            register: IO.Event.Poll.Operations.register,
+            modify: IO.Event.Poll.Operations.modify,
+            deregister: IO.Event.Poll.Operations.deregister,
+            arm: IO.Event.Poll.Operations.arm,
+            poll: IO.Event.Poll.Operations.poll,
+            close: IO.Event.Poll.Operations.close,
+            createWakeupChannel: IO.Event.Poll.Operations.createWakeupChannel
+        )
+    }
+}
+
+#endif

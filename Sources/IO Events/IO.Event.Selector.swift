@@ -677,7 +677,7 @@ extension IO.Event {
             deadlineGeneration[key] = gen
 
             let entry = DeadlineScheduling.Entry(
-                deadline: deadline.nanoseconds,
+                deadline: deadline.rawValue.nanoseconds,
                 key: key,
                 generation: gen
             )
@@ -782,7 +782,7 @@ extension IO.Event {
                 // Drain any waiters that were cancelled during this turn
                 drainCancelledWaiters()
                 // Drain expired deadlines (get time once per turn)
-                let now = Deadline.now.nanoseconds
+                let now = Kernel.Time.Deadline.now.nanoseconds
                 drainExpiredDeadlines(now: now)
             }
             // Bridge returned nil = shutdown

@@ -19,9 +19,9 @@ extension IO.Event.Driver {
     /// ```
     public static var platform: IO.Event.Driver {
         #if canImport(Darwin)
-            IO.Event.Kqueue.driver()
+            IO.Event.Driver.kqueue()
         #elseif canImport(Glibc)
-            IO.Event.Epoll.driver()
+            IO.Event.Driver.epoll()
         #elseif os(Windows)
             fatalError("Windows IOCP driver not yet implemented")
         #else
