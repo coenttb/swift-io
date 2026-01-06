@@ -321,134 +321,215 @@ extension BackpressureBenchmarks.Test.Performance {
 
 // MARK: - Pure Rejection Latency
 
+// MARK: Saturated Lane Trait (TestScoping)
+
+/// Provides a pre-saturated lane for rejection latency benchmarks.
+///
+/// Uses `TestScoping` to guarantee cleanup even if tests fail.
+/// The saturated lane is accessible via `SaturatedLane.current`.
+struct SaturatedLaneTrait: TestTrait, SuiteTrait, TestScoping {
+    static let threadCount = 2
+    static let queueLimit = 1
+
+    func provideScope(
+        for test: Test,
+        testCase: Test.Case?,
+        performing function: @Sendable () async throws -> Void
+    ) async throws {
+        // Setup: create and saturate lane
+        let options = IO.Blocking.Threads.Options(
+            workers: Kernel.Thread.Count(Self.threadCount),
+            policy: IO.Backpressure.Policy(
+                strategy: .failFast,
+                laneQueueLimit: Self.queueLimit,
+                laneAcceptanceWaitersLimit: 16
+            )
+        )
+        let lane = IO.Blocking.Lane.threads(options)
+        let latch = BlockerLatch(count: Self.threadCount)
+        var blockerTasks: [Task<Void, Never>] = []
+
+        // Guaranteed cleanup - runs even if test throws
+        defer {
+            latch.release()
+            for task in blockerTasks {
+                task.cancel()
+            }
+            // Note: lane.shutdown() is async but defer can't await.
+            // The lane will be cleaned up when it goes out of scope,
+            // and the latch release ensures blockers complete quickly.
+        }
+
+        // Saturate workers
+        for _ in 0..<Self.threadCount {
+            let task = Task.detached {
+                _ = try? await lane.run(
+                    deadline: IO.Blocking.Deadline.after(.seconds(30))
+                ) {
+                    latch.signalStarted()
+                    latch.blockUntilReleased()
+                }
+            }
+            blockerTasks.append(task)
+            // Give each task time to be scheduled
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        // Wait for workers to be occupied (up to 5 seconds)
+        var waitCount = 0
+        while !latch.allStarted && waitCount < 5_000 {
+            try await Task.sleep(for: .milliseconds(1))
+            waitCount += 1
+        }
+        guard latch.allStarted else {
+            throw BenchmarkSetupError.failedToStartWorkers
+        }
+
+        // Fill queue
+        for _ in 0..<Self.queueLimit {
+            let task = Task.detached {
+                _ = try? await lane.run(
+                    deadline: IO.Blocking.Deadline.after(.seconds(30))
+                ) {
+                    latch.blockUntilReleased()
+                }
+            }
+            blockerTasks.append(task)
+            try await Task.sleep(for: .microseconds(100))
+        }
+
+        // Verify saturated
+        var saturated = false
+        for _ in 0..<100 {
+            do {
+                let _: Int = try await lane.runImmediate { 42 }
+                try await Task.sleep(for: .microseconds(100))
+            } catch IO.Lifecycle.Error<IO.Blocking.Lane.Error>.failure(.queueFull) {
+                saturated = true
+                break
+            } catch IO.Lifecycle.Error<IO.Blocking.Lane.Error>.timeout {
+                saturated = true
+                break
+            } catch {
+                break
+            }
+        }
+        guard saturated else {
+            throw BenchmarkSetupError.failedToSaturate
+        }
+
+        // Execute test with saturated lane available via task-local
+        try await SaturatedLane.$current.withValue(lane) {
+            try await function()
+        }
+
+        // Explicit shutdown before defer runs
+        latch.release()
+        for task in blockerTasks {
+            task.cancel()
+        }
+        await lane.shutdown()
+    }
+}
+
+/// Task-local storage for the saturated lane.
+enum SaturatedLane {
+    @TaskLocal static var current: IO.Blocking.Lane?
+}
+
+extension Trait where Self == SaturatedLaneTrait {
+    /// Provides a pre-saturated lane for rejection latency testing.
+    static var saturatedLane: Self { .init() }
+}
+
+// MARK: Saturated NIO Trait (TestScoping)
+
+/// Provides a pre-saturated NIO pool for rejection latency benchmarks.
+struct SaturatedNIOTrait: TestTrait, SuiteTrait, TestScoping {
+    static let threadCount = 2
+
+    func provideScope(
+        for test: Test,
+        testCase: Test.Case?,
+        performing function: @Sendable () async throws -> Void
+    ) async throws {
+        let pool = NIOThreadPool(numberOfThreads: Self.threadCount)
+        pool.start()
+        let bounded = BoundedNIOThreadPool(pool: pool, limit: Self.threadCount)
+        let latch = BlockerLatch(count: Self.threadCount)
+
+        // Guaranteed cleanup
+        defer {
+            latch.release()
+        }
+
+        // Saturate with blockers
+        let blockerTask = Task {
+            await withTaskGroup(of: Void.self) { group in
+                for _ in 0..<Self.threadCount {
+                    group.addTask {
+                        _ = try? await bounded.runFailFast {
+                            latch.signalStarted()
+                            latch.blockUntilReleased()
+                        }
+                    }
+                }
+            }
+        }
+
+        // Wait for saturation (up to 5 seconds)
+        var waitCount = 0
+        while !latch.allStarted && waitCount < 5_000 {
+            try await Task.sleep(for: .milliseconds(1))
+            waitCount += 1
+        }
+        guard latch.allStarted else {
+            blockerTask.cancel()
+            throw BenchmarkSetupError.failedToStartWorkers
+        }
+
+        // Execute test with saturated pool available via task-local
+        try await SaturatedNIO.$current.withValue(bounded) {
+            try await function()
+        }
+
+        // Cleanup
+        latch.release()
+        blockerTask.cancel()
+        try await pool.shutdownGracefully()
+    }
+}
+
+/// Task-local storage for the saturated NIO pool.
+enum SaturatedNIO {
+    @TaskLocal static var current: BoundedNIOThreadPool?
+}
+
+extension Trait where Self == SaturatedNIOTrait {
+    /// Provides a pre-saturated NIO pool for rejection latency testing.
+    static var saturatedNIO: Self { .init() }
+}
+
+// MARK: Pure Rejection Suite
+
 extension BackpressureBenchmarks.Test.Performance {
 
     /// PURE LATENCY BENCHMARK: Measures only the rejection path overhead.
     ///
-    /// **Key difference from "Scenario: Full Rejection Cycle"**:
-    /// - Setup (saturation) happens ONCE in a shared fixture
-    /// - Only the rejection call is timed
-    /// - Uses `runImmediate` (deadline: .now) for minimal wait overhead
-    ///
-    /// This measures the actual cost of checking queue-full and returning `.queueFull`,
-    /// not the scenario setup overhead.
+    /// Uses `TestScoping` traits for guaranteed setup/teardown.
+    /// The saturated lane/pool is provided via task-local storage.
     @Suite("Pure Rejection Latency")
     struct PureRejection {
-
-        /// Shared fixture that maintains a saturated lane across iterations.
-        /// Setup happens once; measurements use the pre-saturated state.
-        actor SaturatedLaneFixture {
-            private var lane: IO.Blocking.Lane?
-            private var blockerTasks: [Task<Void, Never>] = []
-            private var latch: BlockerLatch?
-            private var isSetUp = false
-
-            static let shared = SaturatedLaneFixture()
-
-            func setUp() async throws {
-                guard !isSetUp else { return }
-
-                let threadCount = 2
-                let queueLimit = 1
-
-                let options = IO.Blocking.Threads.Options(
-                    workers: Kernel.Thread.Count(threadCount),
-                    policy: IO.Backpressure.Policy(
-                        strategy: .failFast,
-                        laneQueueLimit: queueLimit,
-                        laneAcceptanceWaitersLimit: 16
-                    )
-                )
-                lane = IO.Blocking.Lane.threads(options)
-
-                let newLatch = BlockerLatch(count: threadCount)
-                latch = newLatch
-
-                // Saturate workers
-                for _ in 0..<threadCount {
-                    let task = Task.detached { [lane] in
-                        _ = try? await lane?.run(
-                            deadline: IO.Blocking.Deadline.after(.seconds(300))
-                        ) {
-                            newLatch.signalStarted()
-                            newLatch.blockUntilReleased()
-                        }
-                    }
-                    blockerTasks.append(task)
-                }
-
-                // Wait for workers to be occupied
-                var waitCount = 0
-                while !newLatch.allStarted && waitCount < 1_000 {
-                    try await Task.sleep(for: .milliseconds(1))
-                    waitCount += 1
-                }
-
-                // Fill queue
-                for _ in 0..<queueLimit {
-                    let task = Task.detached { [lane] in
-                        _ = try? await lane?.run(
-                            deadline: IO.Blocking.Deadline.after(.seconds(300))
-                        ) {
-                            newLatch.blockUntilReleased()
-                        }
-                    }
-                    blockerTasks.append(task)
-                    try await Task.sleep(for: .microseconds(100))
-                }
-
-                // Verify saturated
-                var saturated = false
-                for _ in 0..<100 {
-                    do {
-                        let _: Int = try await lane!.runImmediate { 42 }
-                        try await Task.sleep(for: .microseconds(100))
-                    } catch IO.Lifecycle.Error<IO.Blocking.Lane.Error>.failure(.queueFull) {
-                        saturated = true
-                        break
-                    } catch IO.Lifecycle.Error<IO.Blocking.Lane.Error>.timeout {
-                        saturated = true  // Also indicates full
-                        break
-                    } catch {
-                        break
-                    }
-                }
-
-                guard saturated else {
-                    throw BenchmarkSetupError.failedToSaturate
-                }
-
-                isSetUp = true
-            }
-
-            func tearDown() async {
-                latch?.release()
-                for task in blockerTasks {
-                    task.cancel()
-                }
-                await lane?.shutdown()
-                blockerTasks = []
-                lane = nil
-                latch = nil
-                isSetUp = false
-            }
-
-            var activeLane: IO.Blocking.Lane {
-                lane!
-            }
-        }
 
         static let measurementCount = 1000
 
         @Test(
             "swift-io: pure .queueFull rejection latency",
+            .saturatedLane,
             .timed(iterations: 5, warmup: 1, trackAllocations: false)
         )
         func pureRejectionLatency() async throws {
-            let fixture = SaturatedLaneFixture.shared
-            try await fixture.setUp()
-
-            let lane = await fixture.activeLane
+            let lane = SaturatedLane.current!
 
             // Pure measurement: just the rejection calls
             var rejections = 0
@@ -458,7 +539,7 @@ extension BackpressureBenchmarks.Test.Performance {
                 } catch IO.Lifecycle.Error<IO.Blocking.Lane.Error>.failure(.queueFull) {
                     rejections += 1
                 } catch IO.Lifecycle.Error<IO.Blocking.Lane.Error>.timeout {
-                    rejections += 1  // Also counts as rejection
+                    rejections += 1
                 } catch {
                     // Unexpected
                 }
@@ -469,35 +550,11 @@ extension BackpressureBenchmarks.Test.Performance {
 
         @Test(
             "NIO + gate: pure rejection latency",
+            .saturatedNIO,
             .timed(iterations: 5, warmup: 1, trackAllocations: false)
         )
         func nioPureRejectionLatency() async throws {
-            // NIO fixture is lightweight - semaphore rejection is fast
-            let pool = NIOThreadPool(numberOfThreads: 2)
-            pool.start()
-            let bounded = BoundedNIOThreadPool(pool: pool, limit: 2)
-
-            let latch = BlockerLatch(count: 2)
-
-            // Saturate
-            let blockerTask = Task {
-                await withTaskGroup(of: Void.self) { group in
-                    for _ in 0..<2 {
-                        group.addTask {
-                            _ = try? await bounded.runFailFast {
-                                latch.signalStarted()
-                                latch.blockUntilReleased()
-                            }
-                        }
-                    }
-                }
-            }
-
-            var waitCount = 0
-            while !latch.allStarted && waitCount < 1_000 {
-                try await Task.sleep(for: .milliseconds(1))
-                waitCount += 1
-            }
+            let bounded = SaturatedNIO.current!
 
             // Pure measurement
             var rejections = 0
@@ -510,10 +567,6 @@ extension BackpressureBenchmarks.Test.Performance {
                     // Unexpected
                 }
             }
-
-            latch.release()
-            blockerTask.cancel()
-            try await pool.shutdownGracefully()
 
             #expect(rejections == Self.measurementCount, "All should reject")
         }
