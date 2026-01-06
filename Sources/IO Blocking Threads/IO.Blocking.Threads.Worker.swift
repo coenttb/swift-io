@@ -31,7 +31,7 @@ extension IO.Blocking.Threads.Worker {
     /// The main worker loop.
     ///
     /// ## Design
-    /// - Tracks `sleepers` count to enable signal suppression
+    /// - Uses `waitTracked()` so Kernel tracks waiter count for signal suppression
     /// - Drains up to `drainLimit` jobs per wake to amortize lock overhead
     /// - Promotes acceptance waiters after each job completes
     ///
@@ -41,11 +41,9 @@ extension IO.Blocking.Threads.Worker {
             // Acquire lock and wait for job
             state.lock.lock()
 
-            // Wait for job or shutdown, tracking sleepers
+            // Wait for job or shutdown using tracked wait
             while state.queue.isEmpty && !state.isShutdown {
-                state.sleepers += 1
-                state.lock.worker.wait()
-                state.sleepers -= 1
+                state.lock.worker.waitTracked()
             }
 
             // Check for exit condition: shutdown + empty queue

@@ -275,7 +275,7 @@ extension IO.Blocking.Threads {
         runtime.state.lock.lock()
         defer { runtime.state.lock.unlock() }
         return DebugSnapshot(
-            sleepers: runtime.state.sleepers,
+            sleepers: runtime.state.lock.worker.waiterCount,
             queueIsEmpty: runtime.state.queue.isEmpty,
             queueCount: runtime.state.queue.count,
             inFlightCount: runtime.state.inFlightCount,

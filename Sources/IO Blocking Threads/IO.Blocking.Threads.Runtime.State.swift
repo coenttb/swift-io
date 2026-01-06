@@ -35,10 +35,6 @@ extension IO.Blocking.Threads.Runtime {
         var isShutdown: Bool
         var inFlightCount: Int
 
-        /// Number of workers currently sleeping on the condition variable.
-        /// Used to suppress useless signals when no worker is waiting.
-        var sleepers: Int
-
         // Ticket generation (atomic - no lock required)
         private let ticketCounter: Atomic<UInt64>
 
@@ -51,7 +47,6 @@ extension IO.Blocking.Threads.Runtime {
             self.queue = Buffer.Ring(capacity: queueLimit)
             self.isShutdown = false
             self.inFlightCount = 0
-            self.sleepers = 0
             self.ticketCounter = Atomic(1)
             self.acceptanceWaiters = IO.Blocking.Threads.Acceptance.Queue(capacity: acceptanceWaitersLimit)
         }
@@ -68,8 +63,9 @@ extension IO.Blocking.Threads.Runtime {
         /// Must be called while holding `lock`, after queue transitioned empty→non-empty.
         ///
         /// ## Policy
-        /// Always broadcast to wake all sleeping workers. This is the simplest
-        /// canonical condition variable rule and ensures work-conserving behavior.
+        /// Broadcast to wake all sleeping workers, but only if waiters exist.
+        /// Uses Kernel.Synchronization's waiter tracking to skip syscalls when no
+        /// workers are sleeping.
         ///
         /// ## Correctness
         /// - Amortized cost is ≤k wakeups per busy period (not per job)
@@ -77,13 +73,13 @@ extension IO.Blocking.Threads.Runtime {
         /// - Simplest invariant: edge-triggered broadcast
         ///
         /// ## Progress Guarantee
-        /// If the queue transitions from empty to non-empty while `sleepers > 0`,
-        /// the system cannot remain in a stable state where `Q ≠ ∅` and `sleepers > 0`
-        /// without further enqueues.
+        /// If the queue transitions from empty to non-empty while waiters exist,
+        /// the system cannot remain in a stable state where `Q ≠ ∅` and workers
+        /// are sleeping without further enqueues.
         @inline(__always)
         func wakeSleepersIfNeeded(didBecomeNonEmpty: Bool) {
-            guard didBecomeNonEmpty, sleepers > 0 else { return }
-            lock.worker.broadcast()
+            guard didBecomeNonEmpty else { return }
+            lock.worker.broadcastIfWaiters()
         }
 
         /// Try to enqueue a job. Returns true if successful, false if queue is full or shutdown.
