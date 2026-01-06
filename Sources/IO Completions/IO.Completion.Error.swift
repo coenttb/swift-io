@@ -37,44 +37,6 @@ extension IO.Completion {
 
         /// Lifecycle error (queue state).
         case lifecycle(Lifecycle)
-
-        // MARK: - Operation Errors
-
-        /// Operation-specific errors.
-        public enum Operation: Swift.Error, Sendable, Equatable {
-            /// The operation was cancelled.
-            case cancellation
-
-            /// The operation timed out.
-            case timeout
-
-            /// Invalid operation submission.
-            ///
-            /// The operation parameters were invalid or inconsistent.
-            case invalidSubmission
-        }
-
-        // MARK: - Capability Errors
-
-        /// Capability errors.
-        public enum Capability: Swift.Error, Sendable, Equatable {
-            /// The operation kind is not supported by this backend.
-            case unsupportedKind(IO.Completion.Kind)
-
-            /// No suitable backend is available.
-            case backendUnavailable
-        }
-
-        // MARK: - Lifecycle Errors
-
-        /// Lifecycle errors.
-        public enum Lifecycle: Swift.Error, Sendable, Equatable {
-            /// The queue is shutting down.
-            case shutdownInProgress
-
-            /// The queue has been closed.
-            case queueClosed
-        }
     }
 
     /// Typed failure type for completion operations.
@@ -97,34 +59,6 @@ extension IO.Completion.Error: CustomStringConvertible {
             "capability(\(error))"
         case .lifecycle(let error):
             "lifecycle(\(error))"
-        }
-    }
-}
-
-extension IO.Completion.Error.Operation: CustomStringConvertible {
-    public var description: String {
-        switch self {
-        case .cancellation: "cancelled"
-        case .timeout: "timeout"
-        case .invalidSubmission: "invalidSubmission"
-        }
-    }
-}
-
-extension IO.Completion.Error.Capability: CustomStringConvertible {
-    public var description: String {
-        switch self {
-        case .unsupportedKind(let kind): "unsupportedKind(\(kind))"
-        case .backendUnavailable: "backendUnavailable"
-        }
-    }
-}
-
-extension IO.Completion.Error.Lifecycle: CustomStringConvertible {
-    public var description: String {
-        switch self {
-        case .shutdownInProgress: "shutdownInProgress"
-        case .queueClosed: "queueClosed"
         }
     }
 }
