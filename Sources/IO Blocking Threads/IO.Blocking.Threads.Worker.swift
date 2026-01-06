@@ -64,9 +64,9 @@ extension IO.Blocking.Threads.Worker {
                 let job: IO.Blocking.Threads.Job.Instance?
                 switch scheduling {
                 case .fifo:
-                    job = state.queue.dequeue()
+                    job = state.queue.pop()
                 case .lifo:
-                    job = state.queue.dequeueLast()
+                    job = state.queue.pop.back()
                 }
                 guard let job else {
                     break

@@ -112,7 +112,7 @@ extension IO.Blocking.Threads.Runtime {
         func tryEnqueue(_ job: IO.Blocking.Threads.Job.Instance) -> Bool {
             guard !isShutdown else { return false }
             guard !queue.isFull else { return false }
-            _ = queue.enqueue(job)
+            _ = queue.push(job)
             enqueuedTotal &+= 1
             return true
         }

@@ -40,7 +40,7 @@ extension IO.Blocking.Threads.Acceptance {
 
         /// Enqueue a waiter. Returns false if queue is full (caller should fail with .overloaded).
         mutating func enqueue(_ waiter: Waiter) -> Bool {
-            ring.enqueue(waiter)
+            ring.push(waiter)
         }
 
         /// Dequeue the next non-resumed waiter, reclaiming resumed entries.
@@ -49,7 +49,7 @@ extension IO.Blocking.Threads.Acceptance {
         /// to reclaim capacity.
         mutating func dequeue() -> Waiter? {
             while !ring.isEmpty {
-                guard let waiter = ring.dequeue() else { break }
+                guard let waiter = ring.pop() else { break }
                 if !waiter.resumed {
                     return waiter
                 }
