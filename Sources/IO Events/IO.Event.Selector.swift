@@ -7,6 +7,7 @@
 
 public import Kernel
 public import Runtime
+internal import StandardsCollections
 
 extension IO.Event {
     /// The central runtime for non-blocking I/O operations.
@@ -92,7 +93,7 @@ extension IO.Event {
         private let nextDeadline: Poll.Loop.Deadline.Next
 
         /// Min-heap of deadline entries for scheduling.
-        private var deadlineHeap: DeadlineScheduling.MinHeap = .init()
+        private var deadlineHeap: Collections.Heap<DeadlineScheduling.Entry> = .min()
 
         /// Generation counter per key for stale entry detection.
         ///
@@ -986,7 +987,7 @@ extension IO.Event {
             waiters.removeAll()
 
             // Clear deadline state (no need to bump generations - heap is being dropped)
-            deadlineHeap = .init()
+            deadlineHeap = .min()
             deadlineGeneration.removeAll()
             nextDeadline.store(.max)
 

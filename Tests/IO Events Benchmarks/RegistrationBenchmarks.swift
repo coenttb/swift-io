@@ -107,7 +107,7 @@ extension RegistrationBenchmarks.Test.Performance {
             .timed(iterations: 3, warmup: 1, trackAllocations: false)
         )
         func wakeThroughput() async throws {
-            let driver = IO.Event.Kqueue.driver()
+            let driver = IO.Event.Driver.kqueue()
             let handle = try driver.create()
             let wakeupChannel = try driver.createWakeupChannel(handle)
 

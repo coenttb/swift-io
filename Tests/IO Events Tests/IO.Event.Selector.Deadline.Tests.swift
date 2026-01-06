@@ -5,6 +5,7 @@
 
 import IO_Events
 import Kernel
+import StandardsCollections
 import Testing
 
 @testable import IO_Events
@@ -48,7 +49,7 @@ extension SelectorDeadlineTests {
     func armWithDeadlineTimesOut() async throws {
         let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
-            driver: IO.Event.Kqueue.driver(),
+            driver: .kqueue(),
             executor: executor
         )
 
@@ -63,7 +64,7 @@ extension SelectorDeadlineTests {
 
         // Arm with a short deadline (50ms) - no data will be written
         // This tests: deadline scheduling, tick wake path, timeout delivery
-        let deadline = IO.Event.Deadline.after(milliseconds: 50)
+        let deadline = IO.Event.Deadline(.after(milliseconds: 50))
 
         do {
             _ = try await selector.arm(registration.token, interest: .read, deadline: deadline)
@@ -84,7 +85,7 @@ extension SelectorDeadlineTests {
     func eventBeatsTimeout() async throws {
         let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
-            driver: IO.Event.Kqueue.driver(),
+            driver: .kqueue(),
             executor: executor
         )
 
@@ -102,7 +103,7 @@ extension SelectorDeadlineTests {
         let registration = try await selector.register(pipe.read, interest: .read)
 
         // Arm with a generous deadline - event should arrive first via permit path
-        let deadline = IO.Event.Deadline.after(milliseconds: 5000)
+        let deadline = IO.Event.Deadline(.after(milliseconds: 5000))
 
         // Event should win over timeout since data is already available
         let result = try await selector.arm(registration.token, interest: .read, deadline: deadline)
@@ -120,7 +121,7 @@ extension SelectorDeadlineTests {
         // but deadline has expired, so selector drains and resumes waiter.
         let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
-            driver: IO.Event.Kqueue.driver(),
+            driver: .kqueue(),
             executor: executor
         )
 
@@ -133,8 +134,8 @@ extension SelectorDeadlineTests {
         // Register but never write data - only deadline can wake us
         let registration = try await selector.register(pipe.read, interest: .read)
 
-        let start = IO.Event.Deadline.now
-        let deadline = IO.Event.Deadline.after(milliseconds: 30)
+        let start = Kernel.Time.Deadline.now
+        let deadline = IO.Event.Deadline(.after(milliseconds: 30))
 
         do {
             _ = try await selector.arm(registration.token, interest: .read, deadline: deadline)
@@ -143,7 +144,7 @@ extension SelectorDeadlineTests {
             switch error {
             case .timeout:
                 // Verify we actually waited (not instant)
-                let elapsed = IO.Event.Deadline.now.nanoseconds - start.nanoseconds
+                let elapsed = Kernel.Time.Deadline.now.nanoseconds - start.nanoseconds
                 #expect(elapsed >= 25_000_000, "Should have waited ~30ms, got \(elapsed / 1_000_000)ms")
             default:
                 Issue.record("Expected .timeout, got \(error)")
@@ -164,7 +165,7 @@ extension SelectorDeadlineTests {
         // should be skipped via generation mismatch.
         let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
-            driver: IO.Event.Kqueue.driver(),
+            driver: .kqueue(),
             executor: executor
         )
 
@@ -176,7 +177,7 @@ extension SelectorDeadlineTests {
 
         // First: register and arm with short deadline, let it timeout
         let reg1 = try await selector.register(pipe.read, interest: .read)
-        let deadline = IO.Event.Deadline.after(milliseconds: 30)
+        let deadline = IO.Event.Deadline(.after(milliseconds: 30))
 
         do {
             _ = try await selector.arm(reg1.token, interest: .read, deadline: deadline)
@@ -211,7 +212,7 @@ extension SelectorDeadlineTests {
         // Test: arm with long deadline, event arrives, generation bumps.
         let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
-            driver: IO.Event.Kqueue.driver(),
+            driver: .kqueue(),
             executor: executor
         )
 
@@ -228,12 +229,12 @@ extension SelectorDeadlineTests {
         let reg = try await selector.register(pipe.read, interest: .read)
 
         // Arm with very long deadline
-        let deadline = IO.Event.Deadline.after(milliseconds: 60_000)
+        let deadline = IO.Event.Deadline(.after(milliseconds: 60_000))
 
         // Should return immediately with event (not wait for deadline)
-        let start = IO.Event.Deadline.now
+        let start = Kernel.Time.Deadline.now
         let result = try await selector.arm(reg.token, interest: .read, deadline: deadline)
-        let elapsed = IO.Event.Deadline.now.nanoseconds - start.nanoseconds
+        let elapsed = Kernel.Time.Deadline.now.nanoseconds - start.nanoseconds
 
         #expect(result.event.interest.contains(.read))
         #expect(elapsed < 1_000_000_000, "Should complete quickly, not wait for deadline")
@@ -252,7 +253,7 @@ extension SelectorDeadlineTests {
         // Validates: heap ordering, updateNextPollDeadline, stale entry handling.
         let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
-            driver: IO.Event.Kqueue.driver(),
+            driver: .kqueue(),
             executor: executor
         )
 
@@ -269,10 +270,10 @@ extension SelectorDeadlineTests {
         let reg2 = try await selector.register(pipe2.read, interest: .read)
 
         // Different deadlines - first should complete around 30ms, second around 60ms
-        let d1 = IO.Event.Deadline.after(milliseconds: 30)
-        let d2 = IO.Event.Deadline.after(milliseconds: 60)
+        let d1 = IO.Event.Deadline(.after(milliseconds: 30))
+        let d2 = IO.Event.Deadline(.after(milliseconds: 60))
 
-        let start = IO.Event.Deadline.now
+        let start = Kernel.Time.Deadline.now
 
         // Use armTwo - creates both waiters before either completes
         let (outcome1, outcome2) = await selector.armTwo(
@@ -280,7 +281,7 @@ extension SelectorDeadlineTests {
             IO.Event.Arm.Request(token: reg2.token, interest: .read, deadline: d2)
         )
 
-        let elapsed = IO.Event.Deadline.now.nanoseconds - start.nanoseconds
+        let elapsed = Kernel.Time.Deadline.now.nanoseconds - start.nanoseconds
 
         // Both should timeout
         switch outcome1 {
@@ -321,7 +322,7 @@ extension SelectorDeadlineTests {
         // Simple smoke test: two deadlines in sequence both fire.
         let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
-            driver: IO.Event.Kqueue.driver(),
+            driver: .kqueue(),
             executor: executor
         )
 
@@ -336,7 +337,7 @@ extension SelectorDeadlineTests {
 
         // First deadline
         let reg1 = try await selector.register(pipe1.read, interest: .read)
-        let deadline1 = IO.Event.Deadline.after(milliseconds: 30)
+        let deadline1 = IO.Event.Deadline(.after(milliseconds: 30))
 
         do {
             _ = try await selector.arm(reg1.token, interest: .read, deadline: deadline1)
@@ -352,7 +353,7 @@ extension SelectorDeadlineTests {
 
         // Second deadline
         let reg2 = try await selector.register(pipe2.read, interest: .read)
-        let deadline2 = IO.Event.Deadline.after(milliseconds: 30)
+        let deadline2 = IO.Event.Deadline(.after(milliseconds: 30))
 
         do {
             _ = try await selector.arm(reg2.token, interest: .read, deadline: deadline2)
@@ -375,28 +376,28 @@ extension SelectorDeadlineTests {
 extension SelectorDeadlineTests {
     @Test("Deadline.after creates future deadline")
     func deadlineAfterCreatesFuture() {
-        let now = IO.Event.Deadline.now
-        let deadline = IO.Event.Deadline.after(milliseconds: 100)
+        let now = Kernel.Time.Deadline.now
+        let deadline = IO.Event.Deadline(.after(milliseconds: 100))
 
-        #expect(deadline.nanoseconds > now.nanoseconds)
-        #expect(!deadline.hasExpired)
+        #expect(deadline.rawValue.nanoseconds > now.nanoseconds)
+        #expect(!deadline.rawValue.hasExpired)
     }
 
     @Test("expired deadline reports hasExpired true")
     func expiredDeadlineHasExpiredTrue() async throws {
-        let deadline = IO.Event.Deadline.after(milliseconds: 10)
+        let deadline = IO.Event.Deadline(.after(milliseconds: 10))
 
         // Wait for deadline to expire
         try await Task.sleep(nanoseconds: 20_000_000)  // 20ms
 
-        #expect(deadline.hasExpired)
+        #expect(deadline.rawValue.hasExpired)
     }
 
     @Test("Deadline.never never expires")
     func deadlineNeverNeverExpires() {
-        let deadline = IO.Event.Deadline.never
-        #expect(!deadline.hasExpired)
-        #expect(deadline.nanoseconds == .max)
+        let deadline = IO.Event.Deadline(.never)
+        #expect(!deadline.rawValue.hasExpired)
+        #expect(deadline.rawValue.nanoseconds == .max)
     }
 }
 
@@ -406,9 +407,8 @@ extension SelectorDeadlineTests {
     @Test("MinHeap orders by deadline")
     func minHeapOrdersByDeadline() {
         typealias Entry = IO.Event.DeadlineScheduling.Entry
-        typealias MinHeap = IO.Event.DeadlineScheduling.MinHeap
 
-        var heap = MinHeap()
+        var heap = Collections.Heap<Entry>.min()
 
         // Insert in non-sorted order
         heap.push(Entry(deadline: 300, key: IO.Event.Selector.PermitKey(id: IO.Event.ID(1 as UInt), interest: .read), generation: 1))
@@ -425,9 +425,8 @@ extension SelectorDeadlineTests {
     @Test("MinHeap peek doesn't remove")
     func minHeapPeekDoesntRemove() {
         typealias Entry = IO.Event.DeadlineScheduling.Entry
-        typealias MinHeap = IO.Event.DeadlineScheduling.MinHeap
 
-        var heap = MinHeap()
+        var heap = Collections.Heap<Entry>.min()
         heap.push(Entry(deadline: 100, key: IO.Event.Selector.PermitKey(id: IO.Event.ID(1 as UInt), interest: .read), generation: 1))
 
         #expect(heap.peek()?.deadline == 100)

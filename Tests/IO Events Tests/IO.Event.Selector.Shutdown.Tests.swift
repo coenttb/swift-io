@@ -30,7 +30,7 @@ extension IO.Event.Selector.Test.Shutdown {
     func shutdownRejectsNewRegistrations() async throws {
         let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
-            driver: IO.Event.Kqueue.driver(),
+            driver: .kqueue(),
             executor: executor
         )
 
@@ -63,7 +63,7 @@ extension IO.Event.Selector.Test.Shutdown {
         for iteration in 0..<10 {
             let executor = Kernel.Thread.Executor()
             let selector = try await IO.Event.Selector.make(
-                driver: IO.Event.Kqueue.driver(),
+                driver: .kqueue(),
                 executor: executor
             )
 
@@ -124,7 +124,7 @@ extension IO.Event.Selector.Test.Shutdown {
     func shutdownGate() async throws {
         let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
-            driver: IO.Event.Kqueue.driver(),
+            driver: .kqueue(),
             executor: executor
         )
 
@@ -150,7 +150,7 @@ extension IO.Event.Selector.Test.Shutdown {
     func doubleShutdownIdempotent() async throws {
         let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
-            driver: IO.Event.Kqueue.driver(),
+            driver: .kqueue(),
             executor: executor
         )
 
@@ -181,7 +181,7 @@ extension IO.Event.Selector.Test.Invariants {
     func typedErrorsLifecycleNotLeaf() async throws {
         let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
-            driver: IO.Event.Kqueue.driver(),
+            driver: .kqueue(),
             executor: executor
         )
 

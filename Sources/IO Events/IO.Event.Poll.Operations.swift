@@ -1,5 +1,5 @@
 //
-//  IO.Event.Epoll.Operations.swift
+//  IO.Event.Poll.Operations.swift
 //  swift-io
 //
 //  Created by Coen ten Thije Boonkkamp on 29/12/2025.

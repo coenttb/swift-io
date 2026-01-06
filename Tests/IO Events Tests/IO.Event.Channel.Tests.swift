@@ -33,7 +33,7 @@ extension IO.Event.Channel.Test.BasicIO {
     func readReturnsWrittenData() async throws {
         let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
-            driver: IO.Event.Kqueue.driver(),
+            driver: .kqueue(),
             executor: executor
         )
 
@@ -72,7 +72,7 @@ extension IO.Event.Channel.Test.BasicIO {
     func writeSendsData() async throws {
         let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
-            driver: IO.Event.Kqueue.driver(),
+            driver: .kqueue(),
             executor: executor
         )
 
@@ -113,7 +113,7 @@ extension IO.Event.Channel.Test.BasicIO {
     func zeroCapacityBufferReturnsZero() async throws {
         let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
-            driver: IO.Event.Kqueue.driver(),
+            driver: .kqueue(),
             executor: executor
         )
 
@@ -154,7 +154,7 @@ extension IO.Event.Channel.Test.BasicIO {
     func zeroLengthWriteReturnsZero() async throws {
         let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
-            driver: IO.Event.Kqueue.driver(),
+            driver: .kqueue(),
             executor: executor
         )
 
@@ -200,7 +200,7 @@ extension IO.Event.Channel.Test.EOF {
     func readReturnsZeroOnEOF() async throws {
         let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
-            driver: IO.Event.Kqueue.driver(),
+            driver: .kqueue(),
             executor: executor
         )
 
@@ -252,7 +252,7 @@ extension IO.Event.Channel.Test.HalfClose {
     func shutdownReadIdempotent() async throws {
         let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
-            driver: IO.Event.Kqueue.driver(),
+            driver: .kqueue(),
             executor: executor
         )
 
@@ -287,7 +287,7 @@ extension IO.Event.Channel.Test.HalfClose {
     func shutdownWriteIdempotent() async throws {
         let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
-            driver: IO.Event.Kqueue.driver(),
+            driver: .kqueue(),
             executor: executor
         )
 
@@ -352,7 +352,7 @@ extension IO.Event.Channel.Test.Close {
     func closeDeregisters() async throws {
         let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
-            driver: IO.Event.Kqueue.driver(),
+            driver: .kqueue(),
             executor: executor
         )
 

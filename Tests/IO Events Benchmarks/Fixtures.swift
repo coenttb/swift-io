@@ -29,7 +29,7 @@ final class SelectorFixture: @unchecked Sendable {
     static func make() async throws -> SelectorFixture {
         let executor = Kernel.Thread.Executor()
         let selector = try await IO.Event.Selector.make(
-            driver: IO.Event.Kqueue.driver(),
+            driver: .kqueue(),
             executor: executor
         )
         return SelectorFixture(selector: selector, executor: executor)

@@ -71,6 +71,7 @@ let package = Package(
                 .product(name: "Kernel", package: "swift-kernel"),
                 .product(name: "Runtime", package: "swift-runtime"),
                 .product(name: "Binary", package: "swift-standards"),
+                .product(name: "StandardsCollections", package: "swift-standards"),
             ]
         ),
         .target(
