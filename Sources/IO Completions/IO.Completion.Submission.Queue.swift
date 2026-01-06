@@ -8,11 +8,6 @@
 public import Dimension
 public import Runtime
 
-extension IO.Completion {
-    /// Namespace for submission-related types.
-    public enum Submission {}
-}
-
 extension IO.Completion.Submission {
     /// Thread-safe MPSC queue for actor → poll thread submission handoff.
     ///
