@@ -12,7 +12,7 @@ extension IO.Event.Registration {
     /// by the poll thread between poll cycles.
     ///
     /// ## Single Resumption Funnel
-    /// Requests carry only a `ReplyID`, not a continuation. The poll thread
+    /// Requests carry only a `Reply.ID`, not a continuation. The poll thread
     /// pushes replies via `Reply.Bridge`, and the selector resumes the stored
     /// continuation on its executor. This ensures all continuations are resumed
     /// on the correct executor.
@@ -25,14 +25,14 @@ extension IO.Event.Registration {
         case register(
             descriptor: Int32,
             interest: IO.Event.Interest,
-            replyID: ReplyID
+            replyID: Reply.ID
         )
 
         /// Modify an existing registration.
         case modify(
             id: IO.Event.ID,
             interest: IO.Event.Interest,
-            replyID: ReplyID
+            replyID: Reply.ID
         )
 
         /// Deregister a descriptor.
@@ -41,7 +41,7 @@ extension IO.Event.Registration {
         /// deregistration during shutdown.
         case deregister(
             id: IO.Event.ID,
-            replyID: ReplyID?
+            replyID: Reply.ID?
         )
 
         /// Arm a registration for readiness notification.
