@@ -96,6 +96,7 @@ let package = Package(
             name: "IO Blocking Tests",
             dependencies: [
                 "IO Blocking",
+                "IO Test Support",
                 .product(name: "StandardsTestSupport", package: "swift-standards"),
             ]
         ),
@@ -156,13 +157,6 @@ let package = Package(
                 .product(name: "StandardsTestSupport", package: "swift-standards"),
             ],
             path: "Tests/IO Events Benchmarks"
-        ),
-        .testTarget(
-            name: "IO Test Support Tests",
-            dependencies: [
-                "IO Test Support",
-                .product(name: "StandardsTestSupport", package: "swift-standards"),
-            ]
         ),
     ]
 )

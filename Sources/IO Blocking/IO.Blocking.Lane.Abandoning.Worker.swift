@@ -5,8 +5,6 @@
 //  Worker with per-job watchdog for timeout enforcement.
 //
 
-internal import IO_Blocking_Threads
-internal import Kernel
 import Synchronization
 
 #if canImport(Darwin)

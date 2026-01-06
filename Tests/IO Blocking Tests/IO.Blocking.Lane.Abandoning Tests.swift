@@ -5,11 +5,11 @@
 //  Tests for the fault-tolerant abandoning lane.
 //
 
-import IO_Blocking_Threads
 import IO_Test_Support
-import Kernel
 import StandardsTestSupport
 import Testing
+
+@testable import IO_Blocking
 
 extension IO.Blocking.Lane.Abandoning {
     #TestSuites

@@ -5,9 +5,6 @@
 //  Configuration options for the abandoning lane.
 //
 
-public import IO_Blocking_Threads
-public import Kernel
-
 extension IO.Blocking.Lane.Abandoning {
     /// Configuration options for the abandoning lane.
     ///
@@ -34,7 +31,7 @@ extension IO.Blocking.Lane.Abandoning {
         /// When the cap is reached:
         /// - Timeouts still function (caller resumes with timeout error)
         /// - No replacement is spawned
-        /// - Queue submissions may fail with `.maxWorkersReached`
+        /// - Queue submissions may fail with `.overloaded`
         public var maxWorkers: Kernel.Thread.Count
 
         /// Maximum time an operation may execute before being abandoned.

@@ -5,8 +5,6 @@
 //  Fault-tolerant lane that can abandon hung operations.
 //
 
-public import IO_Blocking_Threads
-internal import Kernel
 import Synchronization
 
 #if canImport(Darwin)
@@ -25,6 +23,16 @@ extension IO.Blocking.Lane {
     ///
     /// This implements what Polly (.NET) calls "pessimistic timeout": the caller
     /// "walks away" from an unresponsive operation without cancelling it.
+    ///
+    /// ## Warning: Production Use
+    /// This lane is suitable for isolating uncooperative third-party code that offers
+    /// no cancellation mechanism. However, be aware of the implications:
+    /// - Abandoned operations continue consuming resources (CPU, memory, file handles)
+    /// - Side effects from abandoned operations may complete after the caller has moved on
+    /// - Accumulated abandoned threads can exhaust system resources
+    ///
+    /// For most production scenarios, prefer cooperative cancellation with
+    /// `Execution.Semantics.guaranteed` or `.bestEffort`.
     ///
     /// ## Semantics: Abandon, Not Cancel
     /// - Timeout resumes the caller but does NOT cancel the operation
@@ -49,6 +57,7 @@ extension IO.Blocking.Lane {
     /// ```
     ///
     /// - SeeAlso: [Polly Pessimistic Timeout](https://github.com/App-vNext/Polly/wiki/Timeout)
+    /// - SeeAlso: [Hystrix Thread Isolation](https://github.com/Netflix/Hystrix/wiki/How-it-Works)
     public struct Abandoning: Sendable {
         /// The underlying lane.
         public let lane: IO.Blocking.Lane
