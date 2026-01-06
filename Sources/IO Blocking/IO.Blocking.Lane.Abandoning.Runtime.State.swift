@@ -7,11 +7,12 @@
 
 extension IO.Blocking.Lane.Abandoning.Runtime {
     final class State: @unchecked Sendable {
-        let mutex = Kernel.Thread.Mutex()
-        let condition = Kernel.Thread.Condition()
-        let shutdownCondition = Kernel.Thread.Condition()
+        /// Synchronization with 2 condition variables:
+        /// - condition 0: work available (for worker threads)
+        /// - condition 1: shutdown complete (for shutdown waiter)
+        let sync = Kernel.Thread.Synchronization<2>()
 
-        var queue: [IO.Blocking.Lane.Abandoning.Job] = []
+        var queue = Kernel.Thread.Queue<IO.Blocking.Lane.Abandoning.Job>()
         var isShutdown = false
         var isStarted = false
 
@@ -34,8 +35,8 @@ extension IO.Blocking.Lane.Abandoning.Runtime {
 
 extension IO.Blocking.Lane.Abandoning.Runtime.State {
     func startIfNeeded() {
-        mutex.lock()
-        defer { mutex.unlock() }
+        sync.lock()
+        defer { sync.unlock() }
 
         guard !isStarted else { return }
         isStarted = true
@@ -47,7 +48,7 @@ extension IO.Blocking.Lane.Abandoning.Runtime.State {
     }
 
     func spawnWorker() {
-        // Must be called with mutex held
+        // Must be called with sync lock held
         spawnedWorkerCount += 1
         activeWorkerCount += 1
 
@@ -70,7 +71,7 @@ extension IO.Blocking.Lane.Abandoning.Runtime.State {
     }
 
     func workerDidFinish(abandoned: Bool) {
-        mutex.lock()
+        sync.lock()
         activeWorkerCount -= 1
 
         if abandoned {
@@ -83,10 +84,10 @@ extension IO.Blocking.Lane.Abandoning.Runtime.State {
             }
         }
 
-        // Signal shutdown waiter if no more active workers
+        // Signal shutdown waiter (condition 1) if no more active workers
         if activeWorkerCount == 0 {
-            shutdownCondition.signal()
+            sync.signal(condition: 1)
         }
-        mutex.unlock()
+        sync.unlock()
     }
 }

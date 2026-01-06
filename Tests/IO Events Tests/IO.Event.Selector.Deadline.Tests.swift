@@ -408,7 +408,7 @@ extension SelectorDeadlineTests {
     func minHeapOrdersByDeadline() {
         typealias Entry = IO.Event.DeadlineScheduling.Entry
 
-        var heap = Collections.Heap<Entry>.min()
+        var heap = Heap<Entry>.min()
 
         // Insert in non-sorted order
         heap.push(Entry(deadline: 300, key: IO.Event.Selector.Permit.Key(id: IO.Event.ID(1 as UInt), interest: .read), generation: 1))
@@ -426,7 +426,7 @@ extension SelectorDeadlineTests {
     func minHeapPeekDoesntRemove() {
         typealias Entry = IO.Event.DeadlineScheduling.Entry
 
-        var heap = Collections.Heap<Entry>.min()
+        var heap = Heap<Entry>.min()
         heap.push(Entry(deadline: 100, key: IO.Event.Selector.Permit.Key(id: IO.Event.ID(1 as UInt), interest: .read), generation: 1))
 
         #expect(heap.peek()?.deadline == 100)

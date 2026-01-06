@@ -30,7 +30,7 @@ extension IO.Blocking.Threads.Runtime {
     ///    - Error path calling `fail()`
     /// 3. **Drain invariant**: After shutdown, no worker can touch shared state.
     final class State: @unchecked Sendable {
-        let lock: Kernel.Thread.Executor.DualSync
+        let lock: Kernel.Thread.DualSync
         var queue: Buffer.Ring<IO.Blocking.Threads.Job.Instance>
         var isShutdown: Bool
         var inFlightCount: Int
@@ -60,7 +60,7 @@ extension IO.Blocking.Threads.Runtime {
         var acceptanceWaitAggregate = IO.Blocking.Threads.Aggregate.Mutable()
 
         init(queueLimit: Int, acceptanceWaitersLimit: Int) {
-            self.lock = Kernel.Thread.Executor.DualSync()
+            self.lock = Kernel.Thread.DualSync()
             self.queue = Buffer.Ring(capacity: queueLimit)
             self.isShutdown = false
             self.inFlightCount = 0

@@ -8,84 +8,12 @@
 
 public import IO_Blocking_Threads
 @_exported public import Kernel_Test_Support
-
-#if canImport(Darwin)
-import Darwin
-#elseif canImport(Glibc)
-import Glibc
-#endif
+public import Kernel
 
 // MARK: - Barrier
 
-/// A barrier for synchronizing worker threads in tests.
-/// All workers wait until the target count arrives, then all proceed together.
-public final class Barrier: @unchecked Sendable {
-    private var arrived: Int = 0
-    private let target: Int
-    private var released: Bool = false
-    private var mutex = pthread_mutex_t()
-    private var cond = pthread_cond_t()
-
-    public init(count: Int) {
-        self.target = count
-        pthread_mutex_init(&mutex, nil)
-        pthread_cond_init(&cond, nil)
-    }
-
-    deinit {
-        pthread_mutex_destroy(&mutex)
-        pthread_cond_destroy(&cond)
-    }
-
-    /// Called by each worker. Blocks until all workers arrive or timeout.
-    /// Returns true if all workers arrived, false on timeout.
-    public func arriveAndWait(timeout: Duration = .seconds(5)) -> Bool {
-        pthread_mutex_lock(&mutex)
-
-        arrived += 1
-        let myArrival = arrived
-
-        if myArrival >= target {
-            // Last to arrive - release everyone
-            released = true
-            pthread_cond_broadcast(&cond)
-            pthread_mutex_unlock(&mutex)
-            return true
-        }
-
-        // Convert Duration to timespec for pthread_cond_timedwait
-        let (seconds, attoseconds) = timeout.components
-        let nanoseconds = attoseconds / 1_000_000_000
-
-        var ts = timespec()
-        var tv = timeval()
-        gettimeofday(&tv, nil)
-        ts.tv_sec = tv.tv_sec + Int(seconds)
-        ts.tv_nsec = Int(tv.tv_usec) * 1000 + Int(nanoseconds)
-        if ts.tv_nsec >= 1_000_000_000 {
-            ts.tv_sec += 1
-            ts.tv_nsec -= 1_000_000_000
-        }
-
-        while !released {
-            let result = pthread_cond_timedwait(&cond, &mutex, &ts)
-            if result == ETIMEDOUT {
-                pthread_mutex_unlock(&mutex)
-                return false
-            }
-        }
-
-        pthread_mutex_unlock(&mutex)
-        return true
-    }
-
-    /// Current count of workers that have arrived.
-    public var arrivedCount: Int {
-        pthread_mutex_lock(&mutex)
-        defer { pthread_mutex_unlock(&mutex) }
-        return arrived
-    }
-}
+/// Re-export Kernel.Thread.Barrier for test convenience.
+public typealias Barrier = Kernel.Thread.Barrier
 
 // MARK: - ThreadPoolTesting
 

@@ -45,27 +45,26 @@ extension IO.Blocking.Lane.Abandoning.Worker {
     /// Main worker loop.
     func run() {
         while true {
-            state.mutex.lock()
+            state.sync.lock()
 
             // Wait for job or shutdown
             while state.queue.isEmpty && !state.isShutdown {
-                state.condition.wait(mutex: state.mutex)
+                state.sync.wait(condition: 0)
             }
 
             // Exit on shutdown with empty queue
             if state.isShutdown && state.queue.isEmpty {
-                state.mutex.unlock()
+                state.sync.unlock()
                 state.workerDidFinish(abandoned: false)
                 return
             }
 
             // Dequeue job
-            guard !state.queue.isEmpty else {
-                state.mutex.unlock()
+            guard let job = state.queue.dequeue() else {
+                state.sync.unlock()
                 continue
             }
-            let job = state.queue.removeFirst()
-            state.mutex.unlock()
+            state.sync.unlock()
 
             // Try to start job
             guard job.tryStart() else {
@@ -78,9 +77,9 @@ extension IO.Blocking.Lane.Abandoning.Worker {
 
             switch result {
             case .completed:
-                state.mutex.lock()
+                state.sync.lock()
                 state.completedTotal &+= 1
-                state.mutex.unlock()
+                state.sync.unlock()
 
             case .abandoned:
                 // Worker is now abandoned - watchdog already notified runtime

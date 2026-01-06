@@ -93,7 +93,7 @@ extension IO.Event {
         private let nextDeadline: Poll.Loop.Deadline.Next
 
         /// Min-heap of deadline entries for scheduling.
-        private var deadlineHeap: Collections.Heap<DeadlineScheduling.Entry> = .min()
+        private var deadlineHeap: Heap<DeadlineScheduling.Entry> = .min()
 
         /// Generation counter per key for stale entry detection.
         ///

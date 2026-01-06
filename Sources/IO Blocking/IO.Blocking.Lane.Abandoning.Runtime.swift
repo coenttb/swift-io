@@ -54,32 +54,32 @@ extension IO.Blocking.Lane.Abandoning.Runtime {
                     return
                 }
 
-                state.mutex.lock()
+                state.sync.lock()
 
                 // Check shutdown
                 if state.isShutdown {
-                    state.mutex.unlock()
+                    state.sync.unlock()
                     _ = job.tryFail(.shutdownInProgress)
                     return
                 }
 
                 // Check if we have capacity
                 if state.activeWorkerCount == 0 && state.spawnedWorkerCount >= Int(options.workers.max) {
-                    state.mutex.unlock()
+                    state.sync.unlock()
                     _ = job.tryFail(.failure(.overloaded))
                     return
                 }
 
                 // Try to enqueue
                 if state.queue.count >= options.queue.limit {
-                    state.mutex.unlock()
+                    state.sync.unlock()
                     _ = job.tryFail(.failure(.queueFull))
                     return
                 }
 
-                state.queue.append(job)
-                state.condition.signal()
-                state.mutex.unlock()
+                state.queue.enqueue(job)
+                state.sync.signal(condition: 0)
+                state.sync.unlock()
 
                 // Job enqueued - worker will complete it or watchdog will timeout
             }
@@ -107,18 +107,18 @@ extension IO.Blocking.Lane.Abandoning.Runtime {
 
 extension IO.Blocking.Lane.Abandoning.Runtime {
     func shutdown() async {
-        state.mutex.lock()
+        state.sync.lock()
         state.isShutdown = true
-        state.condition.broadcast()
-        state.mutex.unlock()
+        state.sync.broadcast(condition: 0)
+        state.sync.unlock()
 
         // Wait for active workers to finish
         // Note: Abandoned workers are detached and won't be joined
-        state.mutex.lock()
+        state.sync.lock()
         while state.activeWorkerCount > 0 {
-            state.shutdownCondition.wait(mutex: state.mutex)
+            state.sync.wait(condition: 1)
         }
-        state.mutex.unlock()
+        state.sync.unlock()
     }
 }
 
@@ -126,8 +126,8 @@ extension IO.Blocking.Lane.Abandoning.Runtime {
 
 extension IO.Blocking.Lane.Abandoning.Runtime {
     func metrics() -> IO.Blocking.Lane.Abandoning.Metrics {
-        state.mutex.lock()
-        defer { state.mutex.unlock() }
+        state.sync.lock()
+        defer { state.sync.unlock() }
         return IO.Blocking.Lane.Abandoning.Metrics(
             workers: IO.Blocking.Lane.Abandoning.Metrics.Workers(
                 abandoned: state.abandonedWorkerCount,
