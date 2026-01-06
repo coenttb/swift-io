@@ -9,3 +9,4 @@ extension IO.Event {
     /// Namespace for registration-related types.
     public enum Registration {}
 }
+
