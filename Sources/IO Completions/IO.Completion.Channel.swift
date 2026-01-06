@@ -67,7 +67,7 @@ extension IO.Completion {
             into buffer: consuming Buffer.Aligned,
             offset: Int64? = nil
         ) async throws(Failure) -> Read.Result {
-            let id = await queue.nextID()
+            let id = await queue.id.next()
             let operation = Operation.read(
                 from: descriptor,
                 into: buffer,
@@ -110,7 +110,7 @@ extension IO.Completion {
             from buffer: consuming Buffer.Aligned,
             offset: Int64? = nil
         ) async throws(Failure) -> Write.Result {
-            let id = await queue.nextID()
+            let id = await queue.id.next()
             let operation = Operation.write(
                 to: descriptor,
                 from: buffer,
@@ -147,7 +147,7 @@ extension IO.Completion {
         /// - Returns: The accepted connection result.
         /// - Throws: On I/O error or cancellation.
         public mutating func accept() async throws(Failure) -> Accept.Result {
-            let id = await queue.nextID()
+            let id = await queue.id.next()
             let operation = Operation.accept(from: descriptor, id: id)
 
             let take = try await queue.submit(operation).take()
@@ -176,7 +176,7 @@ extension IO.Completion {
         ///
         /// - Note: Address is not yet supported. This is a placeholder.
         public mutating func connect() async throws(Failure) -> Connect.Result {
-            let id = await queue.nextID()
+            let id = await queue.id.next()
             let operation = Operation.connect(descriptor: descriptor, id: id)
 
             let take = try await queue.submit(operation).take()

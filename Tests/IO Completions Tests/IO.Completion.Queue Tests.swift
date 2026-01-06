@@ -317,7 +317,7 @@ extension IO.Completion.Queue.Test.Integration {
         let queue = try await IO.Completion.Queue(driver: driver)
 
         // Get an ID (Copyable - safe to pass across task boundary)
-        let id = await queue.nextID()
+        let id = await queue.id.next()
 
         // Submit in a task - Operation created inside task (not captured across boundary)
         let resultTask = Task { () -> IO.Completion.Event in
@@ -353,7 +353,7 @@ extension IO.Completion.Queue.Test.Integration {
         let driver = IO.Completion.Driver(fake)
         let queue = try await IO.Completion.Queue(driver: driver)
 
-        let id = await queue.nextID()
+        let id = await queue.id.next()
 
         // Submit in a task - Operation created inside
         let resultTask = Task { () -> IO.Completion.Event in
@@ -388,7 +388,7 @@ extension IO.Completion.Queue.Test.Integration {
         let driver = IO.Completion.Driver(fake)
         let queue = try await IO.Completion.Queue(driver: driver)
 
-        let id = await queue.nextID()
+        let id = await queue.id.next()
 
         // Submit in a task - Operation created inside
         let resultTask = Task { () -> IO.Completion.Event in
@@ -429,7 +429,7 @@ extension IO.Completion.Queue.Test.Integration {
 
         // Get IDs (Copyable - safe to pass across task boundaries)
         for _ in 0..<count {
-            ids.append(await queue.nextID())
+            ids.append(await queue.id.next())
         }
 
         // Submit all concurrently - each Operation created inside its Task
@@ -485,7 +485,7 @@ extension IO.Completion.Queue.Test.Integration {
         let driver = IO.Completion.Driver(fake)
         let queue = try await IO.Completion.Queue(driver: driver)
 
-        let id = await queue.nextID()
+        let id = await queue.id.next()
 
         // Submit in a task
         let resultTask = Task { () -> IO.Completion.Event in
@@ -539,7 +539,7 @@ extension IO.Completion.Queue.Test.Integration {
         let driver = IO.Completion.Driver(fake)
         let queue = try await IO.Completion.Queue(driver: driver)
 
-        let id = await queue.nextID()
+        let id = await queue.id.next()
 
         // Submit in a task
         let resultTask = Task { () -> IO.Completion.Event in
@@ -593,7 +593,7 @@ extension IO.Completion.Queue.Test.Integration {
         let driver = IO.Completion.Driver(fake)
         let queue = try await IO.Completion.Queue(driver: driver)
 
-        let id = await queue.nextID()
+        let id = await queue.id.next()
 
         let resultTask = Task { () -> IO.Completion.Event in
             let operation = IO.Completion.Operation.nop(id: id)

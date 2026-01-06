@@ -76,7 +76,7 @@ extension IO.Completion {
     /// // Submit a read operation
     /// var buffer = try Buffer.Aligned(byteCount: 4096, alignment: 4096)
     /// var take = try await queue.submit(
-    ///     .read(from: fd, into: buffer, id: queue.nextID())
+    ///     .read(from: fd, into: buffer, id: queue.id.next())
     /// ).take()
     /// let event = take.event
     /// if var buffer = take.buffer() {
@@ -213,8 +213,21 @@ extension IO.Completion {
 
         // MARK: - ID Generation
 
-        /// Gets the next operation ID.
-        public func nextID() -> IO.Completion.ID {
+        /// Accessor for ID generation.
+        public nonisolated var id: ID { ID(queue: self) }
+
+        /// ID generation operations.
+        public struct ID: Sendable {
+            let queue: Queue
+
+            /// Gets the next operation ID.
+            public func next() async -> IO.Completion.ID {
+                await queue._generateNextID()
+            }
+        }
+
+        /// Internal ID generation (actor-isolated).
+        private func _generateNextID() -> IO.Completion.ID {
             let id = _nextID
             _nextID += 1
             return IO.Completion.ID(id)
