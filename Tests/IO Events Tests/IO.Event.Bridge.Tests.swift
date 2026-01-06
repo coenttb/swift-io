@@ -135,7 +135,7 @@ struct RegistrationReplyBridgeTests {
         bridge.finish()
 
         let reply = IO.Event.Registration.Reply(
-            id: IO.Event.Registration.ReplyID( 1),
+            id: IO.Event.Registration.Reply.ID( 1),
             result: .success(.deregistered)
         )
         bridge.push(reply)
@@ -148,7 +148,7 @@ struct RegistrationReplyBridgeTests {
     func pushThenNextReturnsReply() async {
         let bridge = IO.Event.Registration.Reply.Bridge()
         let reply = IO.Event.Registration.Reply(
-            id: IO.Event.Registration.ReplyID( 42),
+            id: IO.Event.Registration.Reply.ID( 42),
             result: .success(.registered(IO.Event.ID(100)))
         )
         bridge.push(reply)
@@ -174,7 +174,7 @@ struct RegistrationReplyBridgeTests {
         try? await Task.sleep(for: .milliseconds(10))
 
         let reply = IO.Event.Registration.Reply(
-            id: IO.Event.Registration.ReplyID( 77),
+            id: IO.Event.Registration.Reply.ID( 77),
             result: .success(.modified)
         )
         bridge.push(reply)
@@ -191,11 +191,11 @@ struct RegistrationReplyBridgeTests {
         let bridge = IO.Event.Registration.Reply.Bridge()
 
         let reply1 = IO.Event.Registration.Reply(
-            id: IO.Event.Registration.ReplyID( 1),
+            id: IO.Event.Registration.Reply.ID( 1),
             result: .success(.registered(IO.Event.ID(10)))
         )
         let reply2 = IO.Event.Registration.Reply(
-            id: IO.Event.Registration.ReplyID( 2),
+            id: IO.Event.Registration.Reply.ID( 2),
             result: .success(.deregistered)
         )
 
@@ -230,7 +230,7 @@ struct RegistrationReplyBridgeTests {
         let bridge = IO.Event.Registration.Reply.Bridge()
 
         let reply = IO.Event.Registration.Reply(
-            id: IO.Event.Registration.ReplyID( 5),
+            id: IO.Event.Registration.Reply.ID( 5),
             result: .failure(.notRegistered)
         )
         bridge.push(reply)

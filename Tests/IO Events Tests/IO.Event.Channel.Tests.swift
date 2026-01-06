@@ -269,10 +269,10 @@ extension IO.Event.Channel.Test.HalfClose {
         )
 
         // First shutdown should succeed
-        try await channel.shutdownRead()
+        try await channel.shutdown.read()
 
         // Second shutdown should be a no-op (idempotent)
-        try await channel.shutdownRead()
+        try await channel.shutdown.read()
 
         // Reads should return 0 after shutdown
         var buffer = [UInt8](repeating: 0, count: 10)
@@ -304,10 +304,10 @@ extension IO.Event.Channel.Test.HalfClose {
         )
 
         // First shutdown should succeed
-        try await channel.shutdownWrite()
+        try await channel.shutdown.write()
 
         // Second shutdown should be a no-op (idempotent)
-        try await channel.shutdownWrite()
+        try await channel.shutdown.write()
 
         // Writes should throw after shutdown
         let testData: [UInt8] = [1, 2, 3]

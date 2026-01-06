@@ -47,7 +47,7 @@ extension RegistrationBenchmarks.Test.Performance {
                 let request = IO.Event.Registration.Request.register(
                     descriptor: Int32(i),
                     interest: .read,
-                    replyID: IO.Event.Registration.ReplyID( UInt64(i))
+                    replyID: IO.Event.Registration.Reply.ID( UInt64(i))
                 )
                 queue.enqueue(request)
             }
@@ -76,7 +76,7 @@ extension RegistrationBenchmarks.Test.Performance {
                             let request = IO.Event.Registration.Request.register(
                                 descriptor: Int32(producerIndex * requestsPerProducer + i),
                                 interest: .read,
-                                replyID: IO.Event.Registration.ReplyID( UInt64(i))
+                                replyID: IO.Event.Registration.Reply.ID( UInt64(i))
                             )
                             queue.enqueue(request)
                         }

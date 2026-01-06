@@ -78,7 +78,7 @@ extension EventDeliveryBenchmarks.Test.Performance {
             let producerTask = Task {
                 for i in 0..<10000 {
                     let reply = IO.Event.Registration.Reply(
-                        id: IO.Event.Registration.ReplyID( UInt64(i)),
+                        id: IO.Event.Registration.Reply.ID( UInt64(i)),
                         result: .success(.registered(IO.Event.ID(UInt(i))))
                     )
                     bridge.push(reply)
