@@ -97,7 +97,7 @@ extension IO.Completion {
         let wakeupChannel: Wakeup.Channel
 
         /// The shutdown flag for the poll loop.
-        let shutdownFlag: PollLoop.Shutdown.Flag
+        let shutdownFlag: Poll.Shutdown.Flag
 
         /// The poll thread handle.
         var pollThreadHandle: Kernel.Thread.Handle?
@@ -154,7 +154,7 @@ extension IO.Completion {
             // Create thread-safe primitives
             self.submissions = Submission.Queue(.init())
             self.bridge = Bridge(.init())
-            self.shutdownFlag = PollLoop.Shutdown.Flag(.init())
+            self.shutdownFlag = Poll.Shutdown.Flag(.init())
 
             // Create driver handle
             let handle: IO.Completion.Driver.Handle
@@ -174,7 +174,7 @@ extension IO.Completion {
             self.wakeupChannel = wakeupChannel
 
             // Build poll loop context (consumes handle)
-            let context = PollLoop.Context(
+            let context = Poll.Context(
                 driver: driver,
                 handle: handle,
                 submissions: submissions,
@@ -190,7 +190,7 @@ extension IO.Completion {
             do {
                 self.pollThreadHandle = try Kernel.Thread.spawn {
                     let ctx = token.take()
-                    PollLoop.run(ctx)
+                    Poll.run(ctx)
                 }
             } catch {
                 // Poll thread creation failed - clean up
@@ -290,16 +290,23 @@ extension IO.Completion {
 
             // === Outcome Decision: Completion-Wins Ordering ===
             //
+            // SECTION 10 EXCEPTION: This deviates from Section 4.2 ("Shutdown dominates all").
+            //
+            // PATTERN REQUIREMENTS Section 4.2 says: Shutdown → Cancellation → Success
+            // This implementation uses:            Completion → Cancellation → Shutdown
+            //
             // Priority order (timeless invariant):
             //   1. Completion wins over everything (including cancellation AND shutdown)
             //   2. Cancellation wins only when no completion exists
             //   3. Shutdown only affects operations with no completion and no cancellation
             //
-            // Rationale:
+            // Rationale (per Section 10 - correctness demands it):
             // - Completed work should never be discarded
             // - Returning valid data is more useful to callers
             // - "Don't discard completed work" is a stable, decades-long rule
+            // - Discarding completed I/O would cause data loss
             //
+            // This exception is narrowly scoped to the outcome decision point only.
             // Buffer is always returned (Pattern A preservation) regardless of outcome.
 
             let event: IO.Completion.Event

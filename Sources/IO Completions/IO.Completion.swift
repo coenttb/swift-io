@@ -23,7 +23,7 @@ extension IO {
     /// 1. **Primitives** (this module): `Completion`, `ID`, `Operation`, `Event`, `Result`, `Error`
     /// 2. **Driver**: Protocol witness struct for platform backends
     /// 3. **Backends**: Platform-specific implementations (IOCP, io_uring)
-    /// 4. **Runtime**: Queue actor, Bridge, PollLoop
+    /// 4. **Runtime**: Queue actor, Bridge, Poll
     ///
     /// ## Key Types
     ///
