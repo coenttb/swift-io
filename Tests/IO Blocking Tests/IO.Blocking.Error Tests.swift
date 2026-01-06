@@ -15,54 +15,54 @@ extension IO.Blocking.Error {
 // MARK: - Unit Tests
 
 extension IO.Blocking.Error.Test.Unit {
-    @Test("queueFull case exists")
-    func queueFullCase() {
-        let error = IO.Blocking.Error.queueFull
-        if case .queueFull = error {
-            #expect(Bool(true))
+    @Test("lane case wraps Lane.Error")
+    func laneCase() {
+        let error = IO.Blocking.Error.lane(.queueFull)
+        if case .lane(let inner) = error {
+            #expect(inner == .queueFull)
         } else {
-            Issue.record("Expected queueFull case")
+            Issue.record("Expected lane case")
         }
     }
 
-    @Test("deadlineExceeded case exists")
-    func deadlineExceededCase() {
-        let error = IO.Blocking.Error.deadlineExceeded
-        if case .deadlineExceeded = error {
+    @Test("lane queueFull case")
+    func laneQueueFull() {
+        let error = IO.Blocking.Error.lane(.queueFull)
+        if case .lane(.queueFull) = error {
             #expect(Bool(true))
         } else {
-            Issue.record("Expected deadlineExceeded case")
+            Issue.record("Expected lane queueFull case")
         }
     }
 
-    @Test("overloaded case exists")
-    func overloadedCase() {
-        let error = IO.Blocking.Error.overloaded
-        if case .overloaded = error {
+    @Test("lane overloaded case")
+    func laneOverloaded() {
+        let error = IO.Blocking.Error.lane(.overloaded)
+        if case .lane(.overloaded) = error {
             #expect(Bool(true))
         } else {
-            Issue.record("Expected overloaded case")
+            Issue.record("Expected lane overloaded case")
         }
     }
 
-    @Test("internalInvariantViolation case exists")
-    func internalInvariantViolationCase() {
-        let error = IO.Blocking.Error.internalInvariantViolation
-        if case .internalInvariantViolation = error {
+    @Test("lane internalInvariantViolation case")
+    func laneInternalInvariantViolation() {
+        let error = IO.Blocking.Error.lane(.internalInvariantViolation)
+        if case .lane(.internalInvariantViolation) = error {
             #expect(Bool(true))
         } else {
-            Issue.record("Expected internalInvariantViolation case")
+            Issue.record("Expected lane internalInvariantViolation case")
         }
     }
 
     @Test("Sendable conformance")
     func sendableConformance() async {
-        let error = IO.Blocking.Error.queueFull
+        let error = IO.Blocking.Error.lane(.queueFull)
         await Task {
-            if case .queueFull = error {
+            if case .lane(.queueFull) = error {
                 #expect(Bool(true))
             } else {
-                Issue.record("Expected queueFull case")
+                Issue.record("Expected lane queueFull case")
             }
         }.value
     }
@@ -71,68 +71,46 @@ extension IO.Blocking.Error.Test.Unit {
     func errorConformance() {
         // Compiles only if IO.Blocking.Error conforms to Error
         func assertConformsToError<T: Error>(_: T) {}
-        assertConformsToError(IO.Blocking.Error.queueFull)
+        assertConformsToError(IO.Blocking.Error.lane(.queueFull))
     }
 }
 
 // MARK: - Edge Cases
 
 extension IO.Blocking.Error.Test.EdgeCase {
-    @Test("all cases are distinct")
-    func allCasesDistinct() {
-        // IO.Blocking.Error has NO lifecycle cases (shutdown/cancelled)
-        let cases: [IO.Blocking.Error] = [
+    @Test("lane error cases are distinct")
+    func laneCasesDistinct() {
+        let cases: [IO.Blocking.Lane.Error] = [
             .queueFull,
-            .deadlineExceeded,
             .overloaded,
             .internalInvariantViolation,
         ]
-        #expect(cases.count == 4)
+        #expect(cases.count == 3)
 
         // Verify each case matches expected pattern
         for (i, error) in cases.enumerated() {
             switch error {
             case .queueFull:
                 #expect(i == 0)
-            case .deadlineExceeded:
-                #expect(i == 1)
             case .overloaded:
-                #expect(i == 2)
+                #expect(i == 1)
             case .internalInvariantViolation:
-                #expect(i == 3)
+                #expect(i == 2)
             }
         }
     }
 
-    @Test("no lifecycle cases - shutdown/cancelled excluded")
-    func noLifecycleCases() {
+    @Test("no lifecycle cases in Lane.Error")
+    func noLifecycleCasesInLaneError() {
         // This test documents the design invariant:
-        // IO.Blocking.Error is the PUBLIC subset of IO.Blocking.Failure
-        // It excludes lifecycle concerns (shutdown/cancellationRequested)
-        // which are mapped to IO.Lifecycle.Error at the Pool boundary
-        let allCases: [IO.Blocking.Error] = [
+        // IO.Blocking.Lane.Error has only operational errors
+        // Lifecycle concerns (shutdown/cancellation/timeout) are in IO.Lifecycle.Error
+        let allCases: [IO.Blocking.Lane.Error] = [
             .queueFull,
-            .deadlineExceeded,
             .overloaded,
             .internalInvariantViolation,
         ]
-        // All 4 cases are operational - no lifecycle
-        #expect(allCases.count == 4)
-    }
-
-    @Test("failable init from Failure - operational cases map")
-    func failableInitFromFailure() {
-        // Operational cases map successfully
-        #expect(IO.Blocking.Error(.queueFull) == .queueFull)
-        #expect(IO.Blocking.Error(.deadlineExceeded) == .deadlineExceeded)
-        #expect(IO.Blocking.Error(.overloaded) == .overloaded)
-        #expect(IO.Blocking.Error(.internalInvariantViolation) == .internalInvariantViolation)
-    }
-
-    @Test("failable init from Failure - lifecycle cases return nil")
-    func failableInitFromFailureReturnsNilForLifecycle() {
-        // Lifecycle cases return nil - they should be handled separately
-        #expect(IO.Blocking.Error(.shutdown) == nil)
-        #expect(IO.Blocking.Error(.cancellationRequested) == nil)
+        // All 3 cases are operational - no lifecycle
+        #expect(allCases.count == 3)
     }
 }

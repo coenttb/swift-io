@@ -237,8 +237,8 @@ extension IO.Blocking.Threads.Test.EdgeCase {
                     return Kernel.Handoff.Box.makeValue(())
                 }
                 return false  // Unexpected success
-            } catch let error as IO.Blocking.Failure {
-                return error == .cancellationRequested
+            } catch let error as IO.Lifecycle.Error<IO.Blocking.Lane.Error> {
+                return error == .cancellation
             } catch {
                 return false  // Unexpected error type
             }
@@ -253,7 +253,7 @@ extension IO.Blocking.Threads.Test.EdgeCase {
         // This should complete promptly (not hang!)
         // Before the fix, this would hang forever
         let wasCancelled = await waitingTask.value
-        #expect(wasCancelled == true, "Task should have completed with cancellationRequested")
+        #expect(wasCancelled == true, "Task should have completed with cancelled")
 
         // Clean up - just wait for shutdown to handle the slow jobs
         await threads.shutdown()
@@ -275,7 +275,7 @@ extension IO.Blocking.Threads.Test.EdgeCase {
                 // Completion won - unbox via Box API
                 let value: Int = Kernel.Handoff.Box.takeValue(ptr)
                 return "completed:\(value)"
-            } catch let error as IO.Blocking.Failure {
+            } catch let error as IO.Lifecycle.Error<IO.Blocking.Lane.Error> {
                 return "cancelled:\(error)"
             } catch {
                 return "unexpected:\(type(of: error))"
@@ -334,8 +334,8 @@ extension IO.Blocking.Threads.Test.EdgeCase {
                     return Kernel.Handoff.Box.makeValue(())
                 }
                 return "unexpected-success"
-            } catch let error as IO.Blocking.Failure {
-                return error == .shutdown ? "shutdown" : "other-failure: \(error)"
+            } catch let error as IO.Lifecycle.Error<IO.Blocking.Lane.Error> {
+                return error == .shutdownInProgress ? "shutdown" : "other-failure: \(error)"
             } catch {
                 return "unexpected-error: \(error)"
             }

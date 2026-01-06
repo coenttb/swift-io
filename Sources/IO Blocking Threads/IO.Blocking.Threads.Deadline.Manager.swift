@@ -19,7 +19,7 @@ extension IO.Blocking.Threads.Deadline {
         // 1. Wait on condvar with timeout = earliest deadline
         // 2. On wakeup (signal or timeout):
         //    - Scan acceptance waiters for expired deadlines
-        //    - Resume expired waiters with `.deadlineExceeded`
+        //    - Resume expired waiters with `.timeout`
         //    - Compute next earliest deadline
         // 3. Repeat until shutdown
         //
@@ -61,7 +61,7 @@ extension IO.Blocking.Threads.Deadline {
 
                     // Fail expired waiters via their contexts (outside lock)
                     for waiter in expired {
-                        _ = waiter.job.context.fail(.deadlineExceeded)
+                        _ = waiter.job.context.fail(.timeout)
                     }
                 } else {
                     // No deadlines - wait indefinitely for signal on deadline condvar

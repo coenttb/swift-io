@@ -462,14 +462,14 @@ extension IO.Event {
             guard let waiter = waiters[key] else {
                 // Waiter was removed (event arrived and converted to permit,
                 // deregistered, shutdown, etc.)
-                return .failed(.cancelled)
+                return .failed(.cancellation)
             }
 
             // Verify generation to detect stale handles
             let currentGen = deadlineGeneration[key, default: 0]
             if currentGen != handle.generation {
                 // Stale handle - waiter was already completed and a new one started
-                return .failed(.cancelled)
+                return .failed(.cancellation)
             }
 
             // Install continuation and suspend
@@ -822,7 +822,7 @@ extension IO.Event {
                 waiters.removeValue(forKey: key)
                 bumpGeneration(for: key)
                 if let (continuation, _) = waiter.take.forResume() {
-                    continuation.resume(returning: .failure(.cancelled))
+                    continuation.resume(returning: .failure(.cancellation))
                 }
             }
             updateNextPollDeadline()
@@ -872,7 +872,7 @@ extension IO.Event {
                 if let (continuation, wasCancelled) = waiter.take.forResume() {
                     if wasCancelled {
                         // Cancellation already happened - honour it
-                        continuation.resume(returning: .failure(.cancelled))
+                        continuation.resume(returning: .failure(.cancellation))
                     } else {
                         continuation.resume(returning: .failure(.timeout))
                     }
@@ -939,7 +939,7 @@ extension IO.Event {
                     // Armed waiter: drain via the state machine.
                     if let (continuation, wasCancelled) = waiter.take.forResume() {
                         if wasCancelled {
-                            continuation.resume(returning: .failure(.cancelled))
+                            continuation.resume(returning: .failure(.cancellation))
                         } else {
                             // Resume with a single-interest event for deterministic semantics
                             let ready = IO.Event(id: event.id, interest: interest, flags: event.flags)

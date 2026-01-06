@@ -377,7 +377,7 @@ extension IO.Completion.Queue.Test.Integration {
             throw CancellationError()
         }
 
-        #expect(event.outcome == .cancelled, "cancelled task should get cancelled outcome")
+        #expect(event.outcome == .cancellation, "cancelled task should get cancelled outcome")
 
         await queue.shutdown()
     }
@@ -446,7 +446,7 @@ extension IO.Completion.Queue.Test.Integration {
 
         // Complete all
         for id in ids {
-            fake.complete(id: id, kind: .nop, outcome: .success(.bytes(Int(id._rawValue))))
+            fake.complete(id: id, kind: .nop, outcome: .success(.bytes(Int(id.rawValue))))
         }
 
         // Collect results
@@ -457,7 +457,7 @@ extension IO.Completion.Queue.Test.Integration {
                 if case .bytes(let n) = value {
                     successCount += 1
                     // Verify the result matches the ID
-                    #expect(n == Int(event.id._rawValue))
+                    #expect(n == Int(event.id.rawValue))
                 }
             }
         }
@@ -557,7 +557,7 @@ extension IO.Completion.Queue.Test.Integration {
         // Get the result - should be cancelled
         let event = try await resultTask.value
         #expect(
-            event.outcome == .cancelled,
+            event.outcome == .cancellation,
             "cancel-first should result in cancelled outcome"
         )
 
@@ -610,8 +610,8 @@ extension IO.Completion.Queue.Test.Integration {
         do {
             let event = try await resultTask.value
             #expect(
-                event.outcome == .cancelled,
-                "cancelled task should get .cancelled outcome, not throw"
+                event.outcome == .cancellation,
+                "cancelled task should get .cancellation outcome, not throw"
             )
         } catch is CancellationError {
             Issue.record("submit must not throw CancellationError - Pattern A violated")

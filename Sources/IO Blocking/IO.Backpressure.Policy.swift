@@ -14,7 +14,7 @@ extension IO.Backpressure {
     ///
     /// ## Error Handling
     /// Each layer maintains its own error type:
-    /// - `IO.Blocking.Failure.queueFull` / `.overloaded` for lane
+    /// - `IO.Lifecycle.Error.failure(.queueFull)` / `.failure(.overloaded)` for lane
     /// - `IO.Handle.Error.waitersFull` for handles
     ///
     /// These are kept separate intentionally - see ARCHITECTURE.md.
@@ -26,14 +26,14 @@ extension IO.Backpressure {
 
         /// Maximum jobs in lane queue.
         ///
-        /// When reached with `.failFast`: throws `IO.Blocking.Failure.queueFull`
+        /// When reached with `.failFast`: throws `IO.Lifecycle.Error.failure(.queueFull)`
         /// When reached with `.wait`: caller suspends until capacity
         public var laneQueueLimit: Int
 
         /// Maximum tasks waiting for lane queue capacity.
         ///
         /// This is a hard limit to bound memory. When reached, new operations
-        /// fail with `IO.Blocking.Failure.overloaded` regardless of strategy.
+        /// fail with `IO.Lifecycle.Error.failure(.overloaded)` regardless of strategy.
         public var laneAcceptanceWaitersLimit: Int
 
         // MARK: - Handle Limits

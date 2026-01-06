@@ -275,7 +275,7 @@ extension IO.Executor.Pool where Resource: ~Copyable {
 
         // Fast-path: if already cancelled, skip lane submission entirely
         if Task.isCancelled {
-            throw .cancelled
+            throw .cancellation
         }
 
         // Lane.run throws(Failure) and returns Result<T, E>
@@ -284,7 +284,7 @@ extension IO.Executor.Pool where Resource: ~Copyable {
         do {
             result = try await lane.run(deadline: deadline, operation)
         } catch {
-            throw IO.Lifecycle.Error(error)
+            throw error.mapFailure { .blocking(.lane($0)) }
         }
         switch result {
         case .success(let value):
@@ -492,7 +492,7 @@ extension IO.Executor.Pool where Resource: ~Copyable {
         // Fast-path: if already cancelled, abort reservation and skip lane submission
         if Task.isCancelled {
             _abortReservation(reservedID)
-            throw .cancelled
+            throw .cancellation
         }
 
         // Create resource on lane via Kernel.Handoff.Storage (Resource is ~Copyable).
@@ -508,11 +508,11 @@ extension IO.Executor.Pool where Resource: ~Copyable {
                 let resource = try make()
                 storeToken.store(resource)
             }
-        } catch let laneError {
+        } catch {
             // Lane infrastructure failure - abort reservation, storage is empty
             _abortReservation(reservedID)
             _ = storage.takeIfStored()
-            throw IO.Lifecycle.Error(laneError)
+            throw error.mapFailure { .blocking(.lane($0)) }
         }
 
         // Check make() result
@@ -697,7 +697,7 @@ extension IO.Executor.Pool where Resource: ~Copyable {
             // This avoids the cost of continuation setup + cancellation handler
             // for tasks that are already cancelled before waiting
             if Task.isCancelled {
-                throw .cancelled
+                throw .cancellation
             }
 
             let token = entry.waiters.generateToken()
@@ -744,7 +744,7 @@ extension IO.Executor.Pool where Resource: ~Copyable {
                 if wasCancelled {
                     // Reclaim handle before throwing - don't strand it in reserved state
                     _checkInHandle(consume h, for: id, entry: entry)
-                    throw .cancelled
+                    throw .cancellation
                 }
                 entry.state = .checkedOut
                 checkedOutHandle = h
@@ -753,7 +753,7 @@ extension IO.Executor.Pool where Resource: ~Copyable {
                 if wasCancelled {
                     // Reclaim handle before throwing
                     _checkInHandle(consume h, for: id, entry: entry)
-                    throw .cancelled
+                    throw .cancellation
                 }
                 entry.state = .checkedOut
                 checkedOutHandle = h
@@ -761,7 +761,7 @@ extension IO.Executor.Pool where Resource: ~Copyable {
                 // Handle not available for this waiter
                 // If cancelled, report cancellation (not invalidID)
                 if wasCancelled {
-                    throw .cancelled
+                    throw .cancellation
                 }
                 throw .failure(.handle(.invalidID))
             }
@@ -784,7 +784,7 @@ extension IO.Executor.Pool where Resource: ~Copyable {
             // Map lane failures to lifecycle or operational errors
             _checkInHandle(slot.take(), for: id, entry: entry)
             slot.deallocateRawOnly()
-            throw IO.Lifecycle.Error(error)
+            throw error.mapFailure { .lane(.lane($0)) }
         }
 
         // Check if task was cancelled during execution
@@ -799,7 +799,7 @@ extension IO.Executor.Pool where Resource: ~Copyable {
 
         // Handle cancellation
         if wasCancelled {
-            throw .cancelled
+            throw .cancellation
         }
 
         // Return result or throw body error
@@ -908,14 +908,14 @@ extension IO.Executor.Pool where Resource: ~Copyable {
             switch error {
             case .shutdownInProgress:
                 throw .shutdownInProgress
-            case .cancelled:
-                throw .cancelled
+            case .cancellation:
+                throw .cancellation
             case .timeout:
-                throw .cancelled  // Timeout treated as cancellation at this layer
+                throw .cancellation  // Timeout treated as cancellation at this layer
             case .failure(let transactionError):
                 switch transactionError {
-                case .lane(let laneError):
-                    throw .failure(.lane(laneError))
+                case .lane(let blockingError):
+                    throw .failure(.blocking(blockingError))
                 case .handle(let handleError):
                     throw .failure(.handle(handleError))
                 case .body(let bodyError):

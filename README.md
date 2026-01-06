@@ -179,7 +179,7 @@ do {
     switch error {
     case .shutdownInProgress:
         // Pool is shutting down
-    case .cancelled:
+    case .cancellation:
         // Task was cancelled
     case .failure(let ioError):
         switch ioError {

@@ -95,7 +95,7 @@
                     id: Kernel.Event.ID(UInt(descriptor)),
                     filter: .read,
                     flags: addFlags,
-                    data: Kernel.Kqueue.Event.Data(UInt64(id._rawValue))
+                    data: Kernel.Kqueue.Event.Data(UInt64(id.rawValue))
                 ))
             }
 
@@ -104,7 +104,7 @@
                     id: Kernel.Event.ID(UInt(descriptor)),
                     filter: .write,
                     flags: addFlags,
-                    data: Kernel.Kqueue.Event.Data(UInt64(id._rawValue))
+                    data: Kernel.Kqueue.Event.Data(UInt64(id.rawValue))
                 ))
             }
 
@@ -159,7 +159,7 @@
                     id: Kernel.Event.ID(UInt(descriptor)),
                     filter: .read,
                     flags: .delete,
-                    data: Kernel.Kqueue.Event.Data(UInt64(id._rawValue))
+                    data: Kernel.Kqueue.Event.Data(UInt64(id.rawValue))
                 ))
             }
             if toRemove.contains(.write) {
@@ -167,7 +167,7 @@
                     id: Kernel.Event.ID(UInt(descriptor)),
                     filter: .write,
                     flags: .delete,
-                    data: Kernel.Kqueue.Event.Data(UInt64(id._rawValue))
+                    data: Kernel.Kqueue.Event.Data(UInt64(id.rawValue))
                 ))
             }
 
@@ -178,7 +178,7 @@
                     id: Kernel.Event.ID(UInt(descriptor)),
                     filter: .read,
                     flags: addFlags,
-                    data: Kernel.Kqueue.Event.Data(UInt64(id._rawValue))
+                    data: Kernel.Kqueue.Event.Data(UInt64(id.rawValue))
                 ))
             }
             if toAdd.contains(.write) {
@@ -186,7 +186,7 @@
                     id: Kernel.Event.ID(UInt(descriptor)),
                     filter: .write,
                     flags: addFlags,
-                    data: Kernel.Kqueue.Event.Data(UInt64(id._rawValue))
+                    data: Kernel.Kqueue.Event.Data(UInt64(id.rawValue))
                 ))
             }
 
@@ -235,7 +235,7 @@
                     id: Kernel.Event.ID(UInt(descriptor)),
                     filter: .read,
                     flags: .delete,
-                    data: Kernel.Kqueue.Event.Data(UInt64(id._rawValue))
+                    data: Kernel.Kqueue.Event.Data(UInt64(id.rawValue))
                 ))
             }
             if interest.contains(.write) {
@@ -243,7 +243,7 @@
                     id: Kernel.Event.ID(UInt(descriptor)),
                     filter: .write,
                     flags: .delete,
-                    data: Kernel.Kqueue.Event.Data(UInt64(id._rawValue))
+                    data: Kernel.Kqueue.Event.Data(UInt64(id.rawValue))
                 ))
             }
 
@@ -296,7 +296,7 @@
                     id: Kernel.Event.ID(UInt(descriptor)),
                     filter: .read,
                     flags: armFlags,
-                    data: Kernel.Kqueue.Event.Data(UInt64(id._rawValue))
+                    data: Kernel.Kqueue.Event.Data(UInt64(id.rawValue))
                 ))
             }
 
@@ -305,7 +305,7 @@
                     id: Kernel.Event.ID(UInt(descriptor)),
                     filter: .write,
                     flags: armFlags,
-                    data: Kernel.Kqueue.Event.Data(UInt64(id._rawValue))
+                    data: Kernel.Kqueue.Event.Data(UInt64(id.rawValue))
                 ))
             }
 
@@ -376,7 +376,7 @@
                     continue
                 }
 
-                let id = IO.Event.ID(UInt(truncatingIfNeeded: raw.data._rawValue))
+                let id = IO.Event.ID(UInt(truncatingIfNeeded: raw.data.rawValue))
 
                 // Poll race rule: drop events for deregistered IDs
                 guard registeredIDs.contains(id) else {

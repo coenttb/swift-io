@@ -162,7 +162,7 @@ extension IOExecutorPoolTests.Test.EdgeCase {
             switch error {
             case .shutdownInProgress:
                 #expect(true, "transaction correctly rejects at submission gate")
-            case .cancelled, .timeout:
+            case .cancellation, .timeout:
                 Issue.record("shutdown should not surface as cancelled")
             case .failure:
                 Issue.record("shutdown should reject at gate, not as failure")
@@ -246,7 +246,7 @@ extension IOExecutorPoolTests.Test.EdgeCase {
             switch error {
             case .shutdownInProgress:
                 #expect(true, "shutdown correctly surfaces as .shutdownInProgress")
-            case .cancelled, .timeout:
+            case .cancellation, .timeout:
                 Issue.record("shutdown should not surface as cancelled")
             case .failure(let inner):
                 switch inner {
@@ -258,8 +258,8 @@ extension IOExecutorPoolTests.Test.EdgeCase {
                     Issue.record("shutdown MUST NOT be encoded as handleNotFound")
                 case .handle:
                     Issue.record("shutdown MUST NOT be encoded as handle error")
-                case .lane:
-                    Issue.record("shutdown MUST NOT be encoded as lane error")
+                case .blocking:
+                    Issue.record("shutdown MUST NOT be encoded as blocking error")
                 case .leaf:
                     Issue.record("shutdown MUST NOT be encoded as leaf error")
                 }
@@ -280,7 +280,7 @@ extension IOExecutorPoolTests.Test.EdgeCase {
             switch error {
             case .shutdownInProgress:
                 #expect(true, "register correctly surfaces as .shutdownInProgress")
-            case .cancelled, .timeout:
+            case .cancellation, .timeout:
                 Issue.record("shutdown should not surface as cancelled")
             case .failure:
                 Issue.record("shutdown MUST NOT be encoded as failure")

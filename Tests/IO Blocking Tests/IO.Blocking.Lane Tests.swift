@@ -62,9 +62,9 @@ extension IO.Blocking.Lane.Test.EdgeCase {
 
         do {
             let _: Int = try await lane.run(deadline: expiredDeadline) { 42 }
-            Issue.record("Expected deadlineExceeded error")
+            Issue.record("Expected timeout error")
         } catch {
-            #expect(error == .deadlineExceeded)
+            #expect(error == .timeout)
         }
     }
 
@@ -81,10 +81,10 @@ extension IO.Blocking.Lane.Test.EdgeCase {
 
         do {
             _ = try await task.value
-            Issue.record("Expected cancellationRequested error")
+            Issue.record("Expected cancelled error")
         } catch {
-            // Cancellation should be detected - either CancellationError or lane failure
-            #expect(error is CancellationError || (error as? IO.Blocking.Failure) == .cancellationRequested)
+            // Cancellation should be detected - either CancellationError or lifecycle cancellation
+            #expect(error is CancellationError || (error as? IO.Lifecycle.Error<IO.Blocking.Lane.Error>) == .cancellation)
         }
     }
 }

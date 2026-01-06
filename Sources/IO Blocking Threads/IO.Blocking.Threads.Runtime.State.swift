@@ -121,7 +121,7 @@ extension IO.Blocking.Threads.Runtime {
                 // Check deadline (lazy expiry)
                 if let deadline = waiter.deadline, deadline.hasExpired {
                     // Fail via context - atomic, exactly-once
-                    _ = waiter.job.context.fail(.deadlineExceeded)
+                    _ = waiter.job.context.fail(.timeout)
                     continue
                 }
 
@@ -136,7 +136,7 @@ extension IO.Blocking.Threads.Runtime {
                     // Job enqueued - worker will complete via context
                 } else {
                     // Shouldn't happen since we checked !queue.isFull
-                    _ = waiter.job.context.fail(.queueFull)
+                    _ = waiter.job.context.fail(.failure(.queueFull))
                     break
                 }
             }

@@ -179,7 +179,7 @@ struct IOExecutorPoolStressTests {
                     switch error {
                     case .shutdownInProgress:
                         await outcomeTracker.record(id: id, outcome: .shutdown)
-                    case .cancelled, .timeout:
+                    case .cancellation, .timeout:
                         await outcomeTracker.record(id: id, outcome: .cancelled)
                     case .failure(.handle(.invalidID)):
                         // This should only happen for explicit destroy(), not shutdown
@@ -371,7 +371,7 @@ struct IOExecutorPoolStressTests {
                     switch error {
                     case .shutdownInProgress:
                         await outcomeTracker.record(id: id, outcome: .shutdown)
-                    case .cancelled, .timeout:
+                    case .cancellation, .timeout:
                         await outcomeTracker.record(id: id, outcome: .cancelled)
                     case .failure(.handle(.invalidID)):
                         // This should only happen for explicit destroy(), not shutdown
@@ -450,7 +450,7 @@ struct IOExecutorPoolStressTests {
                         switch error {
                         case .shutdownInProgress:
                             await outcomeTracker.record(id: id, outcome: .shutdown)
-                        case .cancelled, .timeout:
+                        case .cancellation, .timeout:
                             await outcomeTracker.record(id: id, outcome: .cancelled)
                         case .failure(.handle(.invalidID)):
                             // This should only happen for explicit destroy(), not shutdown
@@ -518,7 +518,7 @@ struct IOExecutorPoolStressTests {
                     switch error {
                     case .shutdownInProgress:
                         await outcomeTracker.record(id: 0, outcome: .shutdown)
-                    case .cancelled, .timeout:
+                    case .cancellation, .timeout:
                         await outcomeTracker.record(id: 0, outcome: .cancelled)
                     case .failure(.handle(.invalidID)):
                         // This should only happen for explicit destroy(), not shutdown
@@ -575,7 +575,7 @@ struct IOExecutorPoolStressTests {
                         switch error {
                         case .shutdownInProgress:
                             await outcomeTracker.record(id: id, outcome: .shutdown)
-                        case .cancelled, .timeout:
+                        case .cancellation, .timeout:
                             await outcomeTracker.record(id: id, outcome: .cancelled)
                         case .failure(.handle(.invalidID)):
                             // This should only happen for explicit destroy(), not shutdown
@@ -664,7 +664,7 @@ struct IOExecutorPoolStressTests {
                     switch error {
                     case .shutdownInProgress:
                         await outcomeTracker.record(id: id, outcome: .shutdown)
-                    case .cancelled, .timeout:
+                    case .cancellation, .timeout:
                         await outcomeTracker.record(id: id, outcome: .cancelled)
                     case .failure(.handle(.waitersFull)):
                         await outcomeTracker.record(id: id, outcome: .otherError("waitersFull"))
@@ -718,7 +718,7 @@ struct IOExecutorPoolStressTests {
                     switch error {
                     case .shutdownInProgress:
                         await outcomeTracker.record(id: id, outcome: .shutdown)
-                    case .cancelled, .timeout:
+                    case .cancellation, .timeout:
                         await outcomeTracker.record(id: id, outcome: .cancelled)
                     case .failure(.handle(.invalidID)):
                         // This should only happen for explicit destroy(), not shutdown
@@ -782,7 +782,7 @@ struct IOExecutorPoolStressTests {
                         switch error {
                         case .shutdownInProgress:
                             await firstWaveTracker.record(id: id, outcome: .shutdown)
-                        case .cancelled, .timeout:
+                        case .cancellation, .timeout:
                             await firstWaveTracker.record(id: id, outcome: .cancelled)
                         case .failure(.handle(.invalidID)):
                             // This should only happen for explicit destroy(), not shutdown
@@ -815,7 +815,7 @@ struct IOExecutorPoolStressTests {
                         switch error {
                         case .shutdownInProgress:
                             await secondWaveTracker.record(id: id, outcome: .shutdown)
-                        case .cancelled, .timeout:
+                        case .cancellation, .timeout:
                             await secondWaveTracker.record(id: id, outcome: .cancelled)
                         case .failure(.handle(.invalidID)):
                             // This should only happen for explicit destroy(), not shutdown
@@ -907,7 +907,7 @@ struct IOExecutorPoolStressTests {
                         switch error {
                         case .shutdownInProgress:
                             await outcomeTracker.record(id: id, outcome: .shutdown)
-                        case .cancelled, .timeout:
+                        case .cancellation, .timeout:
                             await outcomeTracker.record(id: id, outcome: .cancelled)
                         case .failure(.handle(.invalidID)):
                             // This should only happen for explicit destroy(), not shutdown
@@ -1056,7 +1056,7 @@ struct IOExecutorPoolStressTests {
                     switch error {
                     case .shutdownInProgress:
                         await outcomeTracker.record(id: index, outcome: .shutdown)
-                    case .cancelled, .timeout:
+                    case .cancellation, .timeout:
                         await outcomeTracker.record(id: index, outcome: .cancelled)
                     case .failure(.handle(.invalidID)):
                         // This should only happen for explicit destroy(), not shutdown
@@ -1117,7 +1117,7 @@ struct IOExecutorPoolStressTests {
                     switch error {
                     case .shutdownInProgress:
                         await outcomeTracker.record(id: 0, outcome: .shutdown)
-                    case .cancelled, .timeout:
+                    case .cancellation, .timeout:
                         await outcomeTracker.record(id: 0, outcome: .cancelled)
                     case .failure(.handle(.invalidID)):
                         // This should only happen for explicit destroy(), not shutdown
@@ -1213,7 +1213,7 @@ struct IOExecutorPoolStressTests {
                     switch error {
                     case .shutdownInProgress:
                         await outcomeTracker.record(id: 0, outcome: .shutdown)
-                    case .cancelled, .timeout:
+                    case .cancellation, .timeout:
                         await outcomeTracker.record(id: 0, outcome: .cancelled)
                     case .failure(.handle(.invalidID)):
                         // This should only happen for explicit destroy(), not shutdown
@@ -1271,7 +1271,7 @@ struct IOExecutorPoolStressTests {
                     switch error {
                     case .shutdownInProgress:
                         await outcomeTracker.record(id: 0, outcome: .shutdown)
-                    case .cancelled, .timeout:
+                    case .cancellation, .timeout:
                         await outcomeTracker.record(id: 0, outcome: .cancelled)
                     case .failure(.handle(.invalidID)):
                         // This should only happen for explicit destroy(), not shutdown
@@ -1390,7 +1390,7 @@ struct IOExecutorPoolStressTests {
                     switch error {
                     case .shutdownInProgress:
                         return "shutdown"
-                    case .cancelled, .timeout:
+                    case .cancellation, .timeout:
                         return "cancelled"
                     case .failure(.handle(.waitersFull)):
                         return "waitersFull"
@@ -1436,7 +1436,7 @@ struct IOExecutorPoolStressTests {
                     switch error {
                     case .shutdownInProgress:
                         return "shutdown"
-                    case .cancelled, .timeout:
+                    case .cancellation, .timeout:
                         return "cancelled"
                     case .failure(.handle(.waitersFull)):
                         return "waitersFull"
@@ -1499,7 +1499,7 @@ struct IOExecutorPoolStressTests {
                     switch error {
                     case .shutdownInProgress:
                         return "shutdown"
-                    case .cancelled, .timeout:
+                    case .cancellation, .timeout:
                         return "cancelled"
                     case .failure(let other):
                         return "error: \(other)"
@@ -1631,7 +1631,7 @@ struct IOExecutorPoolStressTests {
                         switch error {
                         case .shutdownInProgress:
                             await outcomeTracker.record(id: id, outcome: .shutdown)
-                        case .cancelled, .timeout:
+                        case .cancellation, .timeout:
                             // No explicit cancellation in this test - treat as failure
                             Issue.record("Iteration \(iteration), waiter \(id): Got .cancelled without explicit cancellation")
                             await outcomeTracker.record(id: id, outcome: .otherError("unexpected-cancelled"))

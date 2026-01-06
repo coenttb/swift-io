@@ -35,8 +35,8 @@ extension IO {
         /// Executor-related errors.
         case executor(IO.Executor.Error)
 
-        /// Lane infrastructure errors (excludes lifecycle concerns).
-        case lane(IO.Blocking.Error)
+        /// Blocking subsystem errors (excludes lifecycle concerns).
+        case blocking(IO.Blocking.Error)
     }
 }
 
@@ -56,8 +56,8 @@ extension IO.Error {
             return .handle(error)
         case .executor(let error):
             return .executor(error)
-        case .lane(let error):
-            return .lane(error)
+        case .blocking(let error):
+            return .blocking(error)
         }
     }
 }
@@ -73,8 +73,8 @@ extension IO.Error: CustomStringConvertible {
             return "Handle error: \(error)"
         case .executor(let error):
             return "Executor error: \(error)"
-        case .lane(let error):
-            return "Lane error: \(error)"
+        case .blocking(let error):
+            return "Blocking error: \(error)"
         }
     }
 }

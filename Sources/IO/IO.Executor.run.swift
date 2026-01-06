@@ -51,7 +51,7 @@ extension IO.Executor {
     ) async throws(IO.Lifecycle.Error<IO.Error<E>>) -> T {
         // Fast-path: if already cancelled, skip lane submission entirely
         if Task.isCancelled {
-            throw .cancelled
+            throw .cancellation
         }
 
         // Lane.run throws(Failure) and returns Result<T, E>
@@ -59,7 +59,7 @@ extension IO.Executor {
         do {
             result = try await lane.run(deadline: deadline, operation)
         } catch {
-            throw IO.Lifecycle.Error(error)
+            throw error.mapFailure { .blocking(.lane($0)) }
         }
         switch result {
         case .success(let value):
@@ -86,13 +86,13 @@ extension IO.Executor {
     ) async throws(IO.Lifecycle.Error<IO.Blocking.Error>) -> T {
         // Fast-path: if already cancelled, skip lane submission entirely
         if Task.isCancelled {
-            throw .cancelled
+            throw .cancellation
         }
 
         do {
             return try await lane.run(deadline: deadline, operation)
         } catch {
-            throw IO.Lifecycle.Error(error)
+            throw error.mapFailure { .lane($0) }
         }
     }
 }

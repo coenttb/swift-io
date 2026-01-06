@@ -87,10 +87,10 @@ extension IO.Blocking.Threads {
     public func runBoxed(
         deadline: IO.Blocking.Deadline?,
         _ operation: @Sendable @escaping () -> UnsafeMutableRawPointer
-    ) async throws(IO.Blocking.Failure) -> UnsafeMutableRawPointer {
+    ) async throws(IO.Lifecycle.Error<IO.Blocking.Lane.Error>) -> UnsafeMutableRawPointer {
         // Check cancellation upfront
         if Task.isCancelled {
-            throw .cancellationRequested
+            throw .cancellation
         }
 
         // Lazy start workers
@@ -117,7 +117,7 @@ extension IO.Blocking.Threads {
 
                 // Check cancellation inside continuation (handles race with onCancel)
                 if Task.isCancelled {
-                    _ = context.fail(.cancellationRequested)
+                    _ = context.fail(.cancellation)
                     return
                 }
 
@@ -133,7 +133,7 @@ extension IO.Blocking.Threads {
                 // Check shutdown
                 if state.isShutdown {
                     state.lock.unlock()
-                    _ = context.fail(.shutdown)
+                    _ = context.fail(.shutdownInProgress)
                     return
                 }
 
@@ -151,7 +151,7 @@ extension IO.Blocking.Threads {
                 switch options.strategy {
                 case .failFast:
                     state.lock.unlock()
-                    _ = context.fail(.queueFull)
+                    _ = context.fail(.failure(.queueFull))
 
                 case .wait:
                     // Register acceptance waiter (job already has context)
@@ -163,7 +163,7 @@ extension IO.Blocking.Threads {
                     // Bounded queue - fail fast if full
                     guard state.acceptanceWaiters.enqueue(waiter) else {
                         state.lock.unlock()
-                        _ = context.fail(.overloaded)
+                        _ = context.fail(.failure(.overloaded))
                         return
                     }
                     // Signal deadline manager if waiter has a deadline
@@ -238,7 +238,7 @@ extension IO.Blocking.Threads {
         for waiter in waitersToFail {
             if !waiter.resumed {
                 // Use context's atomic tryFail - exactly-once guaranteed
-                _ = waiter.job.context.fail(.shutdown)
+                _ = waiter.job.context.fail(.shutdownInProgress)
             }
         }
 
@@ -301,7 +301,7 @@ extension IO.Blocking.Lane {
                 (
                     deadline: IO.Blocking.Deadline?,
                     operation: @Sendable @escaping () -> UnsafeMutableRawPointer
-                ) async throws(IO.Blocking.Failure) -> UnsafeMutableRawPointer in
+                ) async throws(IO.Lifecycle.Error<IO.Blocking.Lane.Error>) -> UnsafeMutableRawPointer in
                 try await impl.runBoxed(deadline: deadline, operation)
             },
             shutdown: { await impl.shutdown() }

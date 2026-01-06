@@ -30,13 +30,13 @@ extension IO.Lifecycle.Error<TestLifecycleLeafError>.Test.Unit {
         }
     }
 
-    @Test("cancelled case exists")
-    func cancelledCase() {
-        let error = IO.Lifecycle.Error<TestLifecycleLeafError>.cancelled
-        if case .cancelled = error {
+    @Test("cancellation case exists")
+    func cancellationCase() {
+        let error = IO.Lifecycle.Error<TestLifecycleLeafError>.cancellation
+        if case .cancellation = error {
             #expect(Bool(true))
         } else {
-            Issue.record("Expected cancelled case")
+            Issue.record("Expected cancellation case")
         }
     }
 
@@ -66,7 +66,7 @@ extension IO.Lifecycle.Error<TestLifecycleLeafError>.Test.Unit {
     func errorConformance() {
         // Compiles only if IO.Lifecycle.Error conforms to Error
         func assertConformsToError<T: Error>(_: T) {}
-        assertConformsToError(IO.Lifecycle.Error<TestLifecycleLeafError>.cancelled)
+        assertConformsToError(IO.Lifecycle.Error<TestLifecycleLeafError>.cancellation)
     }
 }
 
@@ -76,7 +76,7 @@ extension IO.Lifecycle.Error<TestLifecycleLeafError>.Test.EdgeCase {
     @Test("all cases are distinct")
     func allCasesDistinct() {
         let shutdown: IO.Lifecycle.Error<TestLifecycleLeafError> = .shutdownInProgress
-        let cancelled: IO.Lifecycle.Error<TestLifecycleLeafError> = .cancelled
+        let cancellation: IO.Lifecycle.Error<TestLifecycleLeafError> = .cancellation
         let failure: IO.Lifecycle.Error<TestLifecycleLeafError> = .failure(TestLifecycleLeafError(message: ""))
 
         if case .shutdownInProgress = shutdown {
@@ -85,10 +85,10 @@ extension IO.Lifecycle.Error<TestLifecycleLeafError>.Test.EdgeCase {
             Issue.record("shutdown should be .shutdownInProgress case")
         }
 
-        if case .cancelled = cancelled {
+        if case .cancellation = cancellation {
             #expect(Bool(true))
         } else {
-            Issue.record("cancelled should be .cancelled case")
+            Issue.record("cancellation should be .cancellation case")
         }
 
         if case .failure = failure {
@@ -98,20 +98,20 @@ extension IO.Lifecycle.Error<TestLifecycleLeafError>.Test.EdgeCase {
         }
     }
 
-    @Test("lifecycle cases are the ONLY place for shutdown/cancelled")
+    @Test("lifecycle cases are the ONLY place for shutdown/cancellation")
     func lifecycleExclusivity() {
         // This test documents the design invariant:
         // Shutdown and cancellation ONLY exist in IO.Lifecycle.Error
         // Other error types (IO.Error, IO.Executor.Error, IO.Blocking.Error) do NOT have these
         let shutdown: IO.Lifecycle.Error<TestLifecycleLeafError> = .shutdownInProgress
-        let cancelled: IO.Lifecycle.Error<TestLifecycleLeafError> = .cancelled
+        let cancellation: IO.Lifecycle.Error<TestLifecycleLeafError> = .cancellation
 
         // Both lifecycle concerns are representable
         if case .shutdownInProgress = shutdown {
             #expect(true, "shutdown is representable in IO.Lifecycle.Error")
         }
-        if case .cancelled = cancelled {
-            #expect(true, "cancelled is representable in IO.Lifecycle.Error")
+        if case .cancellation = cancellation {
+            #expect(true, "cancellation is representable in IO.Lifecycle.Error")
         }
     }
 }

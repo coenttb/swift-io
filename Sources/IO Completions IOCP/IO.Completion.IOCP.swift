@@ -235,7 +235,7 @@
                     // Do NOT free the header here - we don't have ownership.
                     // In debug: trap to surface the bug early.
                     // In release: skip to avoid UAF, leak is preferable.
-                    assertionFailure("IOCP completion for unknown operation ID \(id._rawValue)")
+                    assertionFailure("IOCP completion for unknown operation ID \(id.rawValue)")
                     continue
                 }
 
@@ -270,7 +270,7 @@
                 } else {
                     let error = GetLastError()
                     if error == ERROR_OPERATION_ABORTED {
-                        outcome = .cancelled
+                        outcome = .cancellation
                     } else {
                         outcome = .failure(.platform(code: Int32(error), message: "IOCP operation failed"))
                     }

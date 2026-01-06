@@ -37,5 +37,5 @@ extension IO.Blocking.Lane {
     ///
     /// For advanced use cases (custom thread count, explicit lifecycle),
     /// create your own lane with `IO.Blocking.Lane.threads(options)`.
-    public static let shared: IO.Blocking.Lane = .threads(.init())
+    public static let shared: IO.Blocking.Lane = .threads()
 }

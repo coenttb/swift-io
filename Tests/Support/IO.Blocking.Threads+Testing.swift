@@ -159,7 +159,7 @@ extension IO.Blocking.Lane {
     /// Result of checking queue capacity.
     public enum CapacityCheck: Sendable {
         case hasCapacity
-        case wouldReject(IO.Blocking.Failure)
+        case wouldReject(IO.Lifecycle.Error<IO.Blocking.Lane.Error>)
     }
 
     /// Attempts to run with zero deadline (immediate rejection).
@@ -168,10 +168,10 @@ extension IO.Blocking.Lane {
     /// timeout overhead. With a zero deadline, the lane should reject
     /// immediately if the queue is full, without waiting.
     ///
-    /// - Returns: The result, or throws `.queueFull`/`.deadlineExceeded` immediately.
+    /// - Returns: The result, or throws `.failure(.queueFull)`/`.timeout` immediately.
     public func runImmediate<T: Sendable>(
         _ operation: @Sendable @escaping () -> T
-    ) async throws(IO.Blocking.Failure) -> T {
+    ) async throws(IO.Lifecycle.Error<IO.Blocking.Lane.Error>) -> T {
         // Use the smallest possible deadline - essentially "now"
         try await run(deadline: IO.Blocking.Deadline.now, operation)
     }

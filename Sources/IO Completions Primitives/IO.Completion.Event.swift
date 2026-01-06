@@ -28,7 +28,7 @@ extension IO.Completion {
     ///         // Handle completion
     ///     case .failure(let error):
     ///         // Handle error
-    ///     case .cancelled:
+    ///     case .cancellation:
     ///         // Handle cancellation
     ///     }
     /// }
@@ -74,7 +74,7 @@ extension IO.Completion {
         public static let empty = Event(
             id: .zero,
             kind: IO.Completion.Kind.nop,
-            outcome: IO.Completion.Outcome.cancelled
+            outcome: IO.Completion.Outcome.cancellation
         )
     }
 }
@@ -83,7 +83,7 @@ extension IO.Completion {
 
 extension IO.Completion.Event: CustomStringConvertible {
     public var description: String {
-        var parts = ["Event(id: \(id._rawValue), kind: \(kind), outcome: \(outcome)"]
+        var parts = ["Event(id: \(id.rawValue), kind: \(kind), outcome: \(outcome)"]
         if !flags.isEmpty {
             parts.append(", flags: \(flags)")
         }

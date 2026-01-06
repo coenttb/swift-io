@@ -51,14 +51,13 @@ extension IO.Error<TestLeafError>.Test.Unit {
         }
     }
 
-    @Test("lane case wraps IO.Blocking.Error")
-    func laneCase() {
-        // Lane now uses IO.Blocking.Error, not IO.Blocking.Failure
-        let error = IO.Error<TestLeafError>.lane(.queueFull)
-        if case .lane(let inner) = error {
+    @Test("blocking case wraps IO.Blocking.Error")
+    func blockingCase() {
+        let error = IO.Error<TestLeafError>.blocking(.lane(.queueFull))
+        if case .blocking(.lane(let inner)) = error {
             #expect(inner == .queueFull)
         } else {
-            Issue.record("Expected lane case")
+            Issue.record("Expected blocking case")
         }
     }
 
@@ -75,12 +74,12 @@ extension IO.Error<TestLeafError>.Test.Unit {
 
     @Test("mapLeaf preserves non-leaf cases")
     func mapLeafPreserves() {
-        let error = IO.Error<TestLeafError>.lane(.queueFull)
+        let error = IO.Error<TestLeafError>.blocking(.lane(.queueFull))
         let mapped = error.mapLeaf { _ in TestLeafError(message: "should not be called") }
-        if case .lane(let inner) = mapped {
+        if case .blocking(.lane(let inner)) = mapped {
             #expect(inner == .queueFull)
         } else {
-            Issue.record("Expected lane case preserved")
+            Issue.record("Expected blocking case preserved")
         }
     }
 }
@@ -93,7 +92,7 @@ extension IO.Error<TestLeafError>.Test.EdgeCase {
         let leaf: IO.Error<TestLeafError> = .leaf(TestLeafError(message: ""))
         let handle: IO.Error<TestLeafError> = .handle(.invalidID)
         let executor: IO.Error<TestLeafError> = .executor(.scopeMismatch)
-        let lane: IO.Error<TestLeafError> = .lane(.queueFull)
+        let blocking: IO.Error<TestLeafError> = .blocking(.lane(.queueFull))
 
         // Verify each case matches expected pattern
         if case .leaf = leaf {
@@ -114,10 +113,10 @@ extension IO.Error<TestLeafError>.Test.EdgeCase {
             Issue.record("executor should be .executor case")
         }
 
-        if case .lane = lane {
+        if case .blocking = blocking {
             #expect(Bool(true))
         } else {
-            Issue.record("lane should be .lane case")
+            Issue.record("blocking should be .blocking case")
         }
     }
 
@@ -129,7 +128,7 @@ extension IO.Error<TestLeafError>.Test.EdgeCase {
             .leaf(TestLeafError(message: "")),
             .handle(.invalidID),
             .executor(.scopeMismatch),
-            .lane(.queueFull),
+            .blocking(.lane(.queueFull)),
         ]
         // All 4 cases are operational - no lifecycle
         #expect(allCases.count == 4)

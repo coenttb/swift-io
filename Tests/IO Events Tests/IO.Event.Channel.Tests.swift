@@ -314,7 +314,7 @@ extension IO.Event.Channel.Test.HalfClose {
         do {
             _ = try await channel.write(testData)
             Issue.record("write should throw after shutdownWrite")
-        } catch let error as IO.Event.Failure {
+        } catch {
             switch error {
             case .failure(let leaf):
                 switch leaf {

@@ -23,6 +23,6 @@ extension Int {
     /// Creates an Int from a lane count.
     @inlinable
     public init(_ count: IO.Blocking.Lane.Count) {
-        self = count._rawValue
+        self = count.rawValue
     }
 }

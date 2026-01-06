@@ -6,7 +6,7 @@
 //
 
 @_exported public import IO_Events_Primitives
-public import Kernel
+import Kernel
 
 extension IO.Event {
     /// Protocol witness struct for platform-specific selector backends.

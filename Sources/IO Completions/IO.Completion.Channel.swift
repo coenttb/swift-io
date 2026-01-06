@@ -90,8 +90,8 @@ extension IO.Completion {
                 bytesRead = 0
             case .failure(let error):
                 throw .failure(.kernel(error))
-            case .cancelled:
-                throw .cancelled
+            case .cancellation:
+                throw .cancellation
             }
 
             return Read.Result(buffer: buffer, bytesRead: bytesRead)
@@ -133,8 +133,8 @@ extension IO.Completion {
                 bytesWritten = 0
             case .failure(let error):
                 throw .failure(.kernel(error))
-            case .cancelled:
-                throw .cancelled
+            case .cancellation:
+                throw .cancellation
             }
 
             return Write.Result(buffer: buffer, bytesWritten: bytesWritten)
@@ -162,8 +162,8 @@ extension IO.Completion {
                 throw .failure(.operation(.invalidSubmission))
             case .failure(let error):
                 throw .failure(.kernel(error))
-            case .cancelled:
-                throw .cancelled
+            case .cancellation:
+                throw .cancellation
             }
         }
 
@@ -188,8 +188,8 @@ extension IO.Completion {
                 throw .failure(.operation(.invalidSubmission))
             case .failure(let error):
                 throw .failure(.kernel(error))
-            case .cancelled:
-                throw .cancelled
+            case .cancellation:
+                throw .cancellation
             }
         }
 

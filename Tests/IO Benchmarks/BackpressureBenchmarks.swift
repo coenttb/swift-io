@@ -185,13 +185,13 @@ extension BackpressureBenchmarks.Test.Performance {
                     ) { 42 }
                     // Accepted - queue not full yet, yield and retry
                     try await Task.sleep(for: .microseconds(100))
-                } catch IO.Blocking.Failure.queueFull {
+                } catch IO.Lifecycle.Error<IO.Blocking.Lane.Error>.failure(.queueFull) {
                     saturated = true
                     break
-                } catch IO.Blocking.Failure.deadlineExceeded {
+                } catch IO.Lifecycle.Error<IO.Blocking.Lane.Error>.timeout {
                     // Timed out - keep probing
                     continue
-                } catch IO.Blocking.Failure.overloaded {
+                } catch IO.Lifecycle.Error<IO.Blocking.Lane.Error>.failure(.overloaded) {
                     // Acceptance waiter limit hit - keep probing
                     try await Task.sleep(for: .microseconds(100))
                     continue
@@ -211,9 +211,9 @@ extension BackpressureBenchmarks.Test.Performance {
                     ) { 42 }
                     // Accepted when we expected rejection - throw to unwind
                     throw BenchmarkSetupError.acceptedWhenExpectedRejection
-                } catch IO.Blocking.Failure.queueFull {
+                } catch IO.Lifecycle.Error<IO.Blocking.Lane.Error>.failure(.queueFull) {
                     rejections += 1
-                } catch IO.Blocking.Failure.deadlineExceeded {
+                } catch IO.Lifecycle.Error<IO.Blocking.Lane.Error>.timeout {
                     // Timeout instead of rejection - scenario invalid, throw to unwind
                     throw BenchmarkSetupError.timedOutWhenExpectedRejection
                 } catch is BenchmarkSetupError {
@@ -403,10 +403,10 @@ extension BackpressureBenchmarks.Test.Performance {
                     do {
                         let _: Int = try await lane!.runImmediate { 42 }
                         try await Task.sleep(for: .microseconds(100))
-                    } catch IO.Blocking.Failure.queueFull {
+                    } catch IO.Lifecycle.Error<IO.Blocking.Lane.Error>.failure(.queueFull) {
                         saturated = true
                         break
-                    } catch IO.Blocking.Failure.deadlineExceeded {
+                    } catch IO.Lifecycle.Error<IO.Blocking.Lane.Error>.timeout {
                         saturated = true  // Also indicates full
                         break
                     } catch {
@@ -455,9 +455,9 @@ extension BackpressureBenchmarks.Test.Performance {
             for _ in 0..<Self.measurementCount {
                 do {
                     let _: Int = try await lane.runImmediate { 42 }
-                } catch IO.Blocking.Failure.queueFull {
+                } catch IO.Lifecycle.Error<IO.Blocking.Lane.Error>.failure(.queueFull) {
                     rejections += 1
-                } catch IO.Blocking.Failure.deadlineExceeded {
+                } catch IO.Lifecycle.Error<IO.Blocking.Lane.Error>.timeout {
                     rejections += 1  // Also counts as rejection
                 } catch {
                     // Unexpected

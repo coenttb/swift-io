@@ -98,7 +98,7 @@
             // Build epoll_event
             let event = Kernel.Epoll.Event(
                 events: interestToKernelEvents(interest),
-                data: UInt64(id._rawValue)
+                data: UInt64(id.rawValue)
             )
 
             do {
@@ -139,7 +139,7 @@
             // Build new epoll_event with EPOLLONESHOT to preserve one-shot semantics
             let event = Kernel.Epoll.Event(
                 events: interestToKernelEventsOneShot(newInterest),
-                data: UInt64(id._rawValue)
+                data: UInt64(id.rawValue)
             )
 
             do {
@@ -227,7 +227,7 @@
             // Build epoll_event with EPOLLONESHOT for one-shot arming
             let event = Kernel.Epoll.Event(
                 events: interestToKernelEventsOneShot(interest),
-                data: UInt64(id._rawValue)
+                data: UInt64(id.rawValue)
             )
 
             // Use EPOLL_CTL_MOD to re-enable the descriptor
@@ -306,7 +306,7 @@
 
                 // Poll race rule: drop events for deregistered IDs
                 // Also skip wakeup events (ID 0 is reserved for wakeup)
-                guard id._rawValue != 0, registeredIDs.contains(id) else {
+                guard id.rawValue != 0, registeredIDs.contains(id) else {
                     continue
                 }
 

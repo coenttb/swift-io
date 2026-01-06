@@ -291,7 +291,7 @@ extension IO.Completion.Operation {
             kind: IO.Completion.Kind.cancel,
             descriptor: Kernel.Descriptor.invalid,
             buffer: Optional<Buffer.Aligned>.none,
-            offset: Int64(targetID._rawValue)  // Encode target ID in offset
+            offset: Int64(targetID.rawValue)  // Encode target ID in offset
         )
         return Self(storage: storage)
     }
@@ -302,6 +302,6 @@ extension IO.Completion.Operation {
 extension IO.Completion.Operation {
     /// A textual description of this operation.
     public var description: String {
-        "Operation(id: \(id._rawValue), kind: \(kind), descriptor: \(descriptor))"
+        "Operation(id: \(id.rawValue), kind: \(kind), descriptor: \(descriptor))"
     }
 }

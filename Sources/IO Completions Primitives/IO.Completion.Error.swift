@@ -43,7 +43,7 @@ extension IO.Completion {
         /// Operation-specific errors.
         public enum Operation: Swift.Error, Sendable, Equatable {
             /// The operation was cancelled.
-            case cancelled
+            case cancellation
 
             /// The operation timed out.
             case timeout
@@ -104,7 +104,7 @@ extension IO.Completion.Error: CustomStringConvertible {
 extension IO.Completion.Error.Operation: CustomStringConvertible {
     public var description: String {
         switch self {
-        case .cancelled: "cancelled"
+        case .cancellation: "cancelled"
         case .timeout: "timeout"
         case .invalidSubmission: "invalidSubmission"
         }

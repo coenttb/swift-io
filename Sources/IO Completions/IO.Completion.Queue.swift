@@ -5,7 +5,7 @@
 //  Created by Coen ten Thije Boonkkamp on 31/12/2025.
 //
 
-public import Buffer
+import Buffer
 public import Kernel
 
 extension IO.Completion {
@@ -311,7 +311,7 @@ extension IO.Completion {
                 event = IO.Completion.Event(
                     id: id,
                     kind: entry.storage.kind,
-                    outcome: IO.Completion.Outcome.cancelled
+                    outcome: IO.Completion.Outcome.cancellation
                 )
             } else if isShutdown {
                 // Shutdown only throws when no completion and no cancellation

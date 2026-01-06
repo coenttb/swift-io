@@ -54,7 +54,7 @@ extension IO.Event.Bridge.Test.Unit {
         let batch = await bridge.next()
         #expect(batch != nil)
         #expect(batch?.count == 1)
-        #expect(batch?.first?.id._rawValue == 42)
+        #expect(batch?.first?.id.rawValue == 42)
 
         bridge.shutdown()
     }
@@ -79,7 +79,7 @@ extension IO.Event.Bridge.Test.Unit {
 
         let batch = await batchTask
         #expect(batch != nil)
-        #expect(batch?.first?.id._rawValue == 99)
+        #expect(batch?.first?.id.rawValue == 99)
 
         bridge.shutdown()
     }
@@ -99,8 +99,8 @@ extension IO.Event.Bridge.Test.EdgeCase {
         let batch1 = await bridge.next()
         let batch2 = await bridge.next()
 
-        #expect(batch1?.first?.id._rawValue == 1)
-        #expect(batch2?.first?.id._rawValue == 2)
+        #expect(batch1?.first?.id.rawValue == 1)
+        #expect(batch2?.first?.id.rawValue == 2)
 
         bridge.shutdown()
     }
@@ -162,9 +162,9 @@ extension IO.Event.Registration.Reply.Bridge.Test.Unit {
 
         let received = await bridge.next()
         #expect(received != nil)
-        #expect(received?.id._rawValue == 42)
+        #expect(received?.id.rawValue == 42)
         if case .success(.registered(let id)) = received?.result {
-            #expect(id._rawValue == 100)
+            #expect(id.rawValue == 100)
         } else {
             Issue.record("Expected .registered payload")
         }
@@ -188,7 +188,7 @@ extension IO.Event.Registration.Reply.Bridge.Test.Unit {
 
         let received = await replyTask
         #expect(received != nil)
-        #expect(received?.id._rawValue == 77)
+        #expect(received?.id.rawValue == 77)
 
         bridge.shutdown()
     }
@@ -214,8 +214,8 @@ extension IO.Event.Registration.Reply.Bridge.Test.EdgeCase {
         let received1 = await bridge.next()
         let received2 = await bridge.next()
 
-        #expect(received1?.id._rawValue == 1)
-        #expect(received2?.id._rawValue == 2)
+        #expect(received1?.id.rawValue == 1)
+        #expect(received2?.id.rawValue == 2)
 
         bridge.shutdown()
     }

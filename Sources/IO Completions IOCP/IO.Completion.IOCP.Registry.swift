@@ -129,7 +129,7 @@
             ) {
                 precondition(
                     entries[id] == nil,
-                    "Duplicate operation ID \(id._rawValue) inserted into IOCP registry"
+                    "Duplicate operation ID \(id.rawValue) inserted into IOCP registry"
                 )
                 entries[id] = Entry(id: id, kind: kind, resource: resource, header: header)
             }

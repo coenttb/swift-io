@@ -111,7 +111,7 @@ extension IO.Event.Selector.Test.Shutdown {
                     break
                 case .failure(let leaf):
                     Issue.record("Iteration \(iteration): pending reply drained with leaf error .failure(\(leaf)), expected .shutdownInProgress")
-                case .cancelled:
+                case .cancellation:
                     Issue.record("Iteration \(iteration): got .cancelled, expected .shutdownInProgress")
                 case .timeout:
                     Issue.record("Iteration \(iteration): got .timeout, expected .shutdownInProgress")
@@ -197,7 +197,7 @@ extension IO.Event.Selector.Test.Invariants {
             case .shutdownInProgress:
                 // Correct - this is a lifecycle error at the top level
                 break
-            case .cancelled:
+            case .cancellation:
                 Issue.record("Expected shutdownInProgress, got cancelled")
             case .timeout:
                 Issue.record("Expected shutdownInProgress, got timeout")

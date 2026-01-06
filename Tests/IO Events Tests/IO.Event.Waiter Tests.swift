@@ -34,7 +34,7 @@ extension IO.Event.Waiter.Test.Unit {
             #expect(waiter.isArmed)
             // Drain to avoid leak
             if let result = waiter.take.forResume() {
-                result.continuation.resume(returning: .failure(.cancelled))
+                result.continuation.resume(returning: .failure(.cancellation))
             }
         }
     }
@@ -48,7 +48,7 @@ extension IO.Event.Waiter.Test.Unit {
             #expect(waiter.wasCancelled == true)
             // Drain to avoid leak
             if let result = waiter.take.forResume() {
-                result.continuation.resume(returning: .failure(.cancelled))
+                result.continuation.resume(returning: .failure(.cancellation))
             }
         }
     }
@@ -60,7 +60,7 @@ extension IO.Event.Waiter.Test.Unit {
             waiter.arm(continuation: continuation)
             if let result = waiter.take.forResume() {
                 #expect(!result.wasCancelled)
-                result.continuation.resume(returning: .failure(.cancelled))
+                result.continuation.resume(returning: .failure(.cancellation))
             } else {
                 Issue.record("takeForResume should return continuation")
             }
@@ -75,7 +75,7 @@ extension IO.Event.Waiter.Test.Unit {
             waiter.cancel()
             if let result = waiter.take.forResume() {
                 #expect(result.wasCancelled == true)
-                result.continuation.resume(returning: .failure(.cancelled))
+                result.continuation.resume(returning: .failure(.cancellation))
             } else {
                 Issue.record("takeForResume should return continuation even if cancelled")
             }
@@ -100,7 +100,7 @@ extension IO.Event.Waiter.Test.EdgeCase {
             // Drain - should indicate cancelled
             if let result = waiter.take.forResume() {
                 #expect(result.wasCancelled == true)
-                result.continuation.resume(returning: .failure(.cancelled))
+                result.continuation.resume(returning: .failure(.cancellation))
             } else {
                 Issue.record("takeForResume should return continuation")
             }
@@ -117,7 +117,7 @@ extension IO.Event.Waiter.Test.EdgeCase {
             #expect(waiter.wasCancelled == true)
             // Drain
             if let result = waiter.take.forResume() {
-                result.continuation.resume(returning: .failure(.cancelled))
+                result.continuation.resume(returning: .failure(.cancellation))
             }
         }
     }
@@ -134,7 +134,7 @@ extension IO.Event.Waiter.Test.EdgeCase {
 
             // Drain immediately to resume
             if let result = waiter.take.forResume() {
-                result.continuation.resume(returning: .failure(.cancelled))
+                result.continuation.resume(returning: .failure(.cancellation))
             }
         }
 
@@ -150,7 +150,7 @@ extension IO.Event.Waiter.Test.EdgeCase {
             #expect(waiter.isDrained)
 
             // Resume second continuation manually (it was never bound)
-            second.resume(returning: .failure(.cancelled))
+            second.resume(returning: .failure(.cancellation))
         }
     }
 
@@ -164,7 +164,7 @@ extension IO.Event.Waiter.Test.EdgeCase {
             let second = waiter.take.forResume()
             #expect(second == nil)
             #expect(waiter.isDrained == true)
-            first?.continuation.resume(returning: .failure(.cancelled))
+            first?.continuation.resume(returning: .failure(.cancellation))
         }
     }
 
@@ -181,7 +181,7 @@ extension IO.Event.Waiter.Test.EdgeCase {
             let waiter = IO.Event.Waiter(id: IO.Event.ID(1))
             waiter.arm(continuation: continuation)
             if let result = waiter.take.forResume() {
-                result.continuation.resume(returning: .failure(.cancelled))
+                result.continuation.resume(returning: .failure(.cancellation))
             }
             #expect(waiter.cancel() == false)  // Already drained
         }
@@ -214,7 +214,7 @@ extension IO.Event.Waiter.Test.Invariants {
             // Now drain properly
             if let result = waiter.take.forResume() {
                 resumed = true
-                result.continuation.resume(returning: .failure(.cancelled))
+                result.continuation.resume(returning: .failure(.cancellation))
             }
         }
 
@@ -237,7 +237,7 @@ extension IO.Event.Waiter.Test.Invariants {
             // Drain should show cancelled
             if let result = waiter.take.forResume() {
                 wasCancelledOnDrain = result.wasCancelled
-                result.continuation.resume(returning: .failure(.cancelled))
+                result.continuation.resume(returning: .failure(.cancellation))
             }
         }
 
@@ -254,7 +254,7 @@ extension IO.Event.Waiter.Test.Invariants {
 
             // Simulate actor drain with typed failure
             if let (cont, _) = waiter.take.forResume() {
-                cont.resume(returning: .failure(.cancelled))
+                cont.resume(returning: .failure(.cancellation))
             }
         }
 
@@ -262,7 +262,7 @@ extension IO.Event.Waiter.Test.Invariants {
         switch result {
         case .success:
             Issue.record("Expected failure")
-        case .failure(.cancelled):
+        case .failure(.cancellation):
             // Expected - typed pattern match works
             break
         case .failure:

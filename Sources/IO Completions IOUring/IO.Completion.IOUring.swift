@@ -315,7 +315,7 @@
                         outcome = .success(.completed)
                     }
                 } else if cqe.isCancelled {
-                    outcome = .cancelled
+                    outcome = .cancellation
                 } else {
                     outcome = .failure(.platform(code: -res, message: "io_uring operation failed"))
                 }

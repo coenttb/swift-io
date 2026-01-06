@@ -9,7 +9,7 @@ import Synchronization
 
 extension IO.Blocking.Threads.Completion {
     /// Typed result for completion - no existential errors.
-    typealias Result = Swift.Result<Kernel.Handoff.Box.Pointer, IO.Blocking.Failure>
+    typealias Result = Swift.Result<Kernel.Handoff.Box.Pointer, IO.Lifecycle.Error<IO.Blocking.Lane.Error>>
 
     /// Context for exactly-once completion resumption.
     ///
@@ -82,7 +82,7 @@ extension IO.Blocking.Threads.Completion {
                 ordering: .acquiringAndReleasing
             )
             if exchanged {
-                continuation.resume(returning: .failure(.cancellationRequested))
+                continuation.resume(returning: .failure(.cancellation))
                 return true
             }
             return false
@@ -91,11 +91,11 @@ extension IO.Blocking.Threads.Completion {
         /// Attempt to fail with an error. Returns true if this call resumed.
         ///
         /// Called when the operation cannot proceed:
-        /// - `.shutdown`: Lane is shutting down
-        /// - `.queueFull`: Queue is full and strategy is `.failFast`
-        /// - `.overloaded`: Acceptance waiter queue is full
-        /// - `.deadlineExceeded`: Acceptance deadline expired
-        func fail(_ error: IO.Blocking.Failure) -> Bool {
+        /// - `.shutdownInProgress`: Lane is shutting down
+        /// - `.failure(.queueFull)`: Queue is full and strategy is `.failFast`
+        /// - `.failure(.overloaded)`: Acceptance waiter queue is full
+        /// - `.failure(.deadlineExceeded)`: Acceptance deadline expired
+        func fail(_ error: IO.Lifecycle.Error<IO.Blocking.Lane.Error>) -> Bool {
             let (exchanged, _) = state.compareExchange(
                 expected: Self.pending,
                 desired: Self.failed,

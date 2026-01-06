@@ -5,7 +5,7 @@
 //  Created by Coen ten Thije Boonkkamp on 24/12/2025.
 //
 
-public import Dimension
+import Dimension
 
 extension IO.Blocking.Threads {
     /// Mutable runtime state for the Threads lane.

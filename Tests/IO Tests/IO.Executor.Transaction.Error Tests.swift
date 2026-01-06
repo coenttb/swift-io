@@ -23,9 +23,9 @@ extension IO.Executor.Transaction.Error<TestTransactionError>.Test.Unit {
     @Test("lane case wraps IO.Blocking.Error")
     func laneCase() {
         // Lane now uses IO.Blocking.Error (not Failure) - no lifecycle cases
-        let error = IO.Executor.Transaction.Error<TestTransactionError>.lane(.queueFull)
+        let error = IO.Executor.Transaction.Error<TestTransactionError>.lane(.lane(.queueFull))
         if case .lane(let inner) = error {
-            #expect(inner == .queueFull)
+            #expect(inner == .lane(.queueFull))
         } else {
             Issue.record("Expected lane case")
         }
@@ -53,7 +53,7 @@ extension IO.Executor.Transaction.Error<TestTransactionError>.Test.Unit {
 
     @Test("Sendable conformance")
     func sendableConformance() async {
-        let error = IO.Executor.Transaction.Error<TestTransactionError>.lane(.queueFull)
+        let error = IO.Executor.Transaction.Error<TestTransactionError>.lane(.lane(.queueFull))
         await Task {
             if case .lane = error {
                 #expect(Bool(true))
@@ -70,7 +70,7 @@ extension IO.Executor.Transaction.Error<TestTransactionError>.Test.EdgeCase {
     @Test("all cases are distinct")
     func allCasesDistinct() {
         // Uses IO.Blocking.Error, not Failure - no lifecycle cases
-        let lane: IO.Executor.Transaction.Error<TestTransactionError> = .lane(.queueFull)
+        let lane: IO.Executor.Transaction.Error<TestTransactionError> = .lane(.lane(.queueFull))
         let handle: IO.Executor.Transaction.Error<TestTransactionError> = .handle(.invalidID)
         let body: IO.Executor.Transaction.Error<TestTransactionError> = .body(TestTransactionError(code: 1))
 
@@ -97,13 +97,13 @@ extension IO.Executor.Transaction.Error<TestTransactionError>.Test.EdgeCase {
     @Test("no lifecycle cases in Transaction.Error")
     func noLifecycleCases() {
         // Transaction.Error uses IO.Blocking.Error which excludes lifecycle
-        // Lifecycle concerns (shutdown, cancellation) are in IO.Lifecycle.Error
-        let allLaneCases: [IO.Blocking.Error] = [
+        // Lifecycle concerns (shutdown, cancellation, timeout) are in IO.Lifecycle.Error
+        // IO.Blocking.Lane.Error has the operational errors
+        let allLaneCases: [IO.Blocking.Lane.Error] = [
             .queueFull,
-            .deadlineExceeded,
             .overloaded,
             .internalInvariantViolation,
         ]
-        #expect(allLaneCases.count == 4)
+        #expect(allLaneCases.count == 3)
     }
 }

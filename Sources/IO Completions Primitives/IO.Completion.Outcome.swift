@@ -33,7 +33,7 @@ extension IO.Completion {
         case failure(Kernel.Error)
 
         /// Operation was cancelled.
-        case cancelled
+        case cancellation
     }
 
     /// Success variants for different operation kinds.
@@ -75,7 +75,7 @@ extension IO.Completion.Outcome: CustomStringConvertible {
             "success(\(success))"
         case .failure(let error):
             "failure(\(error))"
-        case .cancelled:
+        case .cancellation:
             "cancelled"
         }
     }

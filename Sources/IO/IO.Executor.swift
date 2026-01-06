@@ -5,8 +5,6 @@
 //  Created by Coen ten Thije Boonkkamp on 24/12/2025.
 //
 
-import Synchronization
-
 extension IO {
     /// Namespace for executor types.
     ///
@@ -20,19 +18,25 @@ extension IO {
 }
 
 extension IO.Executor {
-    /// Thread-safe counter for generating unique scope IDs.
-    final class Counter: Sendable {
-        private let value: Atomic<UInt64>
-
-        init(_ initial: UInt64 = 0) {
-            self.value = Atomic(initial)
-        }
-
-        func next() -> UInt64 {
-            value.wrappingAdd(1, ordering: .relaxed).oldValue
-        }
-    }
-
-    /// Global counter for generating unique scope IDs across all Pool instances.
-    static let scopeCounter = Counter()
+    /// The shared executor pool for Pool actors.
+    ///
+    /// Lazily initialized on first access. Default configuration:
+    /// min(4, processorCount) executor threads.
+    ///
+    /// ## Usage
+    /// Pool actors automatically obtain an executor from this shared pool
+    /// via round-robin assignment at creation time.
+    ///
+    /// ## Lifecycle
+    /// - **Process-scoped singleton**: Lives for the entire process lifetime.
+    /// - **No shutdown required**: The pool cleans up automatically on process exit.
+    /// - **Thread-safe**: Access from any thread is safe via `@unchecked Sendable`.
+    ///
+    /// ## Global State (PATTERN REQUIREMENTS §6.6)
+    /// This is an intentional process-global singleton. Rationale:
+    /// - Executor threads are expensive resources (kernel threads)
+    /// - Sharing executors across Pool actors reduces resource waste
+    /// - Round-robin assignment provides load balancing
+    /// - Testable: Create a separate `Threads` instance for isolated tests
+    public static let shared: Kernel.Thread.Executors = Kernel.Thread.Executors()
 }
