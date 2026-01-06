@@ -54,7 +54,7 @@ extension IO.Blocking.Threads.Job {
         /// 3. If cancelled, destroy the box to prevent leaks
         func run() {
             let box = operation()
-            if !context.complete(with: Kernel.Handoff.Box.Pointer(box)) {
+            if !context.complete(Kernel.Handoff.Box.Pointer(box)) {
                 // Context was already cancelled - destroy the box
                 Kernel.Handoff.Box.destroy(box)
             }

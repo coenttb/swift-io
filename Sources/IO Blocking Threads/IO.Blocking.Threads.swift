@@ -179,7 +179,7 @@ extension IO.Blocking.Threads {
             // May fail if already completed/failed - that's fine
             contextHolder.withLock { context in
                 if let context = context {
-                    _ = context.cancel()
+                    _ = context.cancel(.cancellation)
                 }
             }
 
