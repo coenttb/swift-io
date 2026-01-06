@@ -39,6 +39,8 @@ extension IO.Blocking.Lane.Abandoning {
     }
 }
 
+// MARK: - Run Loop
+
 extension IO.Blocking.Lane.Abandoning.Worker {
     /// Main worker loop.
     func run() {
@@ -92,15 +94,13 @@ extension IO.Blocking.Lane.Abandoning.Worker {
             }
         }
     }
+}
 
-    enum ExecutionResult {
-        case completed
-        case abandoned  // Worker was timed out and abandoned
-        case cancelled
-    }
+// MARK: - Execution
 
+extension IO.Blocking.Lane.Abandoning.Worker {
     /// Execute job with watchdog timeout.
-    private func executeWithWatchdog(_ job: IO.Blocking.Lane.Abandoning.Job) -> ExecutionResult {
+    private func executeWithWatchdog(_ job: IO.Blocking.Lane.Abandoning.Job) -> Execution.Result {
         // Synchronization for watchdog
         let watchdogMutex = Kernel.Thread.Mutex()
         let watchdogCondition = Kernel.Thread.Condition()

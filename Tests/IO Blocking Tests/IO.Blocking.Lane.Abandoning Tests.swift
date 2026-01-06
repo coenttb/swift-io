@@ -38,7 +38,9 @@ extension IO.Blocking.Lane.Abandoning.Test.Unit {
 
     @Test("abandoning lane executes multiple operations")
     func abandoningLaneExecutesMultipleOperations() async throws {
-        let abandoning = IO.Blocking.Lane.abandoning(.init(workers: 2))
+        let abandoning = IO.Blocking.Lane.abandoning(.init(
+            workers: .init(initial: 2)
+        ))
 
         for i in 0..<10 {
             let result: Result<Int, Never> = try await abandoning.lane.run(deadline: nil) { i * 2 }
@@ -50,7 +52,9 @@ extension IO.Blocking.Lane.Abandoning.Test.Unit {
 
     @Test("metrics reflect completed operations")
     func metricsReflectCompletedOperations() async throws {
-        let abandoning = IO.Blocking.Lane.abandoning(.init(workers: 1))
+        let abandoning = IO.Blocking.Lane.abandoning(.init(
+            workers: .init(initial: 1)
+        ))
 
         // Execute a few operations
         for _ in 0..<5 {
@@ -58,8 +62,8 @@ extension IO.Blocking.Lane.Abandoning.Test.Unit {
         }
 
         let metrics = abandoning.metrics()
-        #expect(metrics.completedTotal == 5)
-        #expect(metrics.abandonedWorkers == 0)
+        #expect(metrics.total.completed == 5)
+        #expect(metrics.workers.abandoned == 0)
 
         await abandoning.lane.shutdown()
     }
@@ -79,9 +83,8 @@ extension IO.Blocking.Lane.Abandoning.Test.EdgeCase {
     func operationTimeoutAbandonsWorker() async throws {
         // Short timeout for testing
         let abandoning = IO.Blocking.Lane.abandoning(.init(
-            workers: 1,
-            maxWorkers: 2,
-            executionTimeout: .milliseconds(500)
+            workers: .init(initial: 1, max: 2),
+            execution: .init(timeout: .milliseconds(500))
         ))
 
         // Create a barrier that will never be signaled
@@ -101,8 +104,8 @@ extension IO.Blocking.Lane.Abandoning.Test.EdgeCase {
 
         // Verify worker was abandoned
         let metrics = abandoning.metrics()
-        #expect(metrics.abandonedWorkers == 1)
-        #expect(metrics.abandonedTotal == 1)
+        #expect(metrics.workers.abandoned == 1)
+        #expect(metrics.total.abandoned == 1)
 
         await abandoning.lane.shutdown()
     }
@@ -110,9 +113,8 @@ extension IO.Blocking.Lane.Abandoning.Test.EdgeCase {
     @Test("abandoned worker is replaced", .timeLimit(.minutes(1)))
     func abandonedWorkerIsReplaced() async throws {
         let abandoning = IO.Blocking.Lane.abandoning(.init(
-            workers: 1,
-            maxWorkers: 4,
-            executionTimeout: .milliseconds(300)
+            workers: .init(initial: 1, max: 4),
+            execution: .init(timeout: .milliseconds(300))
         ))
 
         // First operation will timeout
@@ -131,8 +133,8 @@ extension IO.Blocking.Lane.Abandoning.Test.EdgeCase {
         #expect(try result.get() == 42)
 
         let metrics = abandoning.metrics()
-        #expect(metrics.abandonedWorkers == 1)
-        #expect(metrics.spawnedWorkers >= 2)  // Original + replacement
+        #expect(metrics.workers.abandoned == 1)
+        #expect(metrics.workers.spawned >= 2)  // Original + replacement
 
         await abandoning.lane.shutdown()
     }
@@ -140,9 +142,8 @@ extension IO.Blocking.Lane.Abandoning.Test.EdgeCase {
     @Test("multiple timeouts spawn multiple replacements", .timeLimit(.minutes(1)))
     func multipleTimeoutsSpawnMultipleReplacements() async throws {
         let abandoning = IO.Blocking.Lane.abandoning(.init(
-            workers: 1,
-            maxWorkers: 10,
-            executionTimeout: .milliseconds(200)
+            workers: .init(initial: 1, max: 10),
+            execution: .init(timeout: .milliseconds(200))
         ))
 
         // Trigger 3 timeouts sequentially
@@ -163,8 +164,8 @@ extension IO.Blocking.Lane.Abandoning.Test.EdgeCase {
         #expect(try result.get() == 100)
 
         let metrics = abandoning.metrics()
-        #expect(metrics.abandonedWorkers == 3)
-        #expect(metrics.spawnedWorkers >= 4)  // 1 original + 3 replacements
+        #expect(metrics.workers.abandoned == 3)
+        #expect(metrics.workers.spawned >= 4)  // 1 original + 3 replacements
 
         await abandoning.lane.shutdown()
     }
@@ -200,7 +201,11 @@ extension IO.Blocking.Lane.Abandoning.Test.EdgeCase {
 extension IO.Blocking.Lane.Abandoning.Test.Performance {
     @Test("concurrent operations complete correctly", .timeLimit(.minutes(1)))
     func concurrentOperationsCompleteCorrectly() async throws {
-        let abandoning = IO.Blocking.Lane.abandoning(.init(workers: 4))
+        // Queue limit must exceed concurrent submissions to avoid queueFull rejections
+        let abandoning = IO.Blocking.Lane.abandoning(.init(
+            workers: .init(initial: 4),
+            queue: .init(limit: 128)
+        ))
 
         // Submit many concurrent operations
         await withTaskGroup(of: Int.self) { group in
@@ -225,7 +230,7 @@ extension IO.Blocking.Lane.Abandoning.Test.Performance {
         }
 
         let metrics = abandoning.metrics()
-        #expect(metrics.completedTotal == 100)
+        #expect(metrics.total.completed == 100)
 
         await abandoning.lane.shutdown()
     }
