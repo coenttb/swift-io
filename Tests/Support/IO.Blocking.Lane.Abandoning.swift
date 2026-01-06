@@ -1,8 +1,8 @@
 //
-//  IO.Blocking.Lane.Test.swift
+//  IO.Blocking.Lane.Abandoning.swift
 //  swift-io
 //
-//  Fault-tolerant test lane that can abandon hung operations.
+//  Fault-tolerant lane that can abandon hung operations.
 //
 
 public import IO_Blocking_Threads
@@ -16,42 +16,47 @@ import Glibc
 #endif
 
 extension IO.Blocking.Lane {
-    /// A fault-tolerant lane for testing that can abandon hung operations.
+    /// A fault-tolerant lane that can abandon hung operations.
     ///
     /// ## Purpose
-    /// Prevents a single hung synchronous operation from wedging the entire test suite.
+    /// Prevents a single hung synchronous operation from wedging the entire system.
     /// When an operation exceeds its timeout, the caller resumes with an error while
     /// the operation continues on an abandoned thread.
+    ///
+    /// This implements what Polly (.NET) calls "pessimistic timeout": the caller
+    /// "walks away" from an unresponsive operation without cancelling it.
     ///
     /// ## Semantics: Abandon, Not Cancel
     /// - Timeout resumes the caller but does NOT cancel the operation
     /// - The abandoned operation may continue running on a detached thread
-    /// - Side effects can outlive the test
-    /// - Only suitable for tests with "pure-ish" or idempotent operations
+    /// - Side effects can outlive the caller
+    /// - Only suitable for scenarios with "pure-ish" or idempotent operations
     ///
     /// ## Usage
     /// ```swift
-    /// let test = IO.Blocking.Lane.test(.init(executionTimeout: .seconds(5)))
+    /// let abandoning = IO.Blocking.Lane.abandoning(.init(executionTimeout: .seconds(5)))
     ///
-    /// let result = try await test.lane.run(deadline: nil) {
+    /// let result = try await abandoning.lane.run(deadline: nil) {
     ///     // This operation will be abandoned if it takes > 5 seconds
     ///     someBlockingOperation()
     /// }
     ///
     /// // Check metrics
-    /// let metrics = test.metrics()
+    /// let metrics = abandoning.metrics()
     /// print("Abandoned: \(metrics.abandonedWorkers)")
     ///
-    /// await test.lane.shutdown()
+    /// await abandoning.lane.shutdown()
     /// ```
-    public struct Test: Sendable {
+    ///
+    /// - SeeAlso: [Polly Pessimistic Timeout](https://github.com/App-vNext/Polly/wiki/Timeout)
+    public struct Abandoning: Sendable {
         /// The underlying lane.
         public let lane: IO.Blocking.Lane
 
         /// The runtime (internal, for metrics access).
         private let runtime: Runtime
 
-        /// Creates a test lane with the given options.
+        /// Creates an abandoning lane with the given options.
         internal init(options: Options) {
             let runtime = Runtime(options: options)
             self.runtime = runtime
@@ -79,22 +84,28 @@ extension IO.Blocking.Lane {
 // MARK: - Factory
 
 extension IO.Blocking.Lane {
-    /// Creates a fault-tolerant test lane.
+    /// Creates a fault-tolerant lane that abandons hung operations.
     ///
-    /// Use this lane in test scenarios where operations may hang indefinitely.
-    /// The lane will abandon hung operations after the configured timeout.
+    /// Use this lane when operations may hang indefinitely and you need the caller
+    /// to resume after a timeout. The lane will abandon hung operations after the
+    /// configured timeout, spawning replacement workers as needed.
+    ///
+    /// This implements "pessimistic timeout" semantics: the caller walks away from
+    /// the operation, but the operation itself is not cancelled.
     ///
     /// - Parameter options: Configuration options.
-    /// - Returns: A test wrapper containing the lane and metrics access.
-    public static func test(_ options: Test.Options = .init()) -> Test {
-        Test(options: options)
+    /// - Returns: An abandoning wrapper containing the lane and metrics access.
+    ///
+    /// - SeeAlso: [Polly Pessimistic Timeout](https://github.com/App-vNext/Polly/wiki/Timeout)
+    public static func abandoning(_ options: Abandoning.Options = .init()) -> Abandoning {
+        Abandoning(options: options)
     }
 }
 
 // MARK: - Metrics
 
-extension IO.Blocking.Lane.Test {
-    /// Metrics snapshot for the test lane.
+extension IO.Blocking.Lane.Abandoning {
+    /// Metrics snapshot for the abandoning lane.
     public struct Metrics: Sendable {
         /// Number of workers that have been abandoned due to timeout.
         public var abandonedWorkers: Int
@@ -118,7 +129,7 @@ extension IO.Blocking.Lane.Test {
 
 // MARK: - Runtime
 
-extension IO.Blocking.Lane.Test {
+extension IO.Blocking.Lane.Abandoning {
     /// Internal runtime managing workers and job dispatch.
     final class Runtime: @unchecked Sendable {
         let options: Options
@@ -240,13 +251,13 @@ extension IO.Blocking.Lane.Test {
 
 // MARK: - State
 
-extension IO.Blocking.Lane.Test.Runtime {
+extension IO.Blocking.Lane.Abandoning.Runtime {
     final class State: @unchecked Sendable {
         let mutex = Kernel.Thread.Mutex()
         let condition = Kernel.Thread.Condition()
         let shutdownCondition = Kernel.Thread.Condition()
 
-        var queue: [IO.Blocking.Lane.Test.Job] = []
+        var queue: [IO.Blocking.Lane.Abandoning.Job] = []
         var isShutdown = false
         var isStarted = false
 
@@ -257,9 +268,9 @@ extension IO.Blocking.Lane.Test.Runtime {
         var completedTotal: UInt64 = 0
         var abandonedTotal: UInt64 = 0
 
-        let options: IO.Blocking.Lane.Test.Options
+        let options: IO.Blocking.Lane.Abandoning.Options
 
-        init(options: IO.Blocking.Lane.Test.Options) {
+        init(options: IO.Blocking.Lane.Abandoning.Options) {
             self.options = options
         }
 
@@ -287,7 +298,7 @@ extension IO.Blocking.Lane.Test.Runtime {
             // Spawn worker thread
             do {
                 _ = try Kernel.Thread.spawn { [workerState, executionTimeout] in
-                    IO.Blocking.Lane.Test.Worker(
+                    IO.Blocking.Lane.Abandoning.Worker(
                         state: workerState,
                         executionTimeout: executionTimeout
                     ).run()
@@ -324,7 +335,7 @@ extension IO.Blocking.Lane.Test.Runtime {
 
 // MARK: - Job
 
-extension IO.Blocking.Lane.Test {
+extension IO.Blocking.Lane.Abandoning {
     /// A job with atomic state for single-resume guarantee.
     final class Job: @unchecked Sendable {
         /// Sendable success type for crossing concurrency boundaries.

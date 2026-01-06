@@ -1,19 +1,19 @@
 //
-//  IO.Blocking.Lane.Test.Options.swift
+//  IO.Blocking.Lane.Abandoning.Options.swift
 //  swift-io
 //
-//  Configuration options for the fault-tolerant test lane.
+//  Configuration options for the abandoning lane.
 //
 
 public import IO_Blocking_Threads
 public import Kernel
 
-extension IO.Blocking.Lane.Test {
-    /// Configuration options for the test lane.
+extension IO.Blocking.Lane.Abandoning {
+    /// Configuration options for the abandoning lane.
     ///
     /// ## Defaults
-    /// The defaults are tuned for typical unit test scenarios:
-    /// - 4 initial workers (parallel test operations)
+    /// The defaults are tuned for typical scenarios:
+    /// - 4 initial workers (parallel operations)
     /// - 32 max workers (cap on abandoned thread accumulation)
     /// - 30 second execution timeout (generous but finite)
     /// - 64 queue limit (backlog capacity)
@@ -57,11 +57,11 @@ extension IO.Blocking.Lane.Test {
 
         /// Backpressure strategy when queue is full.
         ///
-        /// - `.failFast`: Return `.queueFull` immediately (recommended for tests)
-        /// - `.wait`: Wait for capacity (may delay test feedback)
+        /// - `.failFast`: Return `.queueFull` immediately (recommended)
+        /// - `.wait`: Wait for capacity (may delay feedback)
         public var strategy: IO.Backpressure.Strategy
 
-        /// Creates test lane options with explicit values.
+        /// Creates abandoning lane options with explicit values.
         public init(
             workers: Kernel.Thread.Count = 4,
             maxWorkers: Kernel.Thread.Count = 32,

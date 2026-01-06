@@ -1,17 +1,17 @@
 //
-//  IO.Blocking.Lane.Test.Error.swift
+//  IO.Blocking.Lane.Abandoning.Error.swift
 //  swift-io
 //
-//  Test-specific errors for the fault-tolerant test lane.
+//  Errors specific to the abandoning lane.
 //
 
 public import IO_Blocking_Threads
 
-extension IO.Blocking.Lane.Test {
-    /// Errors specific to the test lane.
+extension IO.Blocking.Lane.Abandoning {
+    /// Errors specific to the abandoning lane.
     ///
     /// These errors are distinct from `IO.Blocking.Lane.Error` because they
-    /// represent test-specific failure modes that don't apply to production lanes.
+    /// represent failure modes specific to abandon-on-timeout semantics.
     public enum Error: Swift.Error, Sendable, Equatable {
         /// The operation exceeded the execution timeout.
         ///
@@ -26,13 +26,13 @@ extension IO.Blocking.Lane.Test {
         /// - The abandoned count has reached `maxWorkers`
         /// - No replacement workers can be spawned
         ///
-        /// This indicates the test suite has accumulated too many hung operations.
+        /// This indicates too many hung operations have accumulated.
         /// Consider increasing `maxWorkers` or investigating the hung operations.
         case maxWorkersReached
 
         /// A lane-level error (queueFull, overloaded, etc.).
         ///
-        /// Wraps the underlying `IO.Blocking.Lane.Error` for test-specific handling.
+        /// Wraps the underlying `IO.Blocking.Lane.Error` for specific handling.
         case lane(IO.Blocking.Lane.Error)
     }
 }

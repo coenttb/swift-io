@@ -1,5 +1,5 @@
 //
-//  IO.Blocking.Lane.Test.Worker.swift
+//  IO.Blocking.Lane.Abandoning.Worker.swift
 //  swift-io
 //
 //  Worker with per-job watchdog for timeout enforcement.
@@ -15,7 +15,7 @@ import Darwin
 import Glibc
 #endif
 
-extension IO.Blocking.Lane.Test {
+extension IO.Blocking.Lane.Abandoning {
     /// Worker that executes jobs with watchdog-based timeout.
     ///
     /// ## Design
@@ -41,7 +41,7 @@ extension IO.Blocking.Lane.Test {
     }
 }
 
-extension IO.Blocking.Lane.Test.Worker {
+extension IO.Blocking.Lane.Abandoning.Worker {
     /// Main worker loop.
     func run() {
         while true {
@@ -102,7 +102,7 @@ extension IO.Blocking.Lane.Test.Worker {
     }
 
     /// Execute job with watchdog timeout.
-    private func executeWithWatchdog(_ job: IO.Blocking.Lane.Test.Job) -> ExecutionResult {
+    private func executeWithWatchdog(_ job: IO.Blocking.Lane.Abandoning.Job) -> ExecutionResult {
         // Synchronization for watchdog
         let watchdogMutex = Kernel.Thread.Mutex()
         let watchdogCondition = Kernel.Thread.Condition()
