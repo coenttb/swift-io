@@ -37,7 +37,7 @@ extension IO.Completion.Driver {
         /// The set of operation kinds supported by this backend.
         ///
         /// Operations not in this set will fail with `.unsupportedKind`.
-        public let supportedKinds: IO.Completion.KindSet
+        public let supportedKinds: IO.Completion.Kind.Set
 
         /// Whether the backend supports batched submission.
         ///
@@ -69,7 +69,7 @@ extension IO.Completion.Driver {
         public init(
             maxSubmissions: Int,
             maxCompletions: Int,
-            supportedKinds: IO.Completion.KindSet,
+            supportedKinds: IO.Completion.Kind.Set,
             batchedSubmission: Bool,
             registeredBuffers: Bool,
             multishot: Bool
