@@ -8,7 +8,6 @@
 #if canImport(Darwin)
 
     public import Kernel
-    import SystemPackage
     import Synchronization
 
     // MARK: - Registration Mapping
@@ -37,7 +36,7 @@
                 self = .platform(code)
             case .interrupted:
                 // Map interrupted to EINTR platform error
-                self = .platform(.posix(Errno.interrupted.rawValue))
+                self = .platform(.posix(Kernel.Error.Number.interrupted.rawValue))
             }
         }
     }
@@ -252,7 +251,7 @@
                     try Kernel.Kqueue.register(Kernel.Descriptor(rawValue: kq), events: events)
                 } catch {
                     // Ignore ENOENT - the event may have been auto-removed if fd was closed
-                    if case .kevent(let code) = error, code.posix == Errno.noSuchFileOrDirectory.rawValue {
+                    if case .kevent(let code) = error, code.posix == Kernel.Error.Number.noEntry.rawValue {
                         // Ignore
                     } else {
                         throw IO.Event.Error(error)

@@ -656,8 +656,6 @@ extension IO.Event.Channel {
     }
 }
 
-public import SystemPackage
-
 // MARK: - Kernel Error Conversions
 
 extension IO.Event.Error {
@@ -667,17 +665,17 @@ extension IO.Event.Error {
         case .handle(.invalid):
             self = .invalidDescriptor
         case .handle(.limit):
-            self = .platform(.posix(Errno.tooManyOpenFiles.rawValue))
+            self = .platform(.posix(Kernel.Error.Number.processLimit.rawValue))
         case .signal(.interrupted):
-            self = .platform(.posix(Errno.interrupted.rawValue))
+            self = .platform(.posix(Kernel.Error.Number.interrupted.rawValue))
         case .signal:
-            self = .platform(.posix(Errno.interrupted.rawValue))
+            self = .platform(.posix(Kernel.Error.Number.interrupted.rawValue))
         case .blocking(.wouldBlock):
-            self = .platform(.posix(Errno.wouldBlock.rawValue))
+            self = .platform(.posix(Kernel.Error.Number.wouldBlock.rawValue))
         case .io:
-            self = .platform(.posix(Errno.ioError.rawValue))
+            self = .platform(.posix(Kernel.Error.Number.ioError.rawValue))
         case .memory:
-            self = .platform(.posix(Errno.noMemory.rawValue))
+            self = .platform(.posix(Kernel.Error.Number.noMemory.rawValue))
         case .platform(.unmapped(let code, _)):
             self = .platform(code)
         }
@@ -689,19 +687,19 @@ extension IO.Event.Error {
         case .handle(.invalid):
             self = .invalidDescriptor
         case .handle(.limit):
-            self = .platform(.posix(Errno.tooManyOpenFiles.rawValue))
+            self = .platform(.posix(Kernel.Error.Number.processLimit.rawValue))
         case .signal(.interrupted):
-            self = .platform(.posix(Errno.interrupted.rawValue))
+            self = .platform(.posix(Kernel.Error.Number.interrupted.rawValue))
         case .signal:
-            self = .platform(.posix(Errno.interrupted.rawValue))
+            self = .platform(.posix(Kernel.Error.Number.interrupted.rawValue))
         case .blocking(.wouldBlock):
-            self = .platform(.posix(Errno.wouldBlock.rawValue))
+            self = .platform(.posix(Kernel.Error.Number.wouldBlock.rawValue))
         case .io:
-            self = .platform(.posix(Errno.ioError.rawValue))
+            self = .platform(.posix(Kernel.Error.Number.ioError.rawValue))
         case .space:
-            self = .platform(.posix(Errno.noSpace.rawValue))
+            self = .platform(.posix(Kernel.Error.Number.noSpace.rawValue))
         case .memory:
-            self = .platform(.posix(Errno.noMemory.rawValue))
+            self = .platform(.posix(Kernel.Error.Number.noMemory.rawValue))
         case .platform(.unmapped(let code, _)):
             self = .platform(code)
         }
@@ -713,9 +711,9 @@ extension IO.Event.Error {
         case .handle(.invalid):
             self = .invalidDescriptor
         case .handle(.limit):
-            self = .platform(.posix(Errno.tooManyOpenFiles.rawValue))
+            self = .platform(.posix(Kernel.Error.Number.processLimit.rawValue))
         case .io:
-            self = .platform(.posix(Errno.ioError.rawValue))
+            self = .platform(.posix(Kernel.Error.Number.ioError.rawValue))
         case .platform(.unmapped(let code, _)):
             self = .platform(code)
         }
@@ -727,13 +725,13 @@ extension IO.Event.Error {
         case .handle(.invalid):
             self = .invalidDescriptor
         case .handle(.limit):
-            self = .platform(.posix(Errno.tooManyOpenFiles.rawValue))
+            self = .platform(.posix(Kernel.Error.Number.processLimit.rawValue))
         case .signal(.interrupted):
-            self = .platform(.posix(Errno.interrupted.rawValue))
+            self = .platform(.posix(Kernel.Error.Number.interrupted.rawValue))
         case .signal:
-            self = .platform(.posix(Errno.interrupted.rawValue))
+            self = .platform(.posix(Kernel.Error.Number.interrupted.rawValue))
         case .io:
-            self = .platform(.posix(Errno.ioError.rawValue))
+            self = .platform(.posix(Kernel.Error.Number.ioError.rawValue))
         case .platform(.unmapped(let code, _)):
             self = .platform(code)
         }
