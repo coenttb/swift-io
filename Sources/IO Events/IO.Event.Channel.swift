@@ -670,6 +670,8 @@ extension IO.Event.Error {
             self = .platform(.posix(Errno.tooManyOpenFiles.rawValue))
         case .signal(.interrupted):
             self = .platform(.posix(Errno.interrupted.rawValue))
+        case .signal:
+            self = .platform(.posix(Errno.interrupted.rawValue))
         case .blocking(.wouldBlock):
             self = .platform(.posix(Errno.wouldBlock.rawValue))
         case .io:
@@ -689,6 +691,8 @@ extension IO.Event.Error {
         case .handle(.limit):
             self = .platform(.posix(Errno.tooManyOpenFiles.rawValue))
         case .signal(.interrupted):
+            self = .platform(.posix(Errno.interrupted.rawValue))
+        case .signal:
             self = .platform(.posix(Errno.interrupted.rawValue))
         case .blocking(.wouldBlock):
             self = .platform(.posix(Errno.wouldBlock.rawValue))
@@ -725,6 +729,8 @@ extension IO.Event.Error {
         case .handle(.limit):
             self = .platform(.posix(Errno.tooManyOpenFiles.rawValue))
         case .signal(.interrupted):
+            self = .platform(.posix(Errno.interrupted.rawValue))
+        case .signal:
             self = .platform(.posix(Errno.interrupted.rawValue))
         case .io:
             self = .platform(.posix(Errno.ioError.rawValue))
