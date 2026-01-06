@@ -11,24 +11,18 @@ extension IO.Event.Channel {
     /// This actor manages only the lifecycle state transitions.
     /// I/O operations and token management are handled by Channel directly.
     actor Lifecycle {
-        private var state: HalfClose.State = .open
+        private var state: HalfClose.State = []
 
         var isReadClosed: Bool {
-            switch state {
-            case .readClosed, .closed: return true
-            case .open, .writeClosed: return false
-            }
+            state.contains(.read)
         }
 
         var isWriteClosed: Bool {
-            switch state {
-            case .writeClosed, .closed: return true
-            case .open, .readClosed: return false
-            }
+            state.contains(.write)
         }
 
         var isClosed: Bool {
-            state == .closed
+            state.contains([.read, .write])
         }
 
         /// Accessor for close operations.
@@ -36,36 +30,20 @@ extension IO.Event.Channel {
 
         /// Internal: Transition to read-closed state.
         func closeRead() {
-            switch state {
-            case .open:
-                state = .readClosed
-            case .writeClosed:
-                state = .closed
-            case .readClosed, .closed:
-                break  // Already done
-            }
+            state.insert(.read)
         }
 
         /// Internal: Transition to write-closed state.
         func closeWrite() {
-            switch state {
-            case .open:
-                state = .writeClosed
-            case .readClosed:
-                state = .closed
-            case .writeClosed, .closed:
-                break  // Already done
-            }
+            state.insert(.write)
         }
 
         /// Internal: Transition to fully closed state.
         /// - Returns: `true` if already closed (no-op), `false` if transition occurred.
         func closeAll() -> Bool {
-            if state == .closed {
-                return true
-            }
-            state = .closed
-            return false
+            let wasClosed = isClosed
+            state = [.read, .write]
+            return wasClosed
         }
     }
 }

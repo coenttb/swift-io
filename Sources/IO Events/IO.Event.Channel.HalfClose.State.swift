@@ -8,15 +8,15 @@
 extension IO.Event.Channel.HalfClose {
     /// Half-close state of a channel.
     ///
-    /// Tracks which directions of the channel are open for I/O.
-    enum State: Sendable {
-        /// Both directions open.
-        case open
-        /// Read direction closed (EOF received or shutdownRead called).
-        case readClosed
-        /// Write direction closed (shutdownWrite called).
-        case writeClosed
-        /// Both directions closed.
-        case closed
+    /// Tracks which directions of the channel have been closed.
+    /// Uses OptionSet since read and write are independent flags.
+    struct State: OptionSet, Sendable {
+        let rawValue: UInt8
+
+        /// Read direction is closed (EOF received or shutdown.read() called).
+        static let read = State(rawValue: 1 << 0)
+
+        /// Write direction is closed (shutdown.write() called).
+        static let write = State(rawValue: 1 << 1)
     }
 }
