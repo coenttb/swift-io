@@ -5,12 +5,6 @@
 //  Platform-specific driver selection.
 //
 
-#if canImport(Darwin)
-    import IO_Events_Kqueue
-#elseif canImport(Glibc)
-    import IO_Events_Epoll
-#endif
-
 extension IO.Event.Driver {
     /// The platform-appropriate driver for the current operating system.
     ///

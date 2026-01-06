@@ -3,7 +3,7 @@
 //  swift-io
 //
 
-import IO_Events_Kqueue
+import IO_Events
 import Kernel
 import Testing
 

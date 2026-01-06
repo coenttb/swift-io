@@ -8,7 +8,7 @@
 #if os(Windows)
 
     public import Kernel
-    public import IO_Completions_Driver
+    
 
     extension IO.Completion.IOCP {
         /// Distinguishes file handles from sockets for proper result querying.

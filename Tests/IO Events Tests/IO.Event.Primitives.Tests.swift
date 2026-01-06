@@ -5,7 +5,7 @@
 //  Created by Coen ten Thije Boonkkamp on 28/12/2025.
 //
 
-import IO_Events_Primitives
+import IO_Events
 import Kernel
 import Testing
 

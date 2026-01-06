@@ -27,30 +27,30 @@
     // MARK: - Error Conversion
 
     extension IO.Event.Error {
-        /// Creates an IO.Event.Error from a Kernel.Epoll.Error.
+        /// Creates an IO.Event.Error from a Kernel.Event.Poll.Error.
         @inlinable
-        init(_ epollError: Kernel.Epoll.Error) {
+        init(_ epollError: Kernel.Event.Poll.Error) {
             switch epollError {
-            case .createFailed(let errno):
+            case .create(let errno):
                 self = .platform(errno: errno)
-            case .ctlFailed(let errno):
+            case .ctl(let errno):
                 self = .platform(errno: errno)
-            case .waitFailed(let errno):
+            case .wait(let errno):
                 self = .platform(errno: errno)
             case .interrupted:
                 self = .platform(errno: Kernel.Errno.interrupted)
             }
         }
 
-        /// Creates an IO.Event.Error from a Kernel.Eventfd.Error.
+        /// Creates an IO.Event.Error from a Kernel.Event.Descriptor.Error.
         @inlinable
-        init(_ eventfdError: Kernel.Eventfd.Error) {
+        init(_ eventfdError: Kernel.Event.Descriptor.Error) {
             switch eventfdError {
-            case .createFailed(let errno):
+            case .create(let errno):
                 self = .platform(errno: errno)
-            case .readFailed(let errno):
+            case .read(let errno):
                 self = .platform(errno: errno)
-            case .writeFailed(let errno):
+            case .write(let errno):
                 self = .platform(errno: errno)
             case .wouldBlock:
                 self = .platform(errno: Kernel.Errno.wouldBlock)
@@ -73,7 +73,7 @@
         static func create() throws(IO.Event.Error) -> IO.Event.Driver.Handle {
             let descriptor: Kernel.Descriptor
             do {
-                descriptor = try Kernel.Epoll.create()
+                descriptor = try Kernel.Event.Poll.create()
             } catch {
                 throw IO.Event.Error(error)
             }
@@ -96,13 +96,13 @@
             let id = IO.Event.ID(UInt(truncatingIfNeeded: nextID.wrappingAdd(1, ordering: .relaxed).newValue))
 
             // Build epoll_event
-            let event = Kernel.Epoll.Event(
+            let event = Kernel.Event.Poll.Event(
                 events: interestToKernelEvents(interest),
                 data: UInt64(id.rawValue)
             )
 
             do {
-                try Kernel.Epoll.ctl(
+                try Kernel.Event.Poll.ctl(
                     Kernel.Descriptor(rawValue: epfd),
                     op: .add,
                     fd: Kernel.Descriptor(rawValue: descriptor),
@@ -137,13 +137,13 @@
             let descriptor = entry.descriptor
 
             // Build new epoll_event with EPOLLONESHOT to preserve one-shot semantics
-            let event = Kernel.Epoll.Event(
+            let event = Kernel.Event.Poll.Event(
                 events: interestToKernelEventsOneShot(newInterest),
                 data: UInt64(id.rawValue)
             )
 
             do {
-                try Kernel.Epoll.ctl(
+                try Kernel.Event.Poll.ctl(
                     Kernel.Descriptor(rawValue: epfd),
                     op: .modify,
                     fd: Kernel.Descriptor(rawValue: descriptor),
@@ -183,14 +183,14 @@
 
             // Remove from epoll
             do {
-                try Kernel.Epoll.ctl(
+                try Kernel.Event.Poll.ctl(
                     Kernel.Descriptor(rawValue: epfd),
                     op: .delete,
                     fd: Kernel.Descriptor(rawValue: descriptor)
                 )
-            } catch let error as Kernel.Epoll.Error {
+            } catch let error as Kernel.Event.Poll.Error {
                 // Ignore ENOENT - the fd may have been closed already
-                if case .ctlFailed(let errno) = error, errno == Kernel.Errno.noEntry {
+                if case .ctl(let errno) = error, errno == Kernel.Errno.noEntry {
                     // Ignore
                 } else {
                     throw IO.Event.Error(error)
@@ -225,14 +225,14 @@
             let descriptor = entry.descriptor
 
             // Build epoll_event with EPOLLONESHOT for one-shot arming
-            let event = Kernel.Epoll.Event(
+            let event = Kernel.Event.Poll.Event(
                 events: interestToKernelEventsOneShot(interest),
                 data: UInt64(id.rawValue)
             )
 
             // Use EPOLL_CTL_MOD to re-enable the descriptor
             do {
-                try Kernel.Epoll.ctl(
+                try Kernel.Event.Poll.ctl(
                     Kernel.Descriptor(rawValue: epfd),
                     op: .modify,
                     fd: Kernel.Descriptor(rawValue: descriptor),
@@ -267,20 +267,20 @@
                 timeoutMs = -1  // Block indefinitely
             }
 
-            // Create buffer for Kernel.Epoll.Event
-            var rawEvents = [Kernel.Epoll.Event](
-                repeating: Kernel.Epoll.Event(events: Kernel.Epoll.Events(rawValue: 0), data: 0),
+            // Create buffer for Kernel.Event.Poll.Event
+            var rawEvents = [Kernel.Event.Poll.Event](
+                repeating: Kernel.Event.Poll.Event(events: Kernel.Event.Poll.Events(rawValue: 0), data: 0),
                 count: buffer.count
             )
 
             let count: Int
             do {
-                count = try Kernel.Epoll.wait(
+                count = try Kernel.Event.Poll.wait(
                     Kernel.Descriptor(rawValue: epfd),
                     events: &rawEvents,
                     timeout: timeoutMs
                 )
-            } catch let error as Kernel.Epoll.Error {
+            } catch let error as Kernel.Event.Poll.Error {
                 // Handle EINTR specially - return 0 events instead of throwing
                 if case .interrupted = error {
                     return 0
@@ -341,8 +341,8 @@
             // Create eventfd for wakeup signaling
             let eventDescriptor: Kernel.Descriptor
             do {
-                eventDescriptor = try Kernel.Eventfd.create(
-                    initval: 0,
+                eventDescriptor = try Kernel.Event.Descriptor.create(
+                    initval: .zero,
                     flags: .cloexec | .nonblock
                 )
             } catch {
@@ -352,13 +352,13 @@
             let efd = eventDescriptor.rawValue
 
             // Register eventfd with epoll using ID 0 (reserved for wakeup)
-            let event = Kernel.Epoll.Event(
+            let event = Kernel.Event.Poll.Event(
                 events: .in | .et,
                 data: 0  // ID 0 = wakeup sentinel
             )
 
             do {
-                try Kernel.Epoll.ctl(
+                try Kernel.Event.Poll.ctl(
                     Kernel.Descriptor(rawValue: epfd),
                     op: .add,
                     fd: eventDescriptor,
@@ -371,15 +371,15 @@
 
             return IO.Event.Wakeup.Channel { [efd] in
                 // Signal eventfd to trigger wakeup (fire-and-forget)
-                Kernel.Eventfd.signal(Kernel.Descriptor(rawValue: efd))
+                Kernel.Event.Descriptor.signal(Kernel.Descriptor(rawValue: efd))
             }
         }
 
         // MARK: - Helpers
 
-        /// Converts Interest to Kernel.Epoll.Events (edge-triggered).
-        private static func interestToKernelEvents(_ interest: IO.Event.Interest) -> Kernel.Epoll.Events {
-            var events: Kernel.Epoll.Events = .et  // Always edge-triggered
+        /// Converts Interest to Kernel.Event.Poll.Events (edge-triggered).
+        private static func interestToKernelEvents(_ interest: IO.Event.Interest) -> Kernel.Event.Poll.Events {
+            var events: Kernel.Event.Poll.Events = .et  // Always edge-triggered
 
             if interest.contains(.read) {
                 events = events | .in
@@ -394,9 +394,9 @@
             return events
         }
 
-        /// Converts Interest to Kernel.Epoll.Events with EPOLLONESHOT for one-shot arming.
-        private static func interestToKernelEventsOneShot(_ interest: IO.Event.Interest) -> Kernel.Epoll.Events {
-            var events: Kernel.Epoll.Events = .et | .oneshot
+        /// Converts Interest to Kernel.Event.Poll.Events with EPOLLONESHOT for one-shot arming.
+        private static func interestToKernelEventsOneShot(_ interest: IO.Event.Interest) -> Kernel.Event.Poll.Events {
+            var events: Kernel.Event.Poll.Events = .et | .oneshot
 
             if interest.contains(.read) {
                 events = events | .in
@@ -411,9 +411,9 @@
             return events
         }
 
-        /// Converts Kernel.Epoll.Events to Interest and Flags.
+        /// Converts Kernel.Event.Poll.Events to Interest and Flags.
         private static func kernelEventsToInterestAndFlags(
-            _ events: Kernel.Epoll.Events
+            _ events: Kernel.Event.Poll.Events
         ) -> (IO.Event.Interest, IO.Event.Flags) {
             var interest: IO.Event.Interest = []
             var flags: IO.Event.Flags = []

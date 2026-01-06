@@ -8,7 +8,7 @@
 #if os(Windows)
 
     public import Kernel
-    @_exported public import IO_Completions_Driver
+    
 
     extension IO.Completion {
         /// Windows IOCP (I/O Completion Ports) backend.

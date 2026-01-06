@@ -90,13 +90,21 @@ extension IO.Blocking.Threads.Runtime {
         /// - Simplest invariant: edge-triggered broadcast
         ///
         /// ## Progress Guarantee
-        /// If the queue transitions from empty to non-empty while waiters exist,
-        /// the system cannot remain in a stable state where `Q ≠ ∅` and workers
-        /// are sleeping without further enqueues.
+        /// If the queue transitions from empty to non-empty, workers must be woken.
+        ///
+        /// Uses **unconditional** `broadcast()` to prevent lost-wakeup race:
+        /// - Worker threads may not yet be in `waitTracked()` when first job enqueues
+        /// - `broadcastIfWaiters()` skips signal if `waiterCount == 0`
+        /// - This creates a window: enqueue → broadcast skipped → workers sleep forever
+        ///
+        /// The broadcast syscall cost is acceptable because:
+        /// - Only called on empty→non-empty transitions (edge-triggered)
+        /// - Bounded by pool size (typically 4-32 workers)
+        /// - Correctness > micro-optimization for wake syscalls
         @inline(__always)
         func wakeSleepersIfNeeded(didBecomeNonEmpty: Bool) {
             guard didBecomeNonEmpty else { return }
-            lock.worker.broadcastIfWaiters()
+            lock.worker.broadcast()
         }
 
         /// Try to enqueue a job. Returns true if successful, false if queue is full or shutdown.

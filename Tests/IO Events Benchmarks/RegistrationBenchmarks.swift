@@ -12,7 +12,7 @@
 //  swift test -c release --filter RegistrationBenchmarks
 //
 
-import IO_Events_Kqueue
+import IO_Events
 import StandardsTestSupport
 import Testing
 

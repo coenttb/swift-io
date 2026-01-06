@@ -9,7 +9,7 @@
 
     public import Kernel
     public import Memory
-    @_exported public import IO_Completions_Driver
+    
 
     extension IO.Completion {
         /// Linux io_uring backend.

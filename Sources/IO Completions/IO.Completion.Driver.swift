@@ -1,28 +1,28 @@
 //
-//  IO.Event.Driver.swift
+//  IO.Completion.Driver.swift
 //  swift-io
 //
-//  Created by Coen ten Thije Boonkkamp on 28/12/2025.
+//  Created by Coen ten Thije Boonkkamp on 31/12/2025.
 //
 
-@_exported public import IO_Events_Primitives
-import Kernel
 
-extension IO.Event {
-    /// Protocol witness struct for platform-specific selector backends.
+public import Kernel
+
+extension IO.Completion {
+    /// Protocol witness struct for platform-specific completion backends.
     ///
     /// The Driver provides a uniform interface over platform-specific
-    /// event notification mechanisms:
-    /// - **Darwin**: kqueue
-    /// - **Linux**: epoll
+    /// completion mechanisms:
     /// - **Windows**: IOCP (I/O Completion Ports)
+    /// - **Linux**: io_uring
+    /// - **Darwin**: Not supported (use IO.Events with kqueue instead)
     ///
     /// ## Thread Safety Model
     ///
     /// All driver operations are invoked **only on the poll thread**.
-    /// The selector actor never touches the driver handle directly.
-    /// Communication between selector and poll thread uses thread-safe
-    /// primitives: `Event.Bridge`, `Wakeup.Channel`, `Registration.Queue`.
+    /// The queue actor never touches the driver handle directly.
+    /// Communication between queue and poll thread uses thread-safe
+    /// primitives: `Bridge`, `Wakeup.Channel`, `Submission.Queue`.
     ///
     /// ## Ownership
     ///
@@ -31,11 +31,12 @@ extension IO.Event {
     /// - `Wakeup.Channel` is created separately and is `Sendable`
     ///
     /// ## Usage
+    ///
     /// ```swift
-    /// let driver = IO.Event.Driver.platform
+    /// let driver = try IO.Completion.Driver.bestAvailable()
     /// let handle = try driver.create()
     /// let wakeupChannel = try driver.createWakeupChannel(handle)
-    /// // Transfer handle to poll thread, keep wakeupChannel for selector
+    /// // Transfer handle to poll thread, keep wakeupChannel for queue
     /// ```
     public struct Driver: Sendable {
         /// Capabilities of this driver backend.
@@ -43,69 +44,45 @@ extension IO.Event {
 
         // MARK: - Witness Closures
 
-        /// Create a new selector handle.
+        /// Create a new completion handle.
         let _create: @Sendable () throws(Error) -> Handle
 
-        /// Register a descriptor for the given interests.
+        /// Submit operation storage to the completion backend.
         ///
-        /// Called from poll thread only.
-        let _register:
+        /// Called from poll thread only. This is the primary submit witness.
+        /// Takes `Operation.Storage` directly, allowing the poll thread to
+        /// drain the `Submission.Queue` and submit storages without
+        /// reconstructing `Operation` wrappers.
+        let _submitStorage:
             @Sendable (
                 borrowing Handle,
-                Int32,  // Raw file descriptor
-                Interest
-            ) throws(Error) -> ID
-
-        /// Modify the interests for a registered descriptor.
-        ///
-        /// Called from poll thread only.
-        let _modify:
-            @Sendable (
-                borrowing Handle,
-                ID,
-                Interest
+                Operation.Storage
             ) throws(Error) -> Void
 
-        /// Remove a descriptor from the selector.
+        /// Flush pending submissions to the kernel.
         ///
-        /// Called from poll thread only.
-        let _deregister:
-            @Sendable (
-                borrowing Handle,
-                ID
-            ) throws(Error) -> Void
+        /// Called from poll thread only. Returns number of submissions flushed.
+        /// For IOCP: no-op (immediate submission).
+        /// For io_uring: io_uring_enter if SQ has pending entries.
+        let _flush: @Sendable (borrowing Handle) throws(Error) -> Int
 
-        /// Arm a registration for readiness notification.
-        ///
-        /// Enables the kernel filter for the specified interest. With one-shot
-        /// semantics (EV_DISPATCH on kqueue, EPOLLONESHOT on epoll), the filter
-        /// is automatically disabled after delivering an event.
-        ///
-        /// Called from poll thread only.
-        let _arm:
-            @Sendable (
-                borrowing Handle,
-                ID,
-                Interest
-            ) throws(Error) -> Void
-
-        /// Wait for events with optional timeout.
+        /// Wait for completion events.
         ///
         /// Called from poll thread only. This is the blocking call.
         ///
         /// - Parameters:
-        ///   - handle: The selector handle
-        ///   - deadline: Optional timeout deadline
-        ///   - buffer: Pre-allocated event buffer
-        /// - Returns: Number of events written to buffer
+        ///   - handle: The completion handle.
+        ///   - deadline: Optional absolute deadline, or `nil` for infinite wait.
+        ///   - buffer: Pre-allocated event buffer.
+        /// - Returns: Number of events written to buffer.
         let _poll:
             @Sendable (
                 borrowing Handle,
                 Deadline?,
-                inout [IO.Event]
+                inout [Event]
             ) throws(Error) -> Int
 
-        /// Close the selector handle.
+        /// Close the completion handle.
         ///
         /// Called from poll thread only. Consumes the handle.
         let _close: @Sendable (consuming Handle) -> Void
@@ -114,31 +91,35 @@ extension IO.Event {
         ///
         /// The returned channel is `Sendable` and can be used from any thread
         /// to wake the poll thread. Uses platform-specific primitives:
-        /// - kqueue: `EVFILT_USER`
-        /// - epoll: `eventfd`
         /// - IOCP: `PostQueuedCompletionStatus`
+        /// - io_uring: eventfd or IORING_OP_NOP
         let _createWakeupChannel: @Sendable (borrowing Handle) throws(Error) -> Wakeup.Channel
 
         // MARK: - Initialization
 
         /// Creates a driver with the given witness closures.
+        ///
+        /// - Parameters:
+        ///   - capabilities: Backend capabilities.
+        ///   - create: Creates a new completion handle.
+        ///   - submitStorage: Submits operation storage to the backend.
+        ///   - flush: Flushes pending submissions.
+        ///   - poll: Waits for completion events.
+        ///   - close: Closes the handle.
+        ///   - createWakeupChannel: Creates a wakeup channel.
         public init(
             capabilities: Capabilities,
             create: @escaping @Sendable () throws(Error) -> Handle,
-            register: @escaping @Sendable (borrowing Handle, Int32, Interest) throws(Error) -> ID,
-            modify: @escaping @Sendable (borrowing Handle, ID, Interest) throws(Error) -> Void,
-            deregister: @escaping @Sendable (borrowing Handle, ID) throws(Error) -> Void,
-            arm: @escaping @Sendable (borrowing Handle, ID, Interest) throws(Error) -> Void,
-            poll: @escaping @Sendable (borrowing Handle, Deadline?, inout [IO.Event]) throws(Error) -> Int,
+            submitStorage: @escaping @Sendable (borrowing Handle, Operation.Storage) throws(Error) -> Void,
+            flush: @escaping @Sendable (borrowing Handle) throws(Error) -> Int,
+            poll: @escaping @Sendable (borrowing Handle, Deadline?, inout [Event]) throws(Error) -> Int,
             close: @escaping @Sendable (consuming Handle) -> Void,
             createWakeupChannel: @escaping @Sendable (borrowing Handle) throws(Error) -> Wakeup.Channel
         ) {
             self.capabilities = capabilities
             self._create = create
-            self._register = register
-            self._modify = modify
-            self._deregister = deregister
-            self._arm = arm
+            self._submitStorage = submitStorage
+            self._flush = flush
             self._poll = poll
             self._close = close
             self._createWakeupChannel = createWakeupChannel
@@ -146,54 +127,44 @@ extension IO.Event {
 
         // MARK: - Public API
 
-        /// Create a new selector handle.
+        /// Create a new completion handle.
         public func create() throws(Error) -> Handle {
             try _create()
         }
 
-        /// Register a descriptor.
-        public func register(
-            _ handle: borrowing Handle,
-            descriptor: Int32,
-            interest: Interest
-        ) throws(Error) -> ID {
-            try _register(handle, descriptor, interest)
-        }
-
-        /// Modify registration interests.
-        public func modify(
-            _ handle: borrowing Handle,
-            id: ID,
-            interest: Interest
-        ) throws(Error) {
-            try _modify(handle, id, interest)
-        }
-
-        /// Deregister a descriptor.
-        public func deregister(
-            _ handle: borrowing Handle,
-            id: ID
-        ) throws(Error) {
-            try _deregister(handle, id)
-        }
-
-        /// Arm a registration for readiness notification.
+        /// Submit an operation.
         ///
-        /// Enables the kernel filter for the specified interest. With one-shot
-        /// semantics, the filter is automatically disabled after delivering an event.
-        public func arm(
+        /// Convenience API that extracts storage from the operation.
+        /// For direct storage submission (used by poll loop), use
+        /// `submit(_:storage:)` instead.
+        public func submit(
             _ handle: borrowing Handle,
-            id: ID,
-            interest: Interest
+            operation: consuming Operation
         ) throws(Error) {
-            try _arm(handle, id, interest)
+            try _submitStorage(handle, operation.storage)
         }
 
-        /// Poll for events.
+        /// Submit operation storage directly.
+        ///
+        /// Primary submit API used by the poll loop after draining
+        /// the submission queue.
+        public func submit(
+            _ handle: borrowing Handle,
+            storage: Operation.Storage
+        ) throws(Error) {
+            try _submitStorage(handle, storage)
+        }
+
+        /// Flush pending submissions.
+        public func flush(_ handle: borrowing Handle) throws(Error) -> Int {
+            try _flush(handle)
+        }
+
+        /// Poll for completion events.
         public func poll(
             _ handle: borrowing Handle,
             deadline: Deadline?,
-            into buffer: inout [IO.Event]
+            into buffer: inout [Event]
         ) throws(Error) -> Int {
             try _poll(handle, deadline, &buffer)
         }
@@ -212,13 +183,14 @@ extension IO.Event {
 
 // MARK: - Deadline
 
-extension IO.Event {
+extension IO.Completion {
     /// A point in time for timeout calculations.
     ///
     /// Deadlines are used instead of durations to avoid drift
     /// when poll is interrupted and restarted.
     ///
     /// ## Clock
+    ///
     /// Uses monotonic time (`CLOCK_MONOTONIC` on POSIX systems) to ensure
     /// consistent timing regardless of system clock adjustments.
     public struct Deadline: Sendable, Comparable {
@@ -226,6 +198,7 @@ extension IO.Event {
         public let nanoseconds: UInt64
 
         /// Creates a deadline at the given nanosecond value.
+        @inlinable
         public init(nanoseconds: UInt64) {
             self.nanoseconds = nanoseconds
         }

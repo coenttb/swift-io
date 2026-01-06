@@ -7,8 +7,6 @@
 
 #if canImport(Darwin)
 
-    @_exported public import IO_Events_Driver
-
     extension IO.Event {
         /// Kqueue-based non-blocking I/O backend for Darwin platforms.
         ///

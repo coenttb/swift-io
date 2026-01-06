@@ -5,7 +5,7 @@
 //  Created by Coen ten Thije Boonkkamp on 31/12/2025.
 //
 
-@_exported public import IO_Completions_Driver
+
 import Synchronization
 
 extension IO.Completion {

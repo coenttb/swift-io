@@ -15,12 +15,7 @@ let package = Package(
         .library(name: "IO Primitives", targets: ["IO Primitives"]),
         .library(name: "IO Blocking", targets: ["IO Blocking"]),
         .library(name: "IO Blocking Threads", targets: ["IO Blocking Threads"]),
-        .library(name: "IO Events Primitives", targets: ["IO Events Primitives"]),
-        .library(name: "IO Events Driver", targets: ["IO Events Driver"]),
-        .library(name: "IO Events Kqueue", targets: ["IO Events Kqueue"]),
         .library(name: "IO Events", targets: ["IO Events"]),
-        .library(name: "IO Completions Primitives", targets: ["IO Completions Primitives"]),
-        .library(name: "IO Completions Driver", targets: ["IO Completions Driver"]),
         .library(name: "IO Completions", targets: ["IO Completions"]),
     ],
     traits: [
@@ -69,65 +64,21 @@ let package = Package(
             ]
         ),
         .target(
-            name: "IO Events Primitives",
-            dependencies: ["IO Primitives"]
-        ),
-        .target(
-            name: "IO Events Driver",
-            dependencies: ["IO Events Primitives"]
-        ),
-        .target(
-            name: "IO Events Kqueue",
-            dependencies: ["IO Events Driver"]
-        ),
-        .target(
-            name: "IO Events Epoll",
-            dependencies: [
-                "IO Events Driver",
-                .product(name: "Kernel", package: "swift-kernel"),
-            ]
-        ),
-        .target(
             name: "IO Events",
-            dependencies: [
-                "IO Events Driver",
-                .target(name: "IO Events Kqueue", condition: .when(platforms: [.macOS, .iOS, .tvOS, .watchOS])),
-                .target(name: "IO Events Epoll", condition: .when(platforms: [.linux])),
-                .product(name: "Binary", package: "swift-standards"),
-            ]
-        ),
-        .target(
-            name: "IO Completions Primitives",
             dependencies: [
                 "IO Primitives",
                 .product(name: "Kernel", package: "swift-kernel"),
-                .product(name: "Buffer", package: "swift-buffer"),
-            ]
-        ),
-        .target(
-            name: "IO Completions Driver",
-            dependencies: ["IO Completions Primitives"]
-        ),
-        .target(
-            name: "IO Completions IOCP",
-            dependencies: ["IO Completions Driver"]
-        ),
-        .target(
-            name: "IO Completions IOUring",
-            dependencies: [
-                "IO Completions Driver",
-                .product(name: "Kernel", package: "swift-kernel"),
-                .product(name: "Memory", package: "swift-memory"),
+                .product(name: "Binary", package: "swift-standards"),
             ]
         ),
         .target(
             name: "IO Completions",
             dependencies: [
-                "IO Completions Driver",
+                "IO Primitives",
                 "IO Events",
+                .product(name: "Kernel", package: "swift-kernel"),
                 .product(name: "Buffer", package: "swift-buffer"),
-                .target(name: "IO Completions IOCP", condition: .when(platforms: [.windows])),
-                .target(name: "IO Completions IOUring", condition: .when(platforms: [.linux])),
+                .product(name: "Memory", package: "swift-memory"),
             ]
         ),
         .testTarget(
@@ -164,13 +115,6 @@ let package = Package(
             name: "IO Tests",
             dependencies: [
                 "IO",
-                .product(name: "StandardsTestSupport", package: "swift-standards"),
-            ]
-        ),
-        .testTarget(
-            name: "IO Events Primitives Tests",
-            dependencies: [
-                "IO Events Primitives",
                 .product(name: "StandardsTestSupport", package: "swift-standards"),
             ]
         ),

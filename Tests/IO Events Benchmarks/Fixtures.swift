@@ -5,7 +5,7 @@
 //  Shared fixtures for non-blocking I/O benchmarks.
 //
 
-import IO_Events_Kqueue
+import IO_Events
 import Kernel
 
 @testable import IO_Events

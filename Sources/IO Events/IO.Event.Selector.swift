@@ -5,8 +5,6 @@
 //  Created by Coen ten Thije Boonkkamp on 28/12/2025.
 //
 
-@_exported public import IO_Events_Driver
-
 extension IO.Event {
     /// The central runtime for non-blocking I/O operations.
     ///

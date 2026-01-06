@@ -194,6 +194,40 @@ extension IO.Blocking.Threads.Test.EdgeCase {
         // No hang = success
     }
 
+    @Test("cold-start single enqueue liveness", .timeLimit(.minutes(1)))
+    func coldStartSingleEnqueue() async throws {
+        // Regression test for lost-wakeup bug in wakeSleepersIfNeeded().
+        //
+        // The race condition:
+        // 1. Create pool (workers not yet spawned - lazy start)
+        // 2. Submit single job → triggers runtime.start.ifNeeded()
+        // 3. Worker threads spawn but haven't reached waitTracked() yet
+        // 4. Job enqueues, wakeSleepersIfNeeded() called
+        // 5. BUG: broadcastIfWaiters() sees waiterCount==0, skips broadcast
+        // 6. Workers then call waitTracked() and sleep forever
+        // 7. No more jobs → hang
+        //
+        // With the fix (unconditional broadcast), the race is eliminated:
+        // - broadcast() always signals, even if no waiters yet
+        // - Workers either already have work or will find it on first check
+        //
+        // This test amplifies the race by running many iterations.
+        // With the buggy code, it hangs intermittently.
+        // With the fix, it always completes.
+
+        for iteration in 0..<500 {
+            let threads = IO.Blocking.Threads(.init(workers: 1, queueLimit: 1))
+
+            let ptr = try await threads.runBoxed(deadline: nil) {
+                Kernel.Handoff.Box.makeValue(iteration)
+            }
+            let result: Int = Kernel.Handoff.Box.takeValue(ptr)
+            #expect(result == iteration)
+
+            await threads.shutdown()
+        }
+    }
+
     @Test("cancellation during acceptance wait completes without hanging", .timeLimit(.minutes(1)))
     func cancellationDuringAcceptanceWait() async throws {
         // Small queue (1 slot) and 1 worker to force acceptance waiting

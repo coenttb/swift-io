@@ -7,8 +7,6 @@
 
 #if canImport(Glibc)
 
-    @_exported public import IO_Events_Driver
-
     extension IO.Event {
         /// Epoll-based non-blocking I/O backend for Linux.
         ///
