@@ -1,11 +1,11 @@
 //
-//  IO.Scope.Pending.swift
+//  IO.Pending.swift
 //  swift-io
 //
 //  Created by Coen ten Thije Boonkkamp on 07/01/2026.
 //
 
-extension IO.Scope {
+extension IO {
     /// Builder state awaiting close specification.
     ///
     /// ## Two-State Builder Pattern
@@ -22,9 +22,9 @@ extension IO.Scope {
     ///
     /// Call `.close(_:)` to transition to `Ready`:
     /// ```swift
-    /// lane.open { Resource.make() }      // Returns Pending
-    ///     .close { $0.teardown() }       // Returns Ready
-    ///     { resource in ... }            // Executes via callAsFunction
+    /// IO.open { Resource.make() }      // Returns Pending
+    ///     .close { $0.teardown() }     // Returns Ready
+    ///     { resource in ... }          // Executes via callAsFunction
     /// ```
     ///
     /// ## ~Copyable Resources
@@ -60,8 +60,9 @@ extension IO.Scope {
         @inlinable
         public func close<CloseError: Swift.Error & Sendable>(
             _ close: @escaping @Sendable (consuming Resource) throws(CloseError) -> Void
-        ) -> Ready<L, Resource, CreateError, CloseError> {
-            Ready(lane: lane, create: create, close: close)
+        ) -> IO.Ready<L, Resource, CreateError, CloseError> {
+            IO.Ready(lane: lane, create: create, close: close)
         }
     }
 }
+

@@ -5,8 +5,5 @@
 //  Created by Coen ten Thije Boonkkamp on 24/12/2025.
 //
 
-@_exported import IO_Blocking
-@_exported import IO_Blocking_Threads
-@_exported import IO_Completions
-@_exported import IO_Events
-@_exported import IO_Primitives
+// Export the IO enum to resolve module/type name conflict
+@_exported import enum IO_Primitives.IO

@@ -5,6 +5,8 @@
 //  Created by Coen ten Thije Boonkkamp on 28/12/2025.
 //
 
+import IO_Blocking
+
 extension IO.Executor {
     /// Execute blocking work directly on a lane without handle coordination.
     ///
@@ -44,7 +46,7 @@ extension IO.Executor {
     ///   - operation: The blocking operation to execute.
     /// - Returns: The result of the operation.
     /// - Throws: `IO.Lifecycle.Error<IO.Error<E>>` with lifecycle or operation errors.
-    public static func run<T: Sendable, E: Swift.Error & Sendable>(
+    internal static func run<T: Sendable, E: Swift.Error & Sendable>(
         on lane: IO.Blocking.Lane,
         deadline: IO.Blocking.Deadline? = nil,
         _ operation: @Sendable @escaping () throws(E) -> T
@@ -79,7 +81,7 @@ extension IO.Executor {
     ///   - operation: The non-throwing blocking operation to execute.
     /// - Returns: The result of the operation.
     /// - Throws: `IO.Lifecycle.Error<IO.Blocking.Error>` for lane failures only.
-    public static func run<T: Sendable>(
+    internal static func run<T: Sendable>(
         on lane: IO.Blocking.Lane,
         deadline: IO.Blocking.Deadline? = nil,
         _ operation: @Sendable @escaping () -> T

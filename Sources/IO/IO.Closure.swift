@@ -7,5 +7,5 @@
 
 extension IO {
     /// Namespace for closure-related types.
-    public enum Closure {}
+    internal enum Closure {}
 }

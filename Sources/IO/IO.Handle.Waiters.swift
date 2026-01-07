@@ -27,9 +27,9 @@ extension IO.Handle {
     /// ## Bounded Capacity
     /// Uses a fixed capacity ring buffer. If capacity is exhausted, `enqueue`
     /// returns false (caller should handle gracefully or fail).
-    public struct Waiters: Sendable {
+    internal struct Waiters: Sendable {
         /// Default capacity for waiter queues.
-        public static let defaultCapacity: Int = 64
+        internal static let defaultCapacity: Int = 64
 
         private var storage: [Waiter?]
         private var head: Int = 0
@@ -38,7 +38,7 @@ extension IO.Handle {
         private let capacity: Int
         private var nextToken: UInt64 = 0
 
-        public init(capacity: Int = Waiters.defaultCapacity) {
+        internal init(capacity: Int = Waiters.defaultCapacity) {
             self.capacity = max(capacity, 1)
             self.storage = [Waiter?](repeating: nil, count: self.capacity)
         }
@@ -48,16 +48,16 @@ extension IO.Handle {
 // MARK: - Properties
 
 extension IO.Handle.Waiters {
-    public var count: Int { _count }
-    public var isEmpty: Bool { _count == 0 }
-    public var isFull: Bool { _count >= capacity }
+    internal var count: Int { _count }
+    internal var isEmpty: Bool { _count == 0 }
+    internal var isFull: Bool { _count >= capacity }
 }
 
 // MARK: - Token Generation
 
 extension IO.Handle.Waiters {
     /// Generate a unique token for a new waiter.
-    public mutating func generateToken() -> UInt64 {
+    internal mutating func generateToken() -> UInt64 {
         let token = nextToken
         nextToken &+= 1
         return token
@@ -71,7 +71,7 @@ extension IO.Handle.Waiters {
     ///
     /// - Parameter waiter: The waiter to enqueue.
     /// - Returns: `true` if successfully enqueued.
-    public mutating func enqueue(_ waiter: IO.Handle.Waiter) -> Bool {
+    internal mutating func enqueue(_ waiter: IO.Handle.Waiter) -> Bool {
         guard _count < capacity else { return false }
         storage[tail] = waiter
         tail = (tail + 1) % capacity
@@ -98,7 +98,7 @@ extension IO.Handle.Waiters {
     /// - `_count > 0` guarantees the loop terminates even if all slots are nil
     ///
     /// MUST be called on the actor executor.
-    public mutating func dequeue() -> IO.Handle.Waiter? {
+    internal mutating func dequeue() -> IO.Handle.Waiter? {
         while _count > 0 {
             let waiter = storage[head]
             storage[head] = nil
@@ -119,7 +119,7 @@ extension IO.Handle.Waiters {
     /// is centralized in `_checkInHandle`.
     ///
     /// MUST be called on the actor executor.
-    public mutating func dequeueNextArmed() -> IO.Handle.Waiter? {
+    internal mutating func dequeueNextArmed() -> IO.Handle.Waiter? {
         var scanned = 0
         let initialCount = _count
 
@@ -159,7 +159,7 @@ extension IO.Handle.Waiters {
     /// Cancelled waiters are drained - their tasks will observe cancellation after wake.
     ///
     /// MUST be called on the actor executor.
-    public mutating func resumeNext() {
+    internal mutating func resumeNext() {
         while _count > 0 {
             let waiter = storage[head]
             storage[head] = nil
@@ -181,7 +181,7 @@ extension IO.Handle.Waiters {
     /// Cancelled waiters are drained - their tasks will observe cancellation after wake.
     ///
     /// MUST be called on the actor executor.
-    public mutating func resumeAll() {
+    internal mutating func resumeAll() {
         while _count > 0 {
             if let waiter = storage[head], let result = waiter.take.forResume() {
                 result.continuation.resume()

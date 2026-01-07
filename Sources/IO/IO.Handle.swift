@@ -7,5 +7,5 @@
 
 extension IO {
     /// Namespace for handle-related types.
-    public enum Handle {}
+    internal enum Handle {}
 }

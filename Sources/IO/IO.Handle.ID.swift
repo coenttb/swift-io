@@ -17,17 +17,17 @@ extension IO.Handle {
     ///
     /// When using `IO.Executor.Shards`, the `shard` field indicates which shard
     /// owns this handle. This enables O(1) routing without scope arithmetic.
-    public struct ID: Hashable, Sendable {
+    internal struct ID: Hashable, Sendable {
         /// The unique identifier within the executor (or shard).
-        public let raw: UInt64
+        internal let raw: UInt64
         /// The scope identifier (unique per executor/pool instance).
-        public let scope: UInt64
+        internal let scope: UInt64
         /// The shard index for routing in sharded pools.
         ///
         /// For non-sharded pools, this is always 0.
-        public let shard: UInt16
+        internal let shard: UInt16
 
-        public init(raw: UInt64, scope: UInt64, shard: UInt16 = 0) {
+        internal init(raw: UInt64, scope: UInt64, shard: UInt16 = 0) {
             self.raw = raw
             self.scope = scope
             self.shard = shard

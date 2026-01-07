@@ -16,20 +16,20 @@ extension IO.Executor.Handle {
     /// Generic over `Resource` which must be `~Copyable & Sendable`.
     internal final class Entry<Resource: ~Copyable & Sendable> {
         /// The resource, or nil if currently checked out, reserved, or destroyed.
-        public var handle: Resource?
+        internal var handle: Resource?
 
         /// The resource when reserved for a specific waiter.
         ///
         /// Separated from `handle` to distinguish between:
         /// - `handle`: Available for immediate checkout
         /// - `reservedHandle`: Committed to a specific waiter by token
-        public var reservedHandle: Resource?
+        internal var reservedHandle: Resource?
 
         /// Queue of tasks waiting for this handle.
-        public var waiters: IO.Handle.Waiters
+        internal var waiters: IO.Handle.Waiters
 
         /// Current lifecycle state.
-        public var state: State
+        internal var state: State
 
         #if DEBUG
             /// Debug-only single-writer tripwire for entry mutation.
@@ -44,7 +44,7 @@ extension IO.Executor.Handle {
         /// - Parameters:
         ///   - handle: The resource to store (ownership transferred).
         ///   - waitersCapacity: Maximum waiters for this handle (default: 64).
-        public init(handle: consuming Resource, waitersCapacity: Int = IO.Handle.Waiters.defaultCapacity) {
+        internal init(handle: consuming Resource, waitersCapacity: Int = IO.Handle.Waiters.defaultCapacity) {
             self.handle = consume handle
             self.reservedHandle = nil
             self.waiters = IO.Handle.Waiters(capacity: waitersCapacity)
@@ -57,7 +57,7 @@ extension IO.Executor.Handle {
         /// Call `commitRegistration(_:)` after lane work completes to store the resource.
         ///
         /// - Parameter waitersCapacity: Maximum waiters for this handle.
-        public init(pendingRegistration waitersCapacity: Int = IO.Handle.Waiters.defaultCapacity) {
+        internal init(pendingRegistration waitersCapacity: Int = IO.Handle.Waiters.defaultCapacity) {
             self.handle = nil
             self.reservedHandle = nil
             self.waiters = IO.Handle.Waiters(capacity: waitersCapacity)

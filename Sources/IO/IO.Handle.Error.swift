@@ -7,7 +7,7 @@
 
 extension IO.Handle {
     /// Errors related to handle operations in the executor.
-    public enum Error: Swift.Error, Sendable, Equatable {
+    internal enum Error: Swift.Error, Sendable, Equatable {
         /// The handle ID does not exist in the registry (already closed or never existed).
         case invalidID
         /// The handle ID belongs to a different executor.

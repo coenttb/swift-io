@@ -6,6 +6,9 @@
 //
 
 import Synchronization
+import Kernel
+import IO_Blocking
+import IO_Blocking_Threads
 
 extension IO.Executor {
     /// The executor pool for async I/O operations.
@@ -43,7 +46,7 @@ extension IO.Executor {
     /// - **Nonisolated fast path**: `run()` bypasses actor isolation via atomic lifecycle check,
     ///   eliminating actor hops for stateless blocking operations.
     /// - **Handle isolation**: `transaction()` remains actor-isolated for handle registry access.
-    public actor Pool<Resource: ~Copyable & Sendable> {
+    internal actor Pool<Resource: ~Copyable & Sendable> {
         /// The executor this pool runs on.
         ///
         /// INVARIANT: Immutable for the lifetime of this actor. Rebinding is forbidden.
@@ -51,15 +54,15 @@ extension IO.Executor {
         private let _executor: Kernel.Thread.Executor
 
         /// The lane for executing blocking operations.
-        public let lane: IO.Blocking.Lane
+        internal let lane: IO.Blocking.Lane
 
         /// Unique scope identifier for this executor instance.
-        public nonisolated let scope: UInt64
+        internal nonisolated let scope: UInt64
 
         /// The shard index when used in a `Shards` collection.
         ///
         /// For standalone pools, this is always 0.
-        public nonisolated let shardIndex: UInt16
+        internal nonisolated let shardIndex: UInt16
 
         /// Atomic lifecycle state for nonisolated access.
         ///
@@ -89,7 +92,7 @@ extension IO.Executor {
         ///
         /// Note: Must be in actor body (not extension) for Actor protocol conformance
         /// with ~Copyable generic parameter.
-        public nonisolated var unownedExecutor: UnownedSerialExecutor {
+        internal nonisolated var unownedExecutor: UnownedSerialExecutor {
             _executor.asUnownedSerialExecutor()
         }
 
@@ -105,7 +108,7 @@ extension IO.Executor {
         ///   - policy: Backpressure policy (default: `.default`).
         ///   - teardown: Teardown policy for resource cleanup (default: `.none`).
         ///   - shardIndex: Shard index for use in `Shards` (default: 0).
-        public init(
+        internal init(
             lane: IO.Blocking.Lane,
             policy: IO.Backpressure.Policy = .default,
             teardown: IO.Executor.Teardown<Resource> = IO.Executor.Teardown<Resource>.none,
@@ -131,7 +134,7 @@ extension IO.Executor {
         ///   - teardown: Teardown policy for resource cleanup (default: `.none`).
         ///   - executor: The executor thread to run on.
         ///   - shardIndex: Shard index for use in `Shards` (default: 0).
-        public init(
+        internal init(
             lane: IO.Blocking.Lane,
             policy: IO.Backpressure.Policy = .default,
             teardown: IO.Executor.Teardown<Resource> = IO.Executor.Teardown<Resource>.none,
@@ -159,7 +162,7 @@ extension IO.Executor {
         /// - Parameters:
         ///   - options: Options for the Threads lane.
         ///   - teardown: Teardown policy for resource cleanup (default: `.none`).
-        public init(
+        internal init(
             _ options: IO.Blocking.Threads.Options = .init(),
             teardown: IO.Executor.Teardown<Resource> = IO.Executor.Teardown<Resource>.none
         ) {
@@ -192,7 +195,7 @@ extension IO.Executor.Pool where Resource: ~Copyable {
     ///
     /// Use with `withTaskExecutorPreference` to keep related work co-located
     /// on the same executor shard, reducing scheduling overhead.
-    public nonisolated var executor: Kernel.Thread.Executor {
+    internal nonisolated var executor: Kernel.Thread.Executor {
         _executor
     }
 
@@ -212,7 +215,7 @@ extension IO.Executor.Pool where Resource: ~Copyable {
     ///
     /// - Parameter body: The async work to execute.
     /// - Returns: The result of the body closure.
-    public nonisolated func withExecutorPreference<T: Sendable>(
+    internal nonisolated func withExecutorPreference<T: Sendable>(
         _ body: @Sendable () async throws -> T
     ) async rethrows -> T {
         try await withTaskExecutorPreference(_executor, operation: body)
@@ -239,7 +242,7 @@ extension IO.Executor.Pool where Resource: ~Copyable {
     /// - Parameter operation: The blocking operation to execute.
     /// - Returns: The result of the operation.
     /// - Throws: `IO.Lifecycle.Error<IO.Error<E>>` with lifecycle or operation errors.
-    public nonisolated func run<T: Sendable, E: Swift.Error & Sendable>(
+    internal nonisolated func run<T: Sendable, E: Swift.Error & Sendable>(
         _ operation: @Sendable @escaping () throws(E) -> T
     ) async throws(IO.Lifecycle.Error<IO.Error<E>>) -> T {
         try await run(deadline: nil, operation)
@@ -264,7 +267,7 @@ extension IO.Executor.Pool where Resource: ~Copyable {
     ///   - operation: The blocking operation to execute.
     /// - Returns: The result of the operation.
     /// - Throws: `IO.Lifecycle.Error<IO.Error<E>>` with lifecycle or operation errors.
-    public nonisolated func run<T: Sendable, E: Swift.Error & Sendable>(
+    internal nonisolated func run<T: Sendable, E: Swift.Error & Sendable>(
         deadline: IO.Blocking.Deadline?,
         _ operation: @Sendable @escaping () throws(E) -> T
     ) async throws(IO.Lifecycle.Error<IO.Error<E>>) -> T {
@@ -309,7 +312,7 @@ extension IO.Executor.Pool where Resource: ~Copyable {
     /// 6. Mark lifecycle as `shutdownComplete`
     ///
     /// Teardown is best-effort: lane failures during teardown are swallowed.
-    public func shutdown() async {
+    internal func shutdown() async {
         // 1. Atomically transition to shutdownInProgress
         let (exchanged, _) = _lifecycle.compareExchange(
             expected: .running,
@@ -377,7 +380,7 @@ extension IO.Executor.Pool where Resource: ~Copyable {
     /// - Parameter resource: The resource to register (ownership transferred).
     /// - Returns: A unique handle ID for future operations.
     /// - Throws: `IO.Lifecycle.Error.shutdownInProgress` if executor is shut down.
-    public func register(
+    internal func register(
         _ resource: consuming Resource
     ) throws(IO.Lifecycle.Error<IO.Handle.Error>) -> IO.Handle.ID {
         guard isAcceptingWork else {
@@ -480,7 +483,7 @@ extension IO.Executor.Pool where Resource: ~Copyable {
     ///   - make: Closure that creates the resource (runs on the lane).
     /// - Returns: A unique handle ID for future operations.
     /// - Throws: `IO.Lifecycle.Error<IO.Error<E>>` on creation or registration failure.
-    public func register<E: Swift.Error & Sendable>(
+    internal func register<E: Swift.Error & Sendable>(
         deadline: IO.Blocking.Deadline? = nil,
         _ make: @Sendable @escaping () throws(E) -> Resource
     ) async throws(IO.Lifecycle.Error<IO.Error<E>>) -> IO.Handle.ID {
@@ -560,7 +563,7 @@ extension IO.Executor.Pool where Resource: ~Copyable {
     ///
     /// - Parameter id: The handle ID to check.
     /// - Returns: `true` if the handle exists and is not destroyed.
-    public func isValid(_ id: IO.Handle.ID) -> Bool {
+    internal func isValid(_ id: IO.Handle.ID) -> Bool {
         guard let entry = handles[id] else { return false }
         return entry.state != .destroyed
     }
@@ -574,7 +577,7 @@ extension IO.Executor.Pool where Resource: ~Copyable {
     ///
     /// - Parameter id: The handle ID to check.
     /// - Returns: `true` if the handle is logically open.
-    public func isOpen(_ id: IO.Handle.ID) -> Bool {
+    internal func isOpen(_ id: IO.Handle.ID) -> Bool {
         guard id.scope == scope else { return false }
         guard let entry = handles[id] else { return false }
         return entry.isOpen
@@ -658,7 +661,7 @@ extension IO.Executor.Pool where Resource: ~Copyable {
     /// INVARIANT: All continuation resumption happens on the actor executor.
     /// The actor drains cancelled waiters during resumeNext() (on handle check-in).
     /// No continuations are resumed from `onCancel` or while holding locks.
-    public func transaction<T: Sendable, E: Swift.Error & Sendable>(
+    internal func transaction<T: Sendable, E: Swift.Error & Sendable>(
         _ id: IO.Handle.ID,
         _ body: @Sendable @escaping (inout Resource) throws(E) -> T
     ) async throws(IO.Lifecycle.Error<IO.Executor.Transaction.Error<E>>) -> T {
@@ -897,7 +900,7 @@ extension IO.Executor.Pool where Resource: ~Copyable {
     /// Execute a closure with exclusive access to a handle.
     ///
     /// This is a convenience wrapper over `transaction(_:_:)`.
-    public func withHandle<T: Sendable, E: Swift.Error & Sendable>(
+    internal func withHandle<T: Sendable, E: Swift.Error & Sendable>(
         _ id: IO.Handle.ID,
         _ body: @Sendable @escaping (inout Resource) throws(E) -> T
     ) async throws(IO.Lifecycle.Error<IO.Error<E>>) -> T {
@@ -936,7 +939,7 @@ extension IO.Executor.Pool where Resource: ~Copyable {
     ///
     /// - Parameter id: The handle ID.
     /// - Note: Idempotent for handles that were already destroyed.
-    public func destroy(_ id: IO.Handle.ID) throws(IO.Handle.Error) {
+    internal func destroy(_ id: IO.Handle.ID) throws(IO.Handle.Error) {
         guard id.scope == scope else {
             throw .scopeMismatch
         }
@@ -979,21 +982,21 @@ extension IO.Executor.Pool where Resource: ~Copyable {
     /// Observable metrics for the pool.
     ///
     /// Provides diagnostic information without exposing internal state.
-    public struct Metrics: Sendable {
+    internal struct Metrics: Sendable {
         /// Number of currently registered resources.
-        public var registeredCount: Int
+        internal var registeredCount: Int
 
         /// Current lifecycle state of the pool.
-        public var lifecycleState: IO.Lifecycle
+        internal var lifecycleState: IO.Lifecycle
 
-        public init(registeredCount: Int, lifecycleState: IO.Lifecycle) {
+        internal init(registeredCount: Int, lifecycleState: IO.Lifecycle) {
             self.registeredCount = registeredCount
             self.lifecycleState = lifecycleState
         }
     }
 
     /// Current metrics for the pool.
-    public var metrics: Metrics {
+    internal var metrics: Metrics {
         Metrics(
             registeredCount: handles.count,
             lifecycleState: _lifecycle.load(ordering: .acquiring)

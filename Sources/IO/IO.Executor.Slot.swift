@@ -32,7 +32,7 @@ extension IO.Executor {
     /// let resource = slot.take()
     /// // register resource
     /// ```
-    public enum Slot {}
+    internal enum Slot {}
 
     // ## Relationship to Kernel.Handoff
     // Both Slot and Kernel.Handoff solve "cross Sendable boundary" problems:
@@ -52,7 +52,7 @@ extension IO.Executor.Slot {
     ///
     /// Encodes a raw pointer as a Sendable capability that can cross
     /// escaping closure boundaries.
-    public struct Address: Sendable {
+    internal struct Address: Sendable {
         @usableFromInline
         let bits: UInt
 

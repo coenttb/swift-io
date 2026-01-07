@@ -7,5 +7,5 @@
 
 extension IO.Executor {
     /// Namespace for transaction-related types.
-    public enum Transaction {}
+    internal enum Transaction {}
 }

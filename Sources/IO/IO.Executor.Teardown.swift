@@ -22,16 +22,16 @@ extension IO.Executor {
     /// Downstream libraries extend `Teardown` with domain-specific statics:
     /// ```swift
     /// extension IO.Executor.Teardown where Resource == File.Handle {
-    ///     public static var close: Self {
+    ///     internal static var close: Self {
     ///         .init { handle in try? handle.close() }
     ///     }
     /// }
     /// ```
-    public struct Teardown<Resource: ~Copyable & Sendable>: Sendable {
+    internal struct Teardown<Resource: ~Copyable & Sendable>: Sendable {
         /// The teardown action to run on a resource.
         ///
         /// - Parameter resource: The resource to clean up (ownership transferred).
-        public typealias Action = @Sendable (_ resource: consuming Resource) -> Void
+        internal typealias Action = @Sendable (_ resource: consuming Resource) -> Void
 
         /// The teardown action, or nil for no-op.
         @usableFromInline
@@ -41,7 +41,7 @@ extension IO.Executor {
         ///
         /// - Parameter action: The cleanup action, or nil for no-op.
         @inlinable
-        public init(_ action: Action?) {
+        internal init(_ action: Action?) {
             self.action = action
         }
     }
@@ -52,12 +52,12 @@ extension IO.Executor {
 extension IO.Executor.Teardown where Resource: ~Copyable {
     /// No cleanup action. Resources are dropped without explicit teardown.
     @inlinable
-    public static var none: Self { .init(nil) }
+    internal static var none: Self { .init(nil) }
 
     /// Drop resource without explicit cleanup (relies on deinit).
     ///
     /// Semantically equivalent to `.none`. Use when you want to explicitly
     /// document that cleanup is via deinit, not a teardown action.
     @inlinable
-    public static var drop: Self { .none }
+    internal static var drop: Self { .none }
 }

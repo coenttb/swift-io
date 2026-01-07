@@ -5,6 +5,8 @@
 //  Created by Coen ten Thije Boonkkamp on 07/01/2026.
 //
 
+import IO_Completions
+
 extension IO {
     /// Platform I/O backend detection.
     ///

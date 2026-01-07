@@ -13,7 +13,7 @@ extension IO.Executor.Slot {
     /// claiming the resource itself is Sendable.
     ///
     /// Generic over `Resource` which must be `~Copyable & Sendable`.
-    public struct Container<Resource: ~Copyable & Sendable>: ~Copyable {
+    internal struct Container<Resource: ~Copyable & Sendable>: ~Copyable {
         /// The raw pointer to allocated memory, or nil if deallocated.
         private var raw: UnsafeMutableRawPointer?
         private var isInitialized: Bool = false
@@ -32,7 +32,7 @@ extension IO.Executor.Slot.Container where Resource: ~Copyable {
     ///
     /// This is Sendable and can be captured in @Sendable closures.
     /// Pass to static methods like `withResource(at:)` or `initializeMemory(at:with:)`.
-    public var address: IO.Executor.Slot.Address {
+    internal var address: IO.Executor.Slot.Address {
         guard let raw = raw else {
             preconditionFailure("Slot already deallocated")
         }
@@ -44,7 +44,7 @@ extension IO.Executor.Slot.Container where Resource: ~Copyable {
 
 extension IO.Executor.Slot.Container where Resource: ~Copyable {
     /// Allocates a slot with storage for one Resource.
-    public static func allocate() -> IO.Executor.Slot.Container<Resource> {
+    internal static func allocate() -> IO.Executor.Slot.Container<Resource> {
         let raw = UnsafeMutableRawPointer.allocate(
             byteCount: MemoryLayout<Resource>.stride,
             alignment: MemoryLayout<Resource>.alignment
@@ -58,7 +58,7 @@ extension IO.Executor.Slot.Container where Resource: ~Copyable {
 extension IO.Executor.Slot.Container where Resource: ~Copyable {
     /// Initializes the slot with a resource, consuming ownership.
     /// Use this when the resource is available on the actor side.
-    public mutating func initialize(with resource: consuming Resource) {
+    internal mutating func initialize(with resource: consuming Resource) {
         guard let raw = raw else {
             preconditionFailure("Slot already deallocated")
         }
@@ -70,7 +70,7 @@ extension IO.Executor.Slot.Container where Resource: ~Copyable {
 
     /// Marks the slot as initialized after memory was written via static method.
     /// Call this after `lane.run` returns successfully.
-    public mutating func markInitialized() {
+    internal mutating func markInitialized() {
         precondition(!isInitialized, "Slot already initialized")
         precondition(!isConsumed, "Slot already consumed")
         isInitialized = true
@@ -87,7 +87,7 @@ extension IO.Executor.Slot.Container where Resource: ~Copyable {
     /// - Parameters:
     ///   - address: The opaque address token from `slot.address`.
     ///   - body: Closure receiving inout access to the resource.
-    public static func withResource<T, E: Swift.Error>(
+    internal static func withResource<T, E: Swift.Error>(
         at address: IO.Executor.Slot.Address,
         _ body: (inout Resource) throws(E) -> T
     ) throws(E) -> T {
@@ -102,7 +102,7 @@ extension IO.Executor.Slot.Container where Resource: ~Copyable {
     /// - Parameters:
     ///   - address: The opaque address token from `slot.address`.
     ///   - resource: The resource to store, ownership transferred.
-    public static func initializeMemory(
+    internal static func initializeMemory(
         at address: IO.Executor.Slot.Address,
         with resource: consuming Resource
     ) {
@@ -116,7 +116,7 @@ extension IO.Executor.Slot.Container where Resource: ~Copyable {
     /// Takes the resource out of the slot, consuming it.
     ///
     /// **Must only be called after the lane await returns and markInitialized().**
-    public mutating func take() -> Resource {
+    internal mutating func take() -> Resource {
         guard let raw = raw else {
             preconditionFailure("Slot already deallocated")
         }
@@ -133,7 +133,7 @@ extension IO.Executor.Slot.Container where Resource: ~Copyable {
     /// This does NOT deinitialize any resource. Use via `defer` to ensure
     /// raw memory is always freed. Safe to call whether or not the slot
     /// was ever initialized or consumed.
-    public mutating func deallocateRawOnly() {
+    internal mutating func deallocateRawOnly() {
         guard let p = raw else { return }
         raw = nil
         p.deallocate()

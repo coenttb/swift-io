@@ -23,62 +23,73 @@ extension IO.Pool where Resource: ~Copyable {
     /// }
     /// ```
     ///
-    /// ## Error Composition
+    /// ## Error Handling
     ///
-    /// Errors are composed as:
-    /// ```
-    /// IO.Lifecycle.Error<IO.Pool.Scoped.Failure<BodyError>>
+    /// ```swift
+    /// do {
+    ///     try await pool { conn in try conn.query() }
+    /// } catch {
+    ///     switch error {
+    ///     case .pool(.exhausted): // retry later
+    ///     case .pool(.timeout): // operation took too long
+    ///     case .pool(.shutdown): // pool is closing
+    ///     case .pool(.cancelled): // task was cancelled
+    ///     case .body(let e): // user code failed
+    ///     }
+    /// }
     /// ```
     ///
     /// - Parameter body: Closure that uses the resource.
     /// - Returns: The body's return value.
+    @inlinable
     public func callAsFunction<T: Sendable, Body: Swift.Error & Sendable>(
         _ body: @Sendable (inout Resource) throws(Body) -> T
-    ) async throws(IO.Lifecycle.Error<Scoped.Failure<Body>>) -> T {
-        // Acquire
-        let id: ID
-        do {
-            id = try await acquire()
-        } catch {
-            switch error {
-            case .shutdown:
-                throw .shutdownInProgress
-            case .cancelled:
-                throw .cancellation
-            case .timeout:
-                throw .timeout
-            case .exhausted, .scopeMismatch, .invalidID:
-                throw .failure(.acquire(error))
-            }
+    ) async throws(Failure<Body>) -> T {
+        // Check lifecycle
+        guard isRunning else {
+            throw .pool(.shutdown)
         }
 
-        // Execute with auto-release
-        let result: T
-        do {
-            result = try await with(id) { resource in
-                try body(&resource)
-            }
-        } catch let e as IO.Lifecycle.Error<Scoped.Failure<Body>> {
-            // Release on failure (best effort)
-            try? await release(id)
-            throw e
-        } catch {
-            // Should never reach - with() only throws the typed error
-            try? await release(id)
-            fatalError("Unexpected error type from with()")
+        if Task.isCancelled {
+            throw .pool(.cancelled)
         }
 
-        // Release on success
+        // Create resource
+        var resource: Resource
         do {
-            try await release(id)
+            resource = try create()
         } catch {
-            // release() throws Error (IO.Pool<Resource>.Error)
-            switch error {
-            case .shutdown, .cancelled, .timeout, .exhausted, .scopeMismatch, .invalidID:
-                throw .failure(.release(error))
-            }
+            throw .pool(error)
         }
-        return result
+
+        // Execute body
+        var bodyError: Body? = nil
+        var value: T? = nil
+        do {
+            value = try body(&resource)
+        } catch {
+            bodyError = error
+        }
+
+        // Close resource
+        var closeError: Error? = nil
+        do {
+            try close(consume resource)
+        } catch {
+            closeError = error
+        }
+
+        // Compose result
+        // Body error takes precedence over close error
+        switch (bodyError, closeError) {
+        case (nil, nil):
+            return value!
+        case (let body?, _):
+            // Body error takes precedence
+            throw .body(body)
+        case (nil, let close?):
+            throw .pool(close)
+        }
     }
 }
 
@@ -126,20 +137,21 @@ extension IO.Pool where Resource: ~Copyable {
     ///   - id: The resource ID from `acquire()`.
     ///   - body: Closure that uses the resource.
     /// - Returns: The body's return value.
+    @inlinable
     public func with<T: Sendable, Body: Swift.Error & Sendable>(
         _ id: ID,
         _ body: @Sendable (inout Resource) throws(Body) -> T
-    ) async throws(IO.Lifecycle.Error<Scoped.Failure<Body>>) -> T {
+    ) async throws(Failure<Body>) -> T {
         guard isRunning else {
-            throw .shutdownInProgress
+            throw .pool(.shutdown)
         }
 
         guard id.scope == scope else {
-            throw .failure(.acquire(.scopeMismatch))
+            throw .pool(.scopeMismatch)
         }
 
         if Task.isCancelled {
-            throw .cancellation
+            throw .pool(.cancelled)
         }
 
         // Create resource
@@ -147,7 +159,7 @@ extension IO.Pool where Resource: ~Copyable {
         do {
             resource = try create()
         } catch {
-            throw .failure(.acquire(error))
+            throw .pool(error)
         }
 
         // Execute body directly (simplified implementation)
@@ -167,16 +179,14 @@ extension IO.Pool where Resource: ~Copyable {
             closeError = error
         }
 
-        // Compose result
+        // Compose result - body error takes precedence
         switch (bodyError, closeError) {
         case (nil, nil):
             return value!
-        case (let body?, nil):
-            throw .failure(.body(body))
+        case (let body?, _):
+            throw .body(body)
         case (nil, let close?):
-            throw .failure(.release(close))
-        case (let body?, let close?):
-            throw .failure(.bodyAndRelease(body: body, release: close))
+            throw .pool(close)
         }
     }
 
@@ -208,22 +218,13 @@ extension IO.Pool where Resource: ~Copyable {
     @usableFromInline
     func acquireScoped<T: Sendable, Body: Swift.Error & Sendable>(
         _ body: @Sendable (ID) async throws(Body) -> T
-    ) async throws(IO.Lifecycle.Error<Scoped.Failure<Body>>) -> T {
+    ) async throws(Failure<Body>) -> T {
         // Acquire
         let id: ID
         do {
             id = try await acquire()
         } catch {
-            switch error {
-            case .shutdown:
-                throw .shutdownInProgress
-            case .cancelled:
-                throw .cancellation
-            case .timeout:
-                throw .timeout
-            case .exhausted, .scopeMismatch, .invalidID:
-                throw .failure(.acquire(error))
-            }
+            throw .pool(error)
         }
 
         // Execute body
@@ -235,7 +236,7 @@ extension IO.Pool where Resource: ~Copyable {
             bodyError = error
         }
 
-        // Release
+        // Release (best effort)
         var releaseError: Error? = nil
         do {
             try await release(id)
@@ -243,16 +244,14 @@ extension IO.Pool where Resource: ~Copyable {
             releaseError = error
         }
 
-        // Compose result
+        // Compose result - body error takes precedence
         switch (bodyError, releaseError) {
         case (nil, nil):
             return result!
-        case (let body?, nil):
-            throw .failure(.body(body))
+        case (let body?, _):
+            throw .body(body)
         case (nil, let release?):
-            throw .failure(.release(release))
-        case (let body?, let release?):
-            throw .failure(.bodyAndRelease(body: body, release: release))
+            throw .pool(release)
         }
     }
 }

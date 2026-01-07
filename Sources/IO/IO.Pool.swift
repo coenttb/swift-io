@@ -14,11 +14,10 @@ extension IO {
     /// created lazily and reused across operations. The pool provides both
     /// scoped access (via `callAsFunction`) and explicit checkout/release.
     ///
-    /// ## Usage Patterns
+    /// ## Usage
     ///
-    /// ### Simple Use (callAsFunction)
     /// ```swift
-    /// let pool = IO.Pool(on: lane, capacity: 16) {
+    /// let pool = IO.Pool(capacity: 16) {
     ///     try Connection.open(config)
     /// } close: {
     ///     try $0.close()
@@ -29,28 +28,23 @@ extension IO {
     /// }
     /// ```
     ///
-    /// ### Long-Lived Checkout
-    /// ```swift
-    /// let id = try await pool.acquire()
-    /// try await pool.with(id) { connection in
-    ///     connection.query(sql)
-    /// }
-    /// try await pool.release(id)
-    /// ```
-    ///
-    /// ### Auto-Release Scope
-    /// ```swift
-    /// try await pool.acquire.scoped { id in
-    ///     try await pool.with(id) { conn in ... }
-    /// }
-    /// ```
-    ///
     /// ## Error Handling
     ///
-    /// Pool operations use composed typed throws:
-    /// - `IO.Pool.Error`: Infrastructure errors (shutdown, exhausted, etc.)
-    /// - `IO.Pool.Scoped.Failure<Body>`: Scoped operation errors
-    /// - `IO.Lifecycle.Error<...>`: Lifecycle wrapper for full error type
+    /// Pool operations throw `IO.Pool.Failure<Body>`:
+    ///
+    /// ```swift
+    /// do {
+    ///     try await pool { conn in try conn.query() }
+    /// } catch {
+    ///     switch error {
+    ///     case .pool(.exhausted): // retry later
+    ///     case .pool(.timeout): // operation took too long
+    ///     case .pool(.shutdown): // pool is closing
+    ///     case .pool(.cancelled): // task was cancelled
+    ///     case .body(let e): // user code failed
+    ///     }
+    /// }
+    /// ```
     ///
     /// ## Swift Embedded Compatibility
     ///
@@ -58,9 +52,9 @@ extension IO {
     /// - Fully typed throws throughout
     /// - `Never` elimination for non-throwing paths
     public actor Pool<Resource: ~Copyable & Sendable> {
-        /// The blocking lane for resource operations.
+        /// The lane for resource operations.
         @usableFromInline
-        let lane: IO.Blocking.Lane
+        let lane: IO.Lane
 
         /// Maximum number of resources in the pool.
         @usableFromInline
@@ -85,12 +79,12 @@ extension IO {
         /// Creates a new resource pool.
         ///
         /// - Parameters:
-        ///   - lane: The blocking lane for resource operations.
+        ///   - lane: The lane for resource operations.
         ///   - capacity: Maximum number of pooled resources.
         ///   - create: Factory that creates new resources.
         ///   - close: Destructor that closes resources.
         public init(
-            on lane: IO.Blocking.Lane,
+            on lane: IO.Lane = .shared,
             capacity: Capacity,
             _ create: @Sendable @escaping () throws(Error) -> Resource,
             close: @Sendable @escaping (consuming Resource) throws(Error) -> Void
@@ -114,11 +108,11 @@ extension IO.Pool where Resource: IO.Closable, Resource.CloseError == Never {
     /// the resource is removed from the pool.
     ///
     /// - Parameters:
-    ///   - lane: The blocking lane for resource operations.
+    ///   - lane: The lane for resource operations.
     ///   - capacity: Maximum number of pooled resources.
     ///   - create: Factory that creates new resources.
     public init(
-        on lane: IO.Blocking.Lane,
+        on lane: IO.Lane = .shared,
         capacity: Capacity,
         _ create: @Sendable @escaping () throws(Error) -> Resource
     ) {
@@ -131,63 +125,3 @@ extension IO.Pool where Resource: IO.Closable, Resource.CloseError == Never {
     }
 }
 
-// MARK: - Shared Lane Convenience
-
-extension IO.Pool where Resource: ~Copyable {
-    /// Creates a pool on the shared lane with custom close.
-    ///
-    /// Uses `IO.Blocking.Lane.shared` for resource operations.
-    ///
-    /// ## Usage
-    /// ```swift
-    /// let pool = IO.Pool(capacity: 16) {
-    ///     try Connection.open(config)
-    /// } close: {
-    ///     try $0.close()
-    /// }
-    ///
-    /// try await pool { connection in
-    ///     connection.query(sql)
-    /// }
-    /// ```
-    ///
-    /// - Parameters:
-    ///   - capacity: Maximum number of pooled resources.
-    ///   - create: Factory that creates new resources.
-    ///   - close: Destructor that closes resources.
-    public init(
-        capacity: Capacity,
-        _ create: @Sendable @escaping () throws(Error) -> Resource,
-        close: @Sendable @escaping (consuming Resource) throws(Error) -> Void
-    ) {
-        self.init(on: IO.Blocking.Lane.shared, capacity: capacity, create, close: close)
-    }
-}
-
-extension IO.Pool where Resource: IO.Closable, Resource.CloseError == Never {
-    /// Creates a pool on the shared lane with inferred close.
-    ///
-    /// Uses `IO.Blocking.Lane.shared` for resource operations.
-    /// The resource's `close()` method is called automatically.
-    ///
-    /// ## Usage
-    /// ```swift
-    /// let pool = IO.Pool(capacity: 16) {
-    ///     try Connection.open(config)
-    /// }
-    ///
-    /// try await pool { connection in
-    ///     connection.query(sql)
-    /// }
-    /// ```
-    ///
-    /// - Parameters:
-    ///   - capacity: Maximum number of pooled resources.
-    ///   - create: Factory that creates new resources.
-    public init(
-        capacity: Capacity,
-        _ create: @Sendable @escaping () throws(Error) -> Resource
-    ) {
-        self.init(on: IO.Blocking.Lane.shared, capacity: capacity, create)
-    }
-}

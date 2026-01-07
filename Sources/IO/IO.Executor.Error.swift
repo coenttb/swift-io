@@ -14,7 +14,7 @@ extension IO.Executor {
     /// ## Invariant
     /// `.invalidState` MUST NOT be used to encode shutdown. Shutdown is always
     /// surfaced as `IO.Lifecycle.Error.shutdownInProgress`.
-    public enum Error: Swift.Error, Sendable, Equatable {
+    internal enum Error: Swift.Error, Sendable, Equatable {
         /// The ID's scope doesn't match this executor.
         case scopeMismatch
 

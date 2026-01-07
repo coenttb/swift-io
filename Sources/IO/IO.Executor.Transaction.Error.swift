@@ -5,12 +5,14 @@
 //  Created by Coen ten Thije Boonkkamp on 24/12/2025.
 //
 
+import IO_Blocking
+
 extension IO.Executor.Transaction {
     /// Typed error for transaction operations.
     ///
     /// Generic over the body error E - no existentials, full structure preserved.
     ///
-    public enum Error<E: Swift.Error & Sendable>: Swift.Error, Sendable {
+    internal enum Error<E: Swift.Error & Sendable>: Swift.Error, Sendable {
 
         // ## Design
         // - Lifecycle concerns (shutdown, cancellation) are NOT in this type.

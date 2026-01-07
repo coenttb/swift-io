@@ -5,6 +5,8 @@
 //  Created by Coen ten Thije Boonkkamp on 07/01/2026.
 //
 
+public import IO_Blocking
+
 // MARK: - Custom Close Builder
 
 extension IO.Blocking.Lane {
@@ -33,8 +35,8 @@ extension IO.Blocking.Lane {
     @inlinable
     public func open<Resource: ~Copyable & Sendable, CreateError: Swift.Error & Sendable>(
         _ create: @Sendable @escaping () throws(CreateError) -> Resource
-    ) -> IO.Scope.Pending<Self, Resource, CreateError> {
-        IO.Scope.Pending(lane: self, create: create)
+    ) -> IO.Pending<Self, Resource, CreateError> {
+        IO.Pending(lane: self, create: create)
     }
 }
 
@@ -60,7 +62,7 @@ extension IO.Blocking.Lane {
     ///
     /// The full error type is:
     /// ```
-    /// IO.Lifecycle.Error<IO.Scope.Failure<CreateError, BodyError, Resource.CloseError>>
+    /// IO.Failure.Scope<IO.Lane.Error, CreateError, BodyError, Resource.CloseError>
     /// ```
     ///
     /// When `Resource.CloseError == Never`, the `.close(...)` case is statically
@@ -79,12 +81,12 @@ extension IO.Blocking.Lane {
     >(
         _ create: @Sendable @escaping () throws(CreateError) -> Resource,
         _ body: @escaping @Sendable (inout Resource) throws(BodyError) -> T
-    ) async throws(IO.Lifecycle.Error<IO.Scope.Failure<CreateError, BodyError, Resource.CloseError>>) -> T {
-        let pending: IO.Scope.Pending<Self, Resource, CreateError> = self.open(create)
+    ) async throws(IO.Failure.Scope<IO.Lane.Error, CreateError, BodyError, Resource.CloseError>) -> T {
+        let pending: IO.Pending<Self, Resource, CreateError> = self.open(create)
         let closeFn: @Sendable (consuming Resource) throws(Resource.CloseError) -> Void = { resource in
             try resource.close()
         }
-        let ready: IO.Scope.Ready<Self, Resource, CreateError, Resource.CloseError> = pending.close(closeFn)
+        let ready: IO.Ready<Self, Resource, CreateError, Resource.CloseError> = pending.close(closeFn)
         return try await ready(body)
     }
 }

@@ -8,18 +8,28 @@
 extension IO.Pool where Resource: ~Copyable {
     /// Infrastructure errors from pool operations.
     ///
-    /// ## Design
-    ///
-    /// This type captures pool-level failures that prevent operations from
-    /// completing. These are distinct from user body errors which flow
-    /// through `IO.Pool.Scoped.Failure`.
-    ///
     /// ## Error Categories
     ///
     /// - Lifecycle: `shutdown` - pool is no longer accepting operations
     /// - Capacity: `exhausted`, `timeout` - no resources available
     /// - Validation: `scopeMismatch`, `invalidID` - ID errors
     /// - Cancellation: `cancelled` - task was cancelled
+    ///
+    /// ## Usage
+    ///
+    /// Pool errors appear in the `.pool` case of `IO.Pool.Failure<Body>`:
+    ///
+    /// ```swift
+    /// do {
+    ///     try await pool { conn in try conn.query() }
+    /// } catch {
+    ///     switch error {
+    ///     case .pool(.shutdown): // pool is closing
+    ///     case .pool(.exhausted): // retry later
+    ///     case .body(let e): // user code failed
+    ///     }
+    /// }
+    /// ```
     ///
     /// ## Implementation Note
     ///

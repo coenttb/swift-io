@@ -5,27 +5,24 @@
 //  Created by Coen ten Thije Boonkkamp on 24/12/2025.
 //
 
+import IO_Blocking
+
+// MARK: - Internal Composition Type
+
 extension IO {
-    /// IO domain failure sum type for operations.
+    /// Internal infrastructure error type for executor operations.
     ///
     /// This type preserves the specific leaf error type while also capturing
     /// I/O infrastructure errors (executor, handle, lane).
     ///
+    /// - Note: This is an internal implementation type. The public API uses
+    ///   `IO.Failure.Work` and `IO.Failure.Scope` envelopes instead.
+    ///
     /// ## Design
     /// - Lifecycle concerns (shutdown, cancellation) are NOT in this type.
-    /// - They are surfaced through `IO.Lifecycle.Error` at the Pool boundary.
-    /// - This ensures wrong-category errors are statically unrepresentable.
-    ///
-    /// ## Usage
-    /// Pool methods throw `IO.Lifecycle.Error<IO.Error<LeafError>>`:
-    /// ```swift
-    /// func read() async throws(IO.Lifecycle.Error<IO.Error<ReadError>>) -> [UInt8]
-    /// ```
-    ///
-    /// ## No Equatable Constraint
-    /// The Leaf type only requires `Error & Sendable` - no `Equatable` constraint.
-    /// This enables maximum flexibility.
-    public enum Error<Leaf: Swift.Error & Sendable>: Swift.Error, Sendable {
+    /// - They are surfaced through `IO.Lifecycle.Error` at the internal boundary.
+    /// - The public surface translates to `IO.Failure.*` envelopes.
+    internal enum Error<Leaf: Swift.Error & Sendable>: Swift.Error, Sendable {
         /// The leaf error from the underlying operation.
         case leaf(Leaf)
 
@@ -46,7 +43,7 @@ extension IO.Error {
     /// Maps the leaf error to a different type.
     ///
     /// Non-leaf cases are preserved as-is.
-    public func mapLeaf<NewLeaf: Swift.Error & Sendable>(
+    internal func mapLeaf<NewLeaf: Swift.Error & Sendable>(
         _ transform: (Leaf) -> NewLeaf
     ) -> IO.Error<NewLeaf> {
         switch self {
@@ -65,7 +62,7 @@ extension IO.Error {
 // MARK: - CustomStringConvertible
 
 extension IO.Error: CustomStringConvertible {
-    public var description: String {
+    internal var description: String {
         switch self {
         case .leaf(let error):
             return "Leaf error: \(error)"

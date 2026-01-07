@@ -5,6 +5,8 @@
 //  Created by Coen ten Thije Boonkkamp on 24/12/2025.
 //
 
+import Kernel
+
 extension IO {
     /// Namespace for executor types.
     ///
@@ -14,7 +16,7 @@ extension IO {
     /// - `Handle`: Opaque resource references with scoped validity
     /// - `Slot`: Cross-await-boundary bridging for ~Copyable resources
     /// - `Transaction`: Exclusive access to pooled resources
-    public enum Executor {}
+    internal enum Executor {}
 }
 
 extension IO.Executor {
@@ -38,5 +40,5 @@ extension IO.Executor {
     /// - Sharing executors across Pool actors reduces resource waste
     /// - Round-robin assignment provides load balancing
     /// - Testable: Create a separate `Threads` instance for isolated tests
-    public static let shared: Kernel.Thread.Executors = Kernel.Thread.Executors()
+    internal static let shared: Kernel.Thread.Executors = Kernel.Thread.Executors()
 }

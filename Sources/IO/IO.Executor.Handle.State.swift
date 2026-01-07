@@ -31,7 +31,7 @@ extension IO.Executor.Handle {
     /// 3. Waiter claims handle by token → state becomes `checkedOut`
     ///
     /// This ensures the woken waiter always gets the handle without re-validation.
-    public enum State: Sendable, Equatable {
+    internal enum State: Sendable, Equatable {
         case pendingRegistration
         case present
         case checkedOut

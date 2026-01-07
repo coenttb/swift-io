@@ -36,7 +36,7 @@ extension IO.Handle {
     ///
     /// ## Thread Safety
     /// `@unchecked Sendable` because it provides internal synchronization via `Atomic`.
-    public final class Waiter: @unchecked Sendable {
+    internal final class Waiter: @unchecked Sendable {
         /// Atomic state for lock-free cancellation.
         private let state = Atomic<State>(.unarmed)
 
@@ -45,14 +45,14 @@ extension IO.Handle {
         private var continuation: CheckedContinuation<Void, Never>?
 
         /// Unique token for identification in the waiter queue.
-        public let token: UInt64
+        internal let token: UInt64
 
         /// Creates an unarmed waiter ready to be captured and later armed.
         ///
         /// The waiter must be armed with `arm(continuation:)` before it can be drained.
         ///
         /// - Parameter token: Unique identifier for this waiter.
-        public init(token: UInt64) {
+        internal init(token: UInt64) {
             self.token = token
         }
     }
@@ -67,7 +67,7 @@ extension IO.Handle.Waiter {
     /// - Parameter continuation: The continuation to resume when drained.
     /// - Returns: `true` if successfully armed, `false` if already armed.
     @discardableResult
-    public func arm(continuation: CheckedContinuation<Void, Never>) -> Bool {
+    internal func arm(continuation: CheckedContinuation<Void, Never>) -> Bool {
         let succeeded =
             transition { current in
                 switch current {
@@ -93,7 +93,7 @@ extension IO.Handle.Waiter {
     /// - Returns: `true` if successfully set cancelled flag.
     ///   `false` if already cancelled or already drained.
     @discardableResult
-    public func cancel() -> Bool {
+    internal func cancel() -> Bool {
         transition { current in
             guard !current.isCancelled && !current.isDrained else { return nil }
             return current.isArmed ? .armedCancelled : .cancelledUnarmed
@@ -105,21 +105,21 @@ extension IO.Handle.Waiter {
     /// Check if this waiter was cancelled.
     ///
     /// Safe to call from any thread.
-    public var wasCancelled: Bool {
+    internal var wasCancelled: Bool {
         state.load(ordering: .acquiring).isCancelled
     }
 
     /// Check if this waiter has been armed (continuation bound).
     ///
     /// Safe to call from any thread.
-    public var isArmed: Bool {
+    internal var isArmed: Bool {
         state.load(ordering: .acquiring).isArmed
     }
 
     /// Check if this waiter has been drained (continuation taken).
     ///
     /// Safe to call from any thread.
-    public var isDrained: Bool {
+    internal var isDrained: Bool {
         state.load(ordering: .acquiring).isDrained
     }
 
@@ -131,7 +131,7 @@ extension IO.Handle.Waiter {
     /// - It has not been drained
     ///
     /// Safe to call from any thread.
-    public var isEligibleForReservation: Bool {
+    internal var isEligibleForReservation: Bool {
         let s = state.load(ordering: .acquiring)
         return s.isArmed && !s.isCancelled && !s.isDrained
     }
@@ -169,7 +169,7 @@ extension IO.Handle.Waiter {
 
 extension IO.Handle.Waiter {
     /// Accessor for take operations.
-    public struct Take {
+    internal struct Take {
         unowned let waiter: IO.Handle.Waiter
 
         /// Take the continuation for resumption. Actor-only operation.
@@ -179,12 +179,12 @@ extension IO.Handle.Waiter {
         ///
         /// - Returns: The continuation if available, along with cancellation status.
         ///   Returns `nil` if not yet armed or already drained.
-        public func callAsFunction() -> (continuation: CheckedContinuation<Void, Never>, wasCancelled: Bool)? {
+        internal func callAsFunction() -> (continuation: CheckedContinuation<Void, Never>, wasCancelled: Bool)? {
             forResume()
         }
 
         /// Take the continuation for resumption. Actor-only operation.
-        public func forResume() -> (continuation: CheckedContinuation<Void, Never>, wasCancelled: Bool)? {
+        internal func forResume() -> (continuation: CheckedContinuation<Void, Never>, wasCancelled: Bool)? {
             guard
                 let previous = waiter.transition({ current in
                     guard current.isArmed && !current.isDrained else { return nil }
@@ -205,5 +205,5 @@ extension IO.Handle.Waiter {
     }
 
     /// Accessor for take operations.
-    public var take: Take { Take(waiter: self) }
+    internal var take: Take { Take(waiter: self) }
 }

@@ -59,9 +59,10 @@ extension IO.Pool where Resource: ~Copyable & Sendable {
         ///
         /// - Parameter body: Async closure that uses the ID.
         /// - Returns: The body's return value.
+        @inlinable
         public func scoped<T: Sendable, Body: Swift.Error & Sendable>(
             _ body: @Sendable (ID) async throws(Body) -> T
-        ) async throws(IO.Lifecycle.Error<Scoped.Failure<Body>>) -> T {
+        ) async throws(Failure<Body>) -> T {
             try await pool.acquireScoped(body)
         }
     }
