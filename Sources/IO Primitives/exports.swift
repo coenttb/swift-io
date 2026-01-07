@@ -6,3 +6,5 @@
 //
 
 @_exported import Kernel
+@_exported import Buffer
+@_exported import Synchronization

@@ -10,4 +10,4 @@
 // ===----------------------------------------------------------------------===//
 
 @_exported import Kernel
-@_exported import Runtime
+@_exported import Async

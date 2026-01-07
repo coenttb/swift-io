@@ -31,8 +31,9 @@ struct SchedulingEnumTests {
     }
 }
 
-// MARK: - FIFO Scheduling Tests
+// MARK: - FIFO Scheduling Tests (Debug Only - requires runBoxedWithEnqueueCallback)
 
+#if DEBUG
 @Suite("IO.Blocking.Threads.Scheduling FIFO")
 struct FIFOSchedulingTests {
     @Test("FIFO: first enqueued is first dequeued")
@@ -178,7 +179,7 @@ struct FIFOSchedulingTests {
     }
 }
 
-// MARK: - LIFO Scheduling Tests
+// MARK: - LIFO Scheduling Tests (Debug Only - requires runBoxedWithEnqueueCallback)
 
 @Suite("IO.Blocking.Threads.Scheduling LIFO")
 struct LIFOSchedulingTests {
@@ -323,7 +324,13 @@ struct LIFOSchedulingTests {
 
         await threads.shutdown()
     }
+}
+#endif
 
+// MARK: - LIFO Explicit Option (Release-safe)
+
+@Suite("IO.Blocking.Threads.Scheduling LIFO Basic")
+struct LIFOBasicTests {
     @Test("LIFO with explicit option")
     func lifoExplicitOption() async throws {
         let options = IO.Blocking.Threads.Options(

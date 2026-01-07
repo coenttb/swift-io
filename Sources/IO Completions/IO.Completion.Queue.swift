@@ -5,9 +5,10 @@
 //  Created by Coen ten Thije Boonkkamp on 31/12/2025.
 //
 
+import Synchronization
 import Buffer
 public import Kernel
-public import Runtime
+public import Async
 
 extension IO.Completion {
     /// The completion queue manages async I/O operations.
@@ -152,7 +153,7 @@ extension IO.Completion {
             self.driver = driver
 
             // Create thread-safe primitives
-            self.submissions = Submission.Queue(.init())
+            self.submissions = Submission.Queue(.init(.init(.init())))
             self.bridge = Bridge(.init())
             self.shutdownFlag = Poll.Shutdown.Flag(.init())
 

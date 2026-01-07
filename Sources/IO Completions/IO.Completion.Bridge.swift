@@ -6,17 +6,17 @@
 //
 
 public import Dimension
-public import Runtime
+public import Async
 
 extension IO.Completion {
     /// Thread-safe bridge for poll thread → queue actor event handoff.
     ///
-    /// Delegates to `Runtime.Async.Bridge` with batch semantics.
+    /// Delegates to `Async.Bridge` with batch semantics.
     /// Poll thread pushes event batches, queue actor receives batches.
     ///
     /// Access underlying API via `.rawValue`:
     /// - `bridge.rawValue.push(events)` - push batch from poll thread
     /// - `await bridge.rawValue.next()` - receive batch in queue actor
     /// - `bridge.rawValue.finish()` - signal shutdown
-    public typealias Bridge = Tagged<IO.Completion, Runtime.Async.Bridge<[Event]>>
+    public typealias Bridge = Tagged<IO.Completion, Async.Bridge<[Event]>>
 }

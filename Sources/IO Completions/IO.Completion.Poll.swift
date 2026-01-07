@@ -7,7 +7,8 @@
 
 public import Dimension
 public import Kernel
-public import Runtime
+public import Async
+internal import Buffer
 
 extension IO.Completion {
     /// Namespace for poll loop types.
@@ -58,7 +59,7 @@ extension IO.Completion.Poll {
         while !shutdownFlag.rawValue.isSet {
             // 1. Drain submissions
             submissionBuffer.removeAll(keepingCapacity: true)
-            _ = submissions.rawValue.dequeue.all(into: &submissionBuffer)
+            submissions.rawValue.drain(into: &submissionBuffer)
 
             // 2. Submit to driver
             for storage in submissionBuffer {

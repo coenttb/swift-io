@@ -5,20 +5,13 @@
 //  Created by Coen ten Thije Boonkkamp on 28/12/2025.
 //
 
-public import Runtime
+public import Synchronization
+public import Buffer
+
+/// Thread-safe shared queue with MPSC semantics.
+public typealias Queue<T> = Shared<Mutex<Deque<T>>>
 
 extension IO.Event.Registration {
     /// Thread-safe queue for registration requests from selector to poll thread.
-    ///
-    /// The `Queue` allows the selector actor to enqueue registration requests
-    /// that the poll thread processes between poll cycles.
-    ///
-    /// ## Thread Safety
-    /// All operations are protected by internal synchronization.
-    ///
-    /// ## Pattern
-    /// - Selector enqueues requests via `enqueue(_:)`
-    /// - Poll thread dequeues via `dequeue.one()` or `dequeue()`
-    /// - Shutdown drains remaining requests via `dequeue.all()`
-    public typealias Queue = Runtime.Mutex.Queue<IO.Event.Registration.Request>
+    public typealias Queue = IO_Events.Queue<IO.Event.Registration.Request>
 }

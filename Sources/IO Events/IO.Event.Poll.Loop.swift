@@ -6,7 +6,8 @@
 //
 
 public import Kernel
-public import Runtime
+public import Async
+public import Buffer
 
 extension IO.Event.Poll {
     /// Poll loop running on a dedicated OS thread.
@@ -163,7 +164,7 @@ extension IO.Event.Poll {
             replyBridge: IO.Event.Registration.Reply.Bridge
         ) {
             // Process remaining deregistration requests
-            for request in registrationQueue.dequeue.all() {
+            for request in registrationQueue.drain() {
                 switch request {
                 case .deregister(let id, let replyID):
                     do {

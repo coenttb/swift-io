@@ -40,7 +40,7 @@ extension RegistrationBenchmarks.Test.Performance {
             .timed(iterations: 3, warmup: 1, trackAllocations: false)
         )
         func queueThroughput() async {
-            let queue = IO.Event.Registration.Queue()
+            let queue = IO.Event.Registration.Queue(.init(.init()))
 
             // Enqueue
             for i in 0..<10000 {
@@ -65,16 +65,18 @@ extension RegistrationBenchmarks.Test.Performance {
             .timed(iterations: 3, warmup: 1, trackAllocations: false)
         )
         func concurrentEnqueue() async {
-            let queue = IO.Event.Registration.Queue()
+            let queue = IO.Event.Registration.Queue(.init(.init()))
             let producerCount = 4
             let requestsPerProducer = 1000
 
             await withTaskGroup(of: Void.self) { group in
                 for producerIndex in 0..<producerCount {
-                    group.addTask {
-                        for i in 0..<requestsPerProducer {
+                    let capturedIndex = producerIndex
+                    let capturedRequestsPerProducer = requestsPerProducer
+                    group.addTask { @Sendable in
+                        for i in 0..<capturedRequestsPerProducer {
                             let request = IO.Event.Registration.Request.register(
-                                descriptor: Int32(producerIndex * requestsPerProducer + i),
+                                descriptor: Int32(capturedIndex * capturedRequestsPerProducer + i),
                                 interest: .read,
                                 replyID: IO.Event.Registration.Reply.ID( UInt64(i))
                             )

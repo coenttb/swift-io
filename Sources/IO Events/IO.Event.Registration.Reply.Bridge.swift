@@ -5,7 +5,7 @@
 //  Created by Coen ten Thije Boonkkamp on 29/12/2025.
 //
 
-public import Runtime
+public import Async
 
 extension IO.Event.Registration.Reply {
     /// Thread-safe bridge for poll thread → selector actor registration reply handoff.
@@ -19,5 +19,5 @@ extension IO.Event.Registration.Reply {
     ///
     /// ## Thread Safety
     /// All operations are protected by internal synchronization.
-    public typealias Bridge = Runtime.Async.Bridge<IO.Event.Registration.Reply>
+    public typealias Bridge = Async.Bridge<IO.Event.Registration.Reply>
 }

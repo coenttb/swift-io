@@ -141,7 +141,7 @@ extension IO.Blocking.Threads.Test.Performance {
         // Each job arrives at barrier and waits
         await withTaskGroup(of: Void.self) { group in
             for _ in 0..<workerCount {
-                group.addTask {
+                group.addTask { @Sendable [threads, barrier, timeoutTracker] in
                     let ptr = try! await threads.runBoxed(deadline: .none) {
                         // Each job arrives at barrier and waits
                         let success = barrier.arriveAndWait(timeout: .seconds(5))

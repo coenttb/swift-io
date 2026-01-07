@@ -5,7 +5,7 @@
 //  Created by Coen ten Thije Boonkkamp on 28/12/2025.
 //
 
-public import Runtime
+public import Async
 
 extension IO.Event {
     /// Thread-safe bridge for poll thread → selector actor event handoff.
@@ -39,5 +39,5 @@ extension IO.Event {
     ///
     /// ## Thread Safety
     /// All operations are protected by internal synchronization.
-    public typealias Bridge = Runtime.Async.Bridge<IO.Event.Poll>
+    public typealias Bridge = Async.Bridge<IO.Event.Poll>
 }

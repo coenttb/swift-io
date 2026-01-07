@@ -6,7 +6,9 @@
 //
 
 public import Kernel
-public import Runtime
+public import Async
+internal import Synchronization
+internal import Buffer
 internal import StandardsCollections
 
 extension IO.Event {
@@ -176,7 +178,7 @@ extension IO.Event {
             // Create communication primitives
             let eventBridge = IO.Event.Bridge()
             let replyBridge = IO.Event.Registration.Reply.Bridge()
-            let registrationQueue = IO.Event.Registration.Queue()
+            let registrationQueue = IO.Event.Registration.Queue(.init(.init()))
             let shutdownFlag = Poll.Loop.Shutdown.Flag(.init())
             let nextDeadline = Poll.Loop.Deadline.Next()
 
