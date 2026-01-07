@@ -103,9 +103,6 @@ extension IO.Blocking.Threads {
         // Generate ticket (lock-free atomic)
         let ticket: IO.Blocking.Ticket = state.makeTicket()
 
-        // Capture enqueue timestamp for latency tracking
-        let enqueueTimestamp = IO.Blocking.Deadline.now
-
         // Shared context reference for cancellation handler
         // Uses Mutex to safely share between continuation body and onCancel
         let contextHolder = Mutex<Completion.Context?>(nil)
@@ -125,12 +122,11 @@ extension IO.Blocking.Threads {
                     return
                 }
 
-                // Create job with bundled context and timestamp
+                // Create job with bundled context
                 var job = Job.Instance(
                     ticket: ticket,
                     context: context,
-                    operation: operation,
-                    enqueueTimestamp: enqueueTimestamp
+                    operation: operation
                 )
 
                 state.lock.lock()
@@ -148,24 +144,20 @@ extension IO.Blocking.Threads {
 
                 // Try to enqueue directly with transition-based wakeup
                 if state.tryEnqueue(job) {
-                    // Detect state transitions
-                    var transitions: [State.Transition] = []
-                    if wasEmpty {
-                        transitions.append(.becameNonEmpty)
-                    }
-                    // Check if queue became saturated (was not full, now full)
-                    if !wasFull && state.queue.isFull {
-                        transitions.append(.becameSaturated)
-                    }
-
                     // Wake all sleeping workers if queue transitioned empty→non-empty
                     state.wakeSleepersIfNeeded(didBecomeNonEmpty: wasEmpty)
+
+                    // Capture saturation state before unlock (needed for transition callback)
+                    let becameSaturated = !wasFull && state.queue.isFull
                     state.lock.unlock()
 
-                    // Deliver state transitions out-of-lock
+                    // Deliver state transitions out-of-lock (only if callback is set)
                     if let onTransition = onTransition {
-                        for transition in transitions {
-                            onTransition(transition)
+                        if wasEmpty {
+                            onTransition(.becameNonEmpty)
+                        }
+                        if becameSaturated {
+                            onTransition(.becameSaturated)
                         }
                     }
 
@@ -411,9 +403,6 @@ extension IO.Blocking.Threads {
         // Generate ticket (lock-free atomic)
         let ticket: IO.Blocking.Ticket = state.makeTicket()
 
-        // Capture enqueue timestamp for latency tracking
-        let enqueueTimestamp = IO.Blocking.Deadline.now
-
         // Shared context reference for cancellation handler
         let contextHolder = Mutex<Completion.Context?>(nil)
 
@@ -432,12 +421,11 @@ extension IO.Blocking.Threads {
                     return
                 }
 
-                // Create job with bundled context and timestamp
+                // Create job with bundled context
                 var job = Job.Instance(
                     ticket: ticket,
                     context: context,
-                    operation: operation,
-                    enqueueTimestamp: enqueueTimestamp
+                    operation: operation
                 )
 
                 state.lock.lock()
@@ -455,23 +443,20 @@ extension IO.Blocking.Threads {
 
                 // Try to enqueue directly
                 if state.tryEnqueue(job) {
-                    // Detect state transitions
-                    var transitions: [State.Transition] = []
-                    if wasEmpty {
-                        transitions.append(.becameNonEmpty)
-                    }
-                    if !wasFull && state.queue.isFull {
-                        transitions.append(.becameSaturated)
-                    }
-
                     // Wake sleeping workers if needed
                     state.wakeSleepersIfNeeded(didBecomeNonEmpty: wasEmpty)
+
+                    // Capture saturation state before unlock (needed for transition callback)
+                    let becameSaturated = !wasFull && state.queue.isFull
                     state.lock.unlock()
 
-                    // Deliver state transitions out-of-lock
+                    // Deliver state transitions out-of-lock (only if callback is set)
                     if let onTransition = onTransition {
-                        for transition in transitions {
-                            onTransition(transition)
+                        if wasEmpty {
+                            onTransition(.becameNonEmpty)
+                        }
+                        if becameSaturated {
+                            onTransition(.becameSaturated)
                         }
                     }
 
