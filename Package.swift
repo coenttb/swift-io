@@ -62,6 +62,8 @@ let package = Package(
             dependencies: [
                 "IO Blocking",
                 "IO Blocking Threads",
+                "IO Events",
+                "IO Completions",
                 .product(name: "Memory", package: "swift-memory"),
             ]
         ),

@@ -7,4 +7,6 @@
 
 @_exported import IO_Blocking
 @_exported import IO_Blocking_Threads
+@_exported import IO_Completions
+@_exported import IO_Events
 @_exported import IO_Primitives
