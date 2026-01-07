@@ -52,6 +52,18 @@ extension IO.Blocking.Threads {
             _ = _completed.wrappingAdd(1, ordering: .relaxed)
         }
 
+        /// Batch increment for started counter.
+        @inline(__always)
+        func add(started count: Int) {
+            _ = _started.wrappingAdd(UInt64(truncatingIfNeeded: count), ordering: .relaxed)
+        }
+
+        /// Batch increment for completed counter.
+        @inline(__always)
+        func add(completed count: Int) {
+            _ = _completed.wrappingAdd(UInt64(truncatingIfNeeded: count), ordering: .relaxed)
+        }
+
         @inline(__always)
         func incrementAcceptancePromoted() {
             _ = _acceptancePromoted.wrappingAdd(1, ordering: .relaxed)
@@ -244,6 +256,12 @@ extension IO.Blocking.Threads.Aggregate {
             sumNs &+= durationNs
             if durationNs < minNs { minNs = durationNs }
             if durationNs > maxNs { maxNs = durationNs }
+        }
+
+        /// Record a signed duration (for batch averages).
+        mutating func record(_ durationNs: Int64) {
+            guard durationNs >= 0 else { return }
+            record(UInt64(bitPattern: durationNs))
         }
 
         func snapshot() -> IO.Blocking.Threads.Aggregate {

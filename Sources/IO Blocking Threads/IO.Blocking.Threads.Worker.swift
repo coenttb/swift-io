@@ -10,13 +10,19 @@ import Buffer
 extension IO.Blocking.Threads {
     /// Worker loop running on a dedicated OS thread.
     ///
-    /// ## Design (Unified Single-Stage)
+    /// ## Design (Batch Dequeue + Direct Handoff)
     /// Each worker:
     /// 1. Waits for jobs on the shared queue (via condition variable)
-    /// 2. Executes jobs to completion
-    /// 3. Calls `job.context.complete()` directly (no dictionary lookup)
-    /// 4. Promotes acceptance waiters when capacity available
-    /// 5. Exits when shutdown flag is set and queue is drained
+    /// 2. Batch-dequeues up to `drainLimit` jobs under ONE lock acquisition
+    /// 3. Also takes acceptance waiters directly (direct handoff, skips re-enqueue)
+    /// 4. Executes all jobs outside the lock
+    /// 5. Updates inFlightCount once per batch
+    /// 6. Exits when shutdown flag is set and all work is drained
+    ///
+    /// ## Performance
+    /// - Reduces lock trips from O(k) to O(2) per batch of k jobs
+    /// - Direct handoff eliminates acceptance→main queue re-enqueue overhead
+    /// - Fast path for single job avoids batch overhead
     struct Worker {
         let id: Int
         let state: Runtime.State
@@ -27,111 +33,202 @@ extension IO.Blocking.Threads {
 
 extension IO.Blocking.Threads.Worker {
     /// Maximum jobs to drain per wake cycle.
-    /// Amortizes lock operations and reduces sleep/wake frequency.
-    private static let drainLimit: Int = 16
+    @usableFromInline
+    static let drainLimit: Int = 16
 
-    /// The main worker loop.
-    ///
-    /// ## Design
-    /// - Uses `waitTracked()` so Kernel tracks waiter count for signal suppression
-    /// - Drains up to `drainLimit` jobs per wake to amortize lock overhead
-    /// - Promotes acceptance waiters after each job completes
-    ///
-    /// Runs until shutdown is signaled and all jobs are drained.
+    /// The main worker loop - optimized for both single-job and batch scenarios.
+    @inline(__always)
     func run() {
+        // Pre-allocated batch storage (only used when batch > 1)
+        var localBatch: [IO.Blocking.Threads.Job.Instance] = []
+        localBatch.reserveCapacity(Self.drainLimit)
+
         while true {
-            // Acquire lock and wait for job
             state.lock.lock()
 
-            // Wait for job or shutdown using tracked wait
-            while state.queue.isEmpty && !state.isShutdown {
+            // Wait for job, acceptance waiter, or shutdown
+            while state.queue.isEmpty && state.acceptanceWaiters.isEmpty && !state.isShutdown {
                 state.lock.worker.waitTracked()
             }
 
-            // Check for exit condition: shutdown + empty queue
-            if state.isShutdown && state.queue.isEmpty {
+            // Exit condition: shutdown + empty queue + no acceptance waiters
+            if state.isShutdown && state.queue.isEmpty && state.acceptanceWaiters.isEmpty {
                 state.lock.unlock()
                 return
             }
 
-            // Drain loop: process up to drainLimit jobs before going back to wait
-            var drained = 0
-            while drained < Self.drainLimit {
-                // Capture state before dequeue for transition detection
-                let wasFull = state.queue.isFull
+            // ========================================
+            // FAST PATH: Single job from main queue
+            // Optimized for sequential workloads - no batch overhead
+            // ========================================
+            let firstJob: IO.Blocking.Threads.Job.Instance?
+            switch scheduling {
+            case .fifo:
+                firstJob = state.queue.pop()
+            case .lifo:
+                firstJob = state.queue.pop.back()
+            }
 
-                // Dequeue job based on scheduling policy
-                let job: IO.Blocking.Threads.Job.Instance?
-                switch scheduling {
-                case .fifo:
-                    job = state.queue.pop()
-                case .lifo:
-                    job = state.queue.pop.back()
+            if let job = firstJob {
+                // Check if more jobs available (determines batch vs single path)
+                let hasMoreJobs = !state.queue.isEmpty || !state.acceptanceWaiters.isEmpty
+
+                if !hasMoreJobs {
+                    // ========================================
+                    // SINGLE JOB PATH - minimal overhead
+                    // ========================================
+                    state.inFlightCount += 1
+                    state.counters.incrementStarted()
+
+                    // Transition detection only if callback exists
+                    let notifySaturated = onTransition != nil && state.queue.count == state.queue.capacity - 1
+                    let notifyEmpty = onTransition != nil && state.queue.isEmpty
+
+                    state.lock.unlock()
+
+                    // Deliver transitions (rare path)
+                    if notifySaturated { onTransition!(.becameNotSaturated) }
+                    if notifyEmpty { onTransition!(.becameEmpty) }
+
+                    // Execute
+                    job.run()
+
+                    // Update completion under lock
+                    state.lock.lock()
+                    state.inFlightCount -= 1
+                    state.counters.incrementCompleted()
+
+                    if state.isShutdown && state.queue.isEmpty && state.acceptanceWaiters.isEmpty && state.inFlightCount == 0 {
+                        state.lock.worker.broadcast()
+                        state.lock.unlock()
+                        return
+                    }
+                    state.lock.unlock()
+                    continue
                 }
-                guard let job else {
-                    break
+
+                // ========================================
+                // BATCH PATH - amortize lock overhead
+                // ========================================
+                localBatch.removeAll(keepingCapacity: true)
+                localBatch.append(job)
+
+                // Continue filling batch from main queue
+                while localBatch.count < Self.drainLimit {
+                    let nextJob: IO.Blocking.Threads.Job.Instance?
+                    switch scheduling {
+                    case .fifo:
+                        nextJob = state.queue.pop()
+                    case .lifo:
+                        nextJob = state.queue.pop.back()
+                    }
+                    guard let nextJob else { break }
+                    localBatch.append(nextJob)
                 }
 
-                // Detect transitions from dequeue
-                var transitions: [IO.Blocking.Threads.State.Transition] = []
-                if wasFull {
-                    transitions.append(.becameNotSaturated)
-                }
-                if state.queue.isEmpty {
-                    transitions.append(.becameEmpty)
-                }
+                // Direct handoff from acceptance waiters
+                if !state.acceptanceWaiters.isEmpty && localBatch.count < Self.drainLimit {
+                    let now = IO.Blocking.Deadline.now
+                    while localBatch.count < Self.drainLimit {
+                        guard let waiter = state.acceptanceWaiters.dequeue() else { break }
 
-                state.inFlightCount += 1
-                state.counters.incrementStarted()  // Lock-free atomic
+                        if let deadline = waiter.deadline, deadline.hasExpired {
+                            _ = waiter.job.context.fail(.timeout)
+                            state.counters.incrementAcceptanceTimeout()
+                            continue
+                        }
 
-                // Record enqueue-to-start latency
-                let startTime = IO.Blocking.Deadline.now
-                if let enqueueTime = job.enqueueTimestamp {
-                    let latencyNs = startTime.nanosecondsSince(enqueueTime)
-                    state.enqueueToStartAggregate.record(latencyNs)
-                }
+                        if let acceptanceTimestamp = waiter.job.acceptanceTimestamp {
+                            let waitNs = now.nanosecondsSince(acceptanceTimestamp)
+                            state.acceptanceWaitAggregate.record(waitNs)
+                        }
+                        state.counters.incrementAcceptancePromoted()
+                        localBatch.append(waiter.job)
+                    }
 
-                // Promote acceptance waiters now that we have capacity
-                // With unified design, this enqueues jobs directly -
-                // contexts are completed by workers, not here
-                state.promoteAcceptanceWaiters()
-
-                state.lock.unlock()
-
-                // Deliver state transitions out-of-lock
-                if let onTransition = onTransition {
-                    for transition in transitions {
-                        onTransition(transition)
+                    // Promote remaining for other workers
+                    if !state.acceptanceWaiters.isEmpty {
+                        state.promoteAcceptanceWaiters()
                     }
                 }
 
-                // Execute job outside lock
-                // Job.run() calls context.complete() directly
-                job.run()
+                state.inFlightCount += localBatch.count
+                state.counters.add(started: localBatch.count)
+                state.lock.unlock()
 
-                // Capture end time outside lock
-                let endTime = IO.Blocking.Deadline.now
+                // Execute batch
+                for batchJob in localBatch {
+                    batchJob.run()
+                }
 
-                drained += 1
-
-                // Re-acquire lock for next iteration or completion
+                // Update completion
                 state.lock.lock()
-                state.inFlightCount -= 1
-                state.counters.incrementCompleted()  // Lock-free atomic
+                state.inFlightCount -= localBatch.count
+                state.counters.add(completed: localBatch.count)
 
-                // Record execution latency
-                let executionNs = endTime.nanosecondsSince(startTime)
-                state.executionAggregate.record(executionNs)
-
-                // Check shutdown condition
-                if state.isShutdown && state.queue.isEmpty && state.inFlightCount == 0 {
+                if state.isShutdown && state.queue.isEmpty && state.acceptanceWaiters.isEmpty && state.inFlightCount == 0 {
                     state.lock.worker.broadcast()
                     state.lock.unlock()
                     return
                 }
-            }
+                state.lock.unlock()
 
-            state.lock.unlock()
+            } else if !state.acceptanceWaiters.isEmpty {
+                // ========================================
+                // ACCEPTANCE-ONLY PATH
+                // Main queue empty, but acceptance waiters pending
+                // ========================================
+                localBatch.removeAll(keepingCapacity: true)
+                let now = IO.Blocking.Deadline.now
+
+                while localBatch.count < Self.drainLimit {
+                    guard let waiter = state.acceptanceWaiters.dequeue() else { break }
+
+                    if let deadline = waiter.deadline, deadline.hasExpired {
+                        _ = waiter.job.context.fail(.timeout)
+                        state.counters.incrementAcceptanceTimeout()
+                        continue
+                    }
+
+                    if let acceptanceTimestamp = waiter.job.acceptanceTimestamp {
+                        let waitNs = now.nanosecondsSince(acceptanceTimestamp)
+                        state.acceptanceWaitAggregate.record(waitNs)
+                    }
+                    state.counters.incrementAcceptancePromoted()
+                    localBatch.append(waiter.job)
+                }
+
+                if !state.acceptanceWaiters.isEmpty {
+                    state.promoteAcceptanceWaiters()
+                }
+
+                guard !localBatch.isEmpty else {
+                    state.lock.unlock()
+                    continue
+                }
+
+                state.inFlightCount += localBatch.count
+                state.counters.add(started: localBatch.count)
+                state.lock.unlock()
+
+                for batchJob in localBatch {
+                    batchJob.run()
+                }
+
+                state.lock.lock()
+                state.inFlightCount -= localBatch.count
+                state.counters.add(completed: localBatch.count)
+
+                if state.isShutdown && state.queue.isEmpty && state.acceptanceWaiters.isEmpty && state.inFlightCount == 0 {
+                    state.lock.worker.broadcast()
+                    state.lock.unlock()
+                    return
+                }
+                state.lock.unlock()
+            } else {
+                // Spurious wakeup or shutdown in progress
+                state.lock.unlock()
+            }
         }
     }
 }
