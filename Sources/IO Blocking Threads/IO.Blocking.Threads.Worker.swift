@@ -75,9 +75,10 @@ extension IO.Blocking.Threads.Worker {
 
                 if !hasMoreJobs {
                     // ========================================
-                    // SINGLE JOB PATH - minimal overhead
+                    // SINGLE JOB PATH - NIO-style minimal overhead
+                    // Lock-free in-flight tracking eliminates second lock
                     // ========================================
-                    state.inFlightCount += 1
+                    state.incrementInFlight()
                     state.counters.incrementStarted()
 
                     // Transition detection only if callback exists
@@ -93,17 +94,20 @@ extension IO.Blocking.Threads.Worker {
                     // Execute
                     job.run()
 
-                    // Update completion under lock
-                    state.lock.lock()
-                    state.inFlightCount -= 1
+                    // Lock-free completion - no second lock acquisition!
+                    state.decrementInFlight()
                     state.counters.incrementCompleted()
 
-                    if state.isShutdown && state.queue.isEmpty && state.acceptanceWaiters.isEmpty && state.inFlightCount == 0 {
-                        state.lock.worker.broadcast()
+                    // Only check shutdown if flag is set (rare path)
+                    if state.isShuttingDown {
+                        state.lock.lock()
+                        if state.isShutdown && state.queue.isEmpty && state.acceptanceWaiters.isEmpty && state.inFlightCount == 0 {
+                            state.lock.worker.broadcast()
+                            state.lock.unlock()
+                            return
+                        }
                         state.lock.unlock()
-                        return
                     }
-                    state.lock.unlock()
                     continue
                 }
 
@@ -152,7 +156,7 @@ extension IO.Blocking.Threads.Worker {
                     }
                 }
 
-                state.inFlightCount += localBatch.count
+                state.addInFlight(localBatch.count)
                 state.counters.add(started: localBatch.count)
                 state.lock.unlock()
 
@@ -161,17 +165,20 @@ extension IO.Blocking.Threads.Worker {
                     batchJob.run()
                 }
 
-                // Update completion
-                state.lock.lock()
-                state.inFlightCount -= localBatch.count
+                // Lock-free completion
+                state.subtractInFlight(localBatch.count)
                 state.counters.add(completed: localBatch.count)
 
-                if state.isShutdown && state.queue.isEmpty && state.acceptanceWaiters.isEmpty && state.inFlightCount == 0 {
-                    state.lock.worker.broadcast()
+                // Only check shutdown if flag is set
+                if state.isShuttingDown {
+                    state.lock.lock()
+                    if state.isShutdown && state.queue.isEmpty && state.acceptanceWaiters.isEmpty && state.inFlightCount == 0 {
+                        state.lock.worker.broadcast()
+                        state.lock.unlock()
+                        return
+                    }
                     state.lock.unlock()
-                    return
                 }
-                state.lock.unlock()
 
             } else if !state.acceptanceWaiters.isEmpty {
                 // ========================================
@@ -207,7 +214,7 @@ extension IO.Blocking.Threads.Worker {
                     continue
                 }
 
-                state.inFlightCount += localBatch.count
+                state.addInFlight(localBatch.count)
                 state.counters.add(started: localBatch.count)
                 state.lock.unlock()
 
@@ -215,16 +222,20 @@ extension IO.Blocking.Threads.Worker {
                     batchJob.run()
                 }
 
-                state.lock.lock()
-                state.inFlightCount -= localBatch.count
+                // Lock-free completion
+                state.subtractInFlight(localBatch.count)
                 state.counters.add(completed: localBatch.count)
 
-                if state.isShutdown && state.queue.isEmpty && state.acceptanceWaiters.isEmpty && state.inFlightCount == 0 {
-                    state.lock.worker.broadcast()
+                // Only check shutdown if flag is set
+                if state.isShuttingDown {
+                    state.lock.lock()
+                    if state.isShutdown && state.queue.isEmpty && state.acceptanceWaiters.isEmpty && state.inFlightCount == 0 {
+                        state.lock.worker.broadcast()
+                        state.lock.unlock()
+                        return
+                    }
                     state.lock.unlock()
-                    return
                 }
-                state.lock.unlock()
             } else {
                 // Spurious wakeup or shutdown in progress
                 state.lock.unlock()

@@ -32,8 +32,12 @@ extension IO.Blocking.Threads.Runtime {
     final class State: @unchecked Sendable {
         let lock: Kernel.Thread.DualSync
         var queue: Buffer.Ring<IO.Blocking.Threads.Job.Instance>
-        var isShutdown: Bool
-        var inFlightCount: Int
+
+        // Atomic shutdown flag - allows lock-free check in hot path
+        private let _isShutdown: Atomic<Bool>
+
+        // Atomic in-flight count - allows lock-free completion tracking
+        private let _inFlightCount: Atomic<Int>
 
         // Ticket generation (atomic - no lock required)
         private let ticketCounter: Atomic<UInt64>
@@ -56,10 +60,55 @@ extension IO.Blocking.Threads.Runtime {
         init(queueLimit: Int, acceptanceWaitersLimit: Int) {
             self.lock = Kernel.Thread.DualSync()
             self.queue = Buffer.Ring(capacity: queueLimit)
-            self.isShutdown = false
-            self.inFlightCount = 0
+            self._isShutdown = Atomic(false)
+            self._inFlightCount = Atomic(0)
             self.ticketCounter = Atomic(1)
             self.acceptanceWaiters = IO.Blocking.Threads.Acceptance.Queue(capacity: acceptanceWaitersLimit)
+        }
+
+        // MARK: - Atomic Accessors
+
+        /// Computed property for lock-protected access (existing code compatibility).
+        /// Must be called under lock for write operations.
+        var isShutdown: Bool {
+            get { _isShutdown.load(ordering: .acquiring) }
+            set { _isShutdown.store(newValue, ordering: .releasing) }
+        }
+
+        /// Lock-free shutdown check for hot path.
+        @inline(__always)
+        var isShuttingDown: Bool {
+            _isShutdown.load(ordering: .acquiring)
+        }
+
+        /// Computed property for lock-protected access (existing code compatibility).
+        var inFlightCount: Int {
+            get { _inFlightCount.load(ordering: .relaxed) }
+            set { _inFlightCount.store(newValue, ordering: .relaxed) }
+        }
+
+        /// Lock-free increment for worker start.
+        @inline(__always)
+        func incrementInFlight() {
+            _ = _inFlightCount.wrappingAdd(1, ordering: .relaxed)
+        }
+
+        /// Lock-free increment for batch start.
+        @inline(__always)
+        func addInFlight(_ count: Int) {
+            _ = _inFlightCount.wrappingAdd(count, ordering: .relaxed)
+        }
+
+        /// Lock-free decrement for worker completion.
+        @inline(__always)
+        func decrementInFlight() {
+            _ = _inFlightCount.wrappingSubtract(1, ordering: .relaxed)
+        }
+
+        /// Lock-free decrement for batch completion.
+        @inline(__always)
+        func subtractInFlight(_ count: Int) {
+            _ = _inFlightCount.wrappingSubtract(count, ordering: .relaxed)
         }
 
         /// Generate a unique ticket. Lock-free via atomic increment.
