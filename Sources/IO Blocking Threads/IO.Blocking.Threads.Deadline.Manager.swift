@@ -74,18 +74,9 @@ extension IO.Blocking.Threads.Deadline {
         /// Find the earliest deadline among acceptance waiters.
         /// Must be called under lock.
         ///
-        /// Iterates the ring buffer using subscript access.
+        /// Delegates to Queue.findEarliestDeadline().
         private func findEarliestDeadline() -> IO.Blocking.Deadline? {
-            var earliest: IO.Blocking.Deadline?
-            for i in 0..<state.acceptanceWaiters.count {
-                guard let waiter = state.acceptanceWaiters[i], !waiter.resumed else { continue }
-                if let deadline = waiter.deadline {
-                    if earliest == nil || deadline < earliest! {
-                        earliest = deadline
-                    }
-                }
-            }
-            return earliest
+            state.acceptanceWaiters.findEarliestDeadline()
         }
 
         /// Mark expired waiters as resumed and collect them for resumption.
@@ -95,19 +86,10 @@ extension IO.Blocking.Threads.Deadline {
         /// Expired waiters remain in the ring buffer (marked resumed) until
         /// dequeue reclaims their slots. This avoids complex compaction while
         /// ensuring capacity recovery.
+        ///
+        /// Delegates to Queue.markExpiredResumed().
         private func expireDeadlines() -> [IO.Blocking.Threads.Acceptance.Waiter] {
-            var expired: [IO.Blocking.Threads.Acceptance.Waiter] = []
-
-            for i in 0..<state.acceptanceWaiters.count {
-                guard var waiter = state.acceptanceWaiters[i], !waiter.resumed else { continue }
-                if let deadline = waiter.deadline, deadline.hasExpired {
-                    waiter.resumed = true
-                    state.acceptanceWaiters[i] = waiter  // Update in ring buffer
-                    expired.append(waiter)
-                }
-            }
-
-            return expired
+            state.acceptanceWaiters.markExpiredResumed()
         }
     }
 }

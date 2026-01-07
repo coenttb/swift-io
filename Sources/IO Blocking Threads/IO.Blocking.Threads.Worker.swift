@@ -82,7 +82,7 @@ extension IO.Blocking.Threads.Worker {
                 }
 
                 state.inFlightCount += 1
-                state.startedTotal &+= 1
+                state.counters.incrementStarted()  // Lock-free atomic
 
                 // Record enqueue-to-start latency
                 let startTime = IO.Blocking.Deadline.now
@@ -117,7 +117,7 @@ extension IO.Blocking.Threads.Worker {
                 // Re-acquire lock for next iteration or completion
                 state.lock.lock()
                 state.inFlightCount -= 1
-                state.completedTotal &+= 1
+                state.counters.incrementCompleted()  // Lock-free atomic
 
                 // Record execution latency
                 let executionNs = endTime.nanosecondsSince(startTime)

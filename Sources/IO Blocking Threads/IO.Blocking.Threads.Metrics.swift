@@ -5,6 +5,91 @@
 //  Created by Coen ten Thije Boonkkamp on 06/01/2026.
 //
 
+import Synchronization
+
+extension IO.Blocking.Threads {
+    /// Lock-free atomic counters for metrics tracking.
+    ///
+    /// ## Design
+    /// All counters use relaxed atomic ordering because:
+    /// - Writes are independent of each other (monotonic increments)
+    /// - Reads are for telemetry (eventual consistency is acceptable)
+    /// - No synchronization-with relationships are required
+    ///
+    /// ## Cache Locality
+    /// Counters are grouped in a single struct to maximize cache locality.
+    /// All counter updates happen on hot paths, so keeping them on the same
+    /// cache line reduces memory traffic.
+    ///
+    /// ## Thread Safety
+    /// Safe for concurrent access from multiple workers and the metrics reader.
+    final class Counters: Sendable {
+        private let _enqueued = Atomic<UInt64>(0)
+        private let _started = Atomic<UInt64>(0)
+        private let _completed = Atomic<UInt64>(0)
+        private let _acceptancePromoted = Atomic<UInt64>(0)
+        private let _acceptanceTimeout = Atomic<UInt64>(0)
+        private let _failFast = Atomic<UInt64>(0)
+        private let _overloaded = Atomic<UInt64>(0)
+        private let _cancelled = Atomic<UInt64>(0)
+
+        init() {}
+
+        // MARK: - Increment Operations (Lock-Free)
+
+        @inline(__always)
+        func incrementEnqueued() {
+            _ = _enqueued.wrappingAdd(1, ordering: .relaxed)
+        }
+
+        @inline(__always)
+        func incrementStarted() {
+            _ = _started.wrappingAdd(1, ordering: .relaxed)
+        }
+
+        @inline(__always)
+        func incrementCompleted() {
+            _ = _completed.wrappingAdd(1, ordering: .relaxed)
+        }
+
+        @inline(__always)
+        func incrementAcceptancePromoted() {
+            _ = _acceptancePromoted.wrappingAdd(1, ordering: .relaxed)
+        }
+
+        @inline(__always)
+        func incrementAcceptanceTimeout() {
+            _ = _acceptanceTimeout.wrappingAdd(1, ordering: .relaxed)
+        }
+
+        @inline(__always)
+        func incrementFailFast() {
+            _ = _failFast.wrappingAdd(1, ordering: .relaxed)
+        }
+
+        @inline(__always)
+        func incrementOverloaded() {
+            _ = _overloaded.wrappingAdd(1, ordering: .relaxed)
+        }
+
+        @inline(__always)
+        func incrementCancelled() {
+            _ = _cancelled.wrappingAdd(1, ordering: .relaxed)
+        }
+
+        // MARK: - Read Operations (Lock-Free)
+
+        var enqueued: UInt64 { _enqueued.load(ordering: .relaxed) }
+        var started: UInt64 { _started.load(ordering: .relaxed) }
+        var completed: UInt64 { _completed.load(ordering: .relaxed) }
+        var acceptancePromoted: UInt64 { _acceptancePromoted.load(ordering: .relaxed) }
+        var acceptanceTimeout: UInt64 { _acceptanceTimeout.load(ordering: .relaxed) }
+        var failFast: UInt64 { _failFast.load(ordering: .relaxed) }
+        var overloaded: UInt64 { _overloaded.load(ordering: .relaxed) }
+        var cancelled: UInt64 { _cancelled.load(ordering: .relaxed) }
+    }
+}
+
 extension IO.Blocking.Threads {
     /// Latency aggregate (no percentiles in v1).
     ///

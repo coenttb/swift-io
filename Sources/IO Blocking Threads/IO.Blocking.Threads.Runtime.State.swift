@@ -42,16 +42,10 @@ extension IO.Blocking.Threads.Runtime {
         // Bounded ring buffer - fails with .overloaded when full
         var acceptanceWaiters: IO.Blocking.Threads.Acceptance.Queue
 
-        // MARK: - Metrics Counters (protected by lock)
+        // MARK: - Metrics Counters (lock-free atomics)
 
-        var enqueuedTotal: UInt64 = 0
-        var startedTotal: UInt64 = 0
-        var completedTotal: UInt64 = 0
-        var acceptancePromotedTotal: UInt64 = 0
-        var acceptanceTimeoutTotal: UInt64 = 0
-        var failFastTotal: UInt64 = 0
-        var overloadedTotal: UInt64 = 0
-        var cancelledTotal: UInt64 = 0
+        /// Lock-free atomic counters. No lock required for increment or read.
+        let counters = IO.Blocking.Threads.Counters()
 
         // MARK: - Latency Aggregates (protected by lock)
 
@@ -113,7 +107,7 @@ extension IO.Blocking.Threads.Runtime {
             guard !isShutdown else { return false }
             guard !queue.isFull else { return false }
             _ = queue.push(job)
-            enqueuedTotal &+= 1
+            counters.incrementEnqueued()  // Lock-free atomic
             return true
         }
 
@@ -148,7 +142,7 @@ extension IO.Blocking.Threads.Runtime {
                 if let deadline = waiter.deadline, deadline.hasExpired {
                     // Fail via context - atomic, exactly-once
                     _ = waiter.job.context.fail(.timeout)
-                    acceptanceTimeoutTotal &+= 1
+                    counters.incrementAcceptanceTimeout()  // Lock-free atomic
                     continue
                 }
 
@@ -157,7 +151,7 @@ extension IO.Blocking.Threads.Runtime {
 
                 // Enqueue the job (already has context bundled)
                 if tryEnqueue(waiter.job) {
-                    acceptancePromotedTotal &+= 1
+                    counters.incrementAcceptancePromoted()  // Lock-free atomic
                     // Record acceptance wait time if timestamp available
                     if let acceptanceTimestamp = waiter.job.acceptanceTimestamp {
                         let waitNs = now.nanosecondsSince(acceptanceTimestamp)

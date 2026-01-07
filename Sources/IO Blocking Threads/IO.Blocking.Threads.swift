@@ -176,7 +176,7 @@ extension IO.Blocking.Threads {
                 // Queue is full - handle based on backpressure policy
                 switch options.strategy {
                 case .failFast:
-                    state.failFastTotal &+= 1
+                    state.counters.incrementFailFast()  // Lock-free atomic
                     state.lock.unlock()
                     _ = context.fail(.failure(.queueFull))
 
@@ -192,7 +192,7 @@ extension IO.Blocking.Threads {
                     )
                     // Bounded queue - fail fast if full
                     guard state.acceptanceWaiters.enqueue(waiter) else {
-                        state.overloadedTotal &+= 1
+                        state.counters.incrementOverloaded()  // Lock-free atomic
                         state.lock.unlock()
                         _ = context.fail(.failure(.overloaded))
                         return
@@ -217,9 +217,7 @@ extension IO.Blocking.Threads {
 
             // Increment cancelled counter if we actually cancelled
             if didCancel {
-                state.lock.lock()
-                state.cancelledTotal &+= 1
-                state.lock.unlock()
+                state.counters.incrementCancelled()  // Lock-free atomic
             }
 
             // Also try to mark acceptance waiter as resumed
@@ -330,14 +328,14 @@ extension IO.Blocking.Threads {
             acceptanceWaitersDepth: state.acceptanceWaiters.count,
             executingCount: state.inFlightCount,
             sleepingWorkers: state.lock.worker.waiterCount,
-            enqueuedTotal: state.enqueuedTotal,
-            startedTotal: state.startedTotal,
-            completedTotal: state.completedTotal,
-            acceptancePromotedTotal: state.acceptancePromotedTotal,
-            acceptanceTimeoutTotal: state.acceptanceTimeoutTotal,
-            failFastTotal: state.failFastTotal,
-            overloadedTotal: state.overloadedTotal,
-            cancelledTotal: state.cancelledTotal,
+            enqueuedTotal: state.counters.enqueued,
+            startedTotal: state.counters.started,
+            completedTotal: state.counters.completed,
+            acceptancePromotedTotal: state.counters.acceptancePromoted,
+            acceptanceTimeoutTotal: state.counters.acceptanceTimeout,
+            failFastTotal: state.counters.failFast,
+            overloadedTotal: state.counters.overloaded,
+            cancelledTotal: state.counters.cancelled,
             enqueueToStart: state.enqueueToStartAggregate.snapshot(),
             execution: state.executionAggregate.snapshot(),
             acceptanceWait: state.acceptanceWaitAggregate.snapshot()
@@ -487,7 +485,7 @@ extension IO.Blocking.Threads {
                 // Queue is full - handle based on backpressure policy
                 switch options.strategy {
                 case .failFast:
-                    state.failFastTotal &+= 1
+                    state.counters.incrementFailFast()  // Lock-free atomic
                     state.lock.unlock()
                     _ = context.fail(.failure(.queueFull))
 
@@ -502,7 +500,7 @@ extension IO.Blocking.Threads {
                         resumed: false
                     )
                     guard state.acceptanceWaiters.enqueue(waiter) else {
-                        state.overloadedTotal &+= 1
+                        state.counters.incrementOverloaded()  // Lock-free atomic
                         state.lock.unlock()
                         _ = context.fail(.failure(.overloaded))
                         return
@@ -523,9 +521,7 @@ extension IO.Blocking.Threads {
             }
 
             if didCancel {
-                state.lock.lock()
-                state.cancelledTotal &+= 1
-                state.lock.unlock()
+                state.counters.incrementCancelled()  // Lock-free atomic
             }
 
             state.lock.lock()

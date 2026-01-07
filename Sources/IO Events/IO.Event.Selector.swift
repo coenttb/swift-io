@@ -93,7 +93,7 @@ extension IO.Event {
         private let nextDeadline: Poll.Loop.Deadline.Next
 
         /// Min-heap of deadline entries for scheduling.
-        private var deadlineHeap: Heap<DeadlineScheduling.Entry> = .min()
+        private var deadlineHeap: Heap<DeadlineScheduling.Entry> = .init()
 
         /// Generation counter per key for stale entry detection.
         ///
@@ -843,14 +843,14 @@ extension IO.Event {
         ///
         /// - Parameter now: The current monotonic time in nanoseconds.
         private func drainExpiredDeadlines(now: UInt64) {
-            while let entry = deadlineHeap.peek() {
+            while let entry = deadlineHeap.peek.min {
                 // Not expired yet - stop
                 if entry.deadline > now {
                     break
                 }
 
                 // Pop and check validity
-                _ = deadlineHeap.pop()
+                _ = deadlineHeap.take.min
 
                 // Skip stale entries (generation mismatch)
                 guard let currentGen = deadlineGeneration[entry.key],
@@ -900,20 +900,20 @@ extension IO.Event {
         /// then publishes it to the poll thread.
         private func updateNextPollDeadline() {
             // Pop stale entries
-            while let entry = deadlineHeap.peek() {
+            while let entry = deadlineHeap.peek.min {
                 guard let currentGen = deadlineGeneration[entry.key],
                     currentGen == entry.generation,
                     waiters[entry.key] != nil
                 else {
                     // Stale - remove
-                    _ = deadlineHeap.pop()
+                    _ = deadlineHeap.take.min
                     continue
                 }
                 break
             }
 
             // Publish earliest valid deadline (or max if none)
-            if let entry = deadlineHeap.peek() {
+            if let entry = deadlineHeap.peek.min {
                 let previous = nextDeadline.nanoseconds
                 nextDeadline.store(entry.deadline)
                 // Wake poll thread if deadline moved earlier
@@ -987,7 +987,7 @@ extension IO.Event {
             waiters.removeAll()
 
             // Clear deadline state (no need to bump generations - heap is being dropped)
-            deadlineHeap = .min()
+            deadlineHeap = .init()
             deadlineGeneration.removeAll()
             nextDeadline.store(.max)
 
