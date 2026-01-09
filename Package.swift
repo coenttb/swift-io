@@ -19,9 +19,6 @@ let package = Package(
         .library(name: "IO Completions", targets: ["IO Completions"]),
         .library(name: "IO Test Support", targets: ["IO Test Support"]),
     ],
-    traits: [
-        .trait(name: "Codable", description: "Enable Codable conformances for Handle.ID and other types"),
-    ],
     dependencies: [
         .package(url: "https://github.com/swift-standards/swift-time-standard.git", from: "0.2.0"),
         .package(url: "https://github.com/swift-standards/swift-standards", from: "0.24.1"),
@@ -165,7 +162,6 @@ for target in package.targets where ![.system, .binary, .plugin].contains(target
         .enableUpcomingFeature("ExistentialAny"),
         .enableUpcomingFeature("InternalImportsByDefault"),
         .enableUpcomingFeature("MemberImportVisibility"),
-        .define("CODABLE", .when(traits: ["Codable"])),
     ]
     target.swiftSettings = (target.swiftSettings ?? []) + settings
 }
