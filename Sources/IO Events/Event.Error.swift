@@ -5,7 +5,7 @@
 
         public enum Error: Swift.Error, Equatable {
 
-            case platform(Error_Primitives.Error.Code)
+            case platform(Error.Error.Code)
 
             case invalidDescriptor
 

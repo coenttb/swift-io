@@ -20,7 +20,7 @@
             case .platform(let code) where code == .POSIX.ENOMEM:
                 self = .yieldAndRetry
 
-            case .platform(let code) where Error_Primitives.Error.Code.POSIX.isEAGAIN(code):
+            case .platform(let code) where Error.Error.Code.POSIX.isEAGAIN(code):
                 self = .retry
 
             default:

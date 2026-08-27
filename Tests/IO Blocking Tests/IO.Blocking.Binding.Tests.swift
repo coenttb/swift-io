@@ -1,8 +1,8 @@
 import Executors
 import IO_Test_Support
 import Kernel
-import Memory_Primitives
-import Span_Raw_Primitives
+import Memory
+import Span_Raw
 import Synchronization
 import Testing
 

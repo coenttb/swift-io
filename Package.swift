@@ -35,83 +35,83 @@ let package = Package(
     ],
     dependencies: [
         .package(
-            url: "https://github.com/swift-foundations/swift-kernel.git",
+            url: "https://github.com/swift-compositions/swift-kernel.git",
             branch: "main"
         ),
         .package(
-            url: "https://github.com/swift-foundations/swift-async.git",
+            url: "https://github.com/swift-compositions/swift-async.git",
             branch: "main"
         ),
         .package(
-            url: "https://github.com/swift-foundations/swift-executors.git",
+            url: "https://github.com/swift-compositions/swift-executors.git",
             branch: "main"
         ),
         .package(
-            url: "https://github.com/swift-foundations/swift-threads.git",
+            url: "https://github.com/swift-compositions/swift-threads.git",
             branch: "main"
         ),
         .package(
-            url: "https://github.com/swift-foundations/swift-synchronizers.git",
+            url: "https://github.com/swift-compositions/swift-synchronizers.git",
             branch: "main"
         ),
         .package(
-            url: "https://github.com/swift-primitives/swift-io-primitives.git",
+            url: "https://github.com/swift-molecules/swift-io.git",
             branch: "main"
         ),
         .package(
-            url: "https://github.com/swift-primitives/swift-buffer-primitives.git",
+            url: "https://github.com/swift-molecules/swift-buffer.git",
             branch: "main"
         ),
         .package(
-            url: "https://github.com/swift-primitives/swift-hash-primitives.git",
+            url: "https://github.com/swift-molecules/swift-hash.git",
             branch: "main"
         ),
         .package(
-            url: "https://github.com/swift-primitives/swift-heap-primitives.git",
+            url: "https://github.com/swift-molecules/swift-heap.git",
             branch: "main"
         ),
         .package(
-            url: "https://github.com/swift-primitives/swift-dictionary-primitives.git",
+            url: "https://github.com/swift-molecules/swift-dictionary.git",
             branch: "main"
         ),
         .package(
-            url: "https://github.com/swift-primitives/swift-hash-table-primitives.git",
+            url: "https://github.com/swift-molecules/swift-hash-table.git",
             branch: "main"
         ),
         .package(
-            url: "https://github.com/swift-primitives/swift-buffer-linear-primitives.git",
+            url: "https://github.com/swift-molecules/swift-buffer-linear.git",
             branch: "main"
         ),
         .package(
-            url: "https://github.com/swift-primitives/swift-storage-primitives.git",
+            url: "https://github.com/swift-molecules/swift-storage.git",
             branch: "main"
         ),
         .package(
-            url: "https://github.com/swift-primitives/swift-memory-heap-primitives.git",
+            url: "https://github.com/swift-molecules/swift-memory-heap.git",
             branch: "main"
         ),
         .package(
-            url: "https://github.com/swift-primitives/swift-memory-allocation-primitives.git",
+            url: "https://github.com/swift-molecules/swift-memory-allocation.git",
             branch: "main"
         ),
         .package(
-            url: "https://github.com/swift-primitives/swift-memory-primitives.git",
+            url: "https://github.com/swift-molecules/swift-memory.git",
             branch: "main"
         ),
         .package(
-            url: "https://github.com/swift-primitives/swift-span-primitives.git",
+            url: "https://github.com/swift-molecules/swift-span.git",
             branch: "main"
         ),
         .package(
-            url: "https://github.com/swift-primitives/swift-either-primitives.git",
+            url: "https://github.com/swift-molecules/swift-either.git",
             branch: "main"
         ),
         .package(
-            url: "https://github.com/swift-primitives/swift-witness-primitives.git",
+            url: "https://github.com/swift-molecules/swift-witness.git",
             branch: "main"
         ),
         .package(
-            url: "https://github.com/swift-foundations/swift-witnesses.git",
+            url: "https://github.com/swift-compositions/swift-witnesses.git",
             branch: "main"
         ),
     ],
@@ -121,17 +121,17 @@ let package = Package(
             name: "IO Events",
             dependencies: [
                 .product(name: "Kernel", package: "swift-kernel"),
-                .product(name: "IO Primitives", package: "swift-io-primitives"),
+                .product(name: "IO", package: "swift-io"),
                 .product(name: "Executors", package: "swift-executors"),
                 .product(name: "Async", package: "swift-async"),
-                .product(name: "Hash Primitives", package: "swift-hash-primitives"),
-                .product(name: "Heap Primitive", package: "swift-heap-primitives"),
-                .product(name: "Buffer Primitives", package: "swift-buffer-primitives"),
-                .product(name: "Memory Primitives", package: "swift-memory-primitives"),
-                .product(name: "Dictionary Primitives", package: "swift-dictionary-primitives"),
-                .product(name: "Witness Primitives", package: "swift-witness-primitives"),
+                .product(name: "Hash", package: "swift-hash"),
+                .product(name: "Heap Primitive", package: "swift-heap"),
+                .product(name: "Buffer", package: "swift-buffer"),
+                .product(name: "Memory", package: "swift-memory"),
+                .product(name: "Dictionary", package: "swift-dictionary"),
+                .product(name: "Witness", package: "swift-witness"),
                 .product(name: "Witnesses", package: "swift-witnesses"),
-                .product(name: "Either Primitives", package: "swift-either-primitives"),
+                .product(name: "Either", package: "swift-either"),
             ],
         ),
 
@@ -147,8 +147,8 @@ let package = Package(
                     package: "swift-kernel"
                 ),
                 .product(
-                    name: "IO Primitives",
-                    package: "swift-io-primitives"
+                    name: "IO",
+                    package: "swift-io"
                 ),
                 .product(
                     name: "Executors",
@@ -159,42 +159,42 @@ let package = Package(
                     package: "swift-async"
                 ),
                 .product(
-                    name: "Memory Primitives",
-                    package: "swift-memory-primitives"
+                    name: "Memory",
+                    package: "swift-memory"
                 ),
                 .product(
-                    name: "Dictionary Primitives",
-                    package: "swift-dictionary-primitives"
+                    name: "Dictionary",
+                    package: "swift-dictionary"
                 ),
                 .product(
                     name: "Hash Indexed Primitive",
-                    package: "swift-hash-table-primitives"
+                    package: "swift-hash-table"
                 ),
                 .product(
-                    name: "Hash Tagged Primitives",
-                    package: "swift-hash-primitives"
+                    name: "Hash Tagged",
+                    package: "swift-hash"
                 ),
                 .product(
                     name: "Buffer Primitive",
-                    package: "swift-buffer-primitives"
+                    package: "swift-buffer"
                 ),
                 .product(
                     name: "Buffer Linear Primitive",
-                    package: "swift-buffer-linear-primitives"
+                    package: "swift-buffer-linear"
                 ),
                 .product(
-                    name: "Buffer Linear Primitives",
-                    package: "swift-buffer-linear-primitives"
+                    name: "Buffer Linear",
+                    package: "swift-buffer-linear"
                 ),
-                .product(name: "Storage Primitive", package: "swift-storage-primitives"),
+                .product(name: "Storage Primitive", package: "swift-storage"),
                 .product(
-                    name: "Storage Contiguous Primitives",
-                    package: "swift-storage-primitives"
+                    name: "Storage Contiguous",
+                    package: "swift-storage"
                 ),
-                .product(name: "Memory Heap Primitives", package: "swift-memory-heap-primitives"),
+                .product(name: "Memory Heap", package: "swift-memory-heap"),
                 .product(
                     name: "Memory Allocator Primitive",
-                    package: "swift-memory-allocation-primitives"
+                    package: "swift-memory-allocation"
                 ),
                 .product(name: "Synchronizer Blocking", package: "swift-synchronizers"),
             ]
@@ -206,23 +206,23 @@ let package = Package(
                 "IO Events",
                 "IO Completions",
                 .product(name: "Kernel", package: "swift-kernel"),
-                .product(name: "IO Primitives", package: "swift-io-primitives"),
-                .product(name: "Either Primitives", package: "swift-either-primitives"),
+                .product(name: "IO", package: "swift-io"),
+                .product(name: "Either", package: "swift-either"),
             ]
         ),
 
         .target(
             name: "IO Test Support",
             dependencies: [
-                .product(name: "Span Raw Primitives", package: "swift-span-primitives"),
+                .product(name: "Span Raw", package: "swift-span"),
                 "IO",
                 .product(name: "Kernel", package: "swift-kernel"),
                 .product(name: "Kernel Test Support", package: "swift-kernel"),
-                .product(name: "IO Primitives", package: "swift-io-primitives"),
+                .product(name: "IO", package: "swift-io"),
                 .product(name: "Thread Actor", package: "swift-threads"),
                 .product(name: "Executors", package: "swift-executors"),
-                .product(name: "Buffer Primitives", package: "swift-buffer-primitives"),
-                .product(name: "Memory Primitives", package: "swift-memory-primitives"),
+                .product(name: "Buffer", package: "swift-buffer"),
+                .product(name: "Memory", package: "swift-memory"),
             ],
             path: "Tests/Support"
         ),

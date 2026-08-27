@@ -17,7 +17,7 @@
                 return .platform(.POSIX.EMFILE)
 
             case .platform(let code):
-                if code == Error_Primitives.Error.Code.POSIX.EPIPE { return .brokenPipe }
+                if code == Error.Error.Code.POSIX.EPIPE { return .brokenPipe }
                 return .platform(code)
 
             case .kernel:

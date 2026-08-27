@@ -10,6 +10,6 @@ extension Basic {
 
         case shutdown
 
-        case platform(Error_Primitives.Error.Code)
+        case platform(Error.Error.Code)
     }
 }

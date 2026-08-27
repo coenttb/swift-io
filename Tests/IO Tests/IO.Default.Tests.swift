@@ -1,7 +1,7 @@
 import IO_Test_Support
 @_spi(Syscall) import Kernel
-import Memory_Primitives
-import Span_Raw_Primitives
+import Memory
+import Span_Raw
 import Testing
 
 @Suite(

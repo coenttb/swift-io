@@ -4,8 +4,8 @@
     @testable import IO_Completions
     import IO_Completions_Test_Support
     @_spi(Syscall) import Kernel_Completion
-    import Memory_Primitives
-    import Span_Raw_Primitives
+    import Memory
+    import Span_Raw
 
     @Suite struct ProactorTests {
         @Suite(

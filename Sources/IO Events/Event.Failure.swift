@@ -1,5 +1,5 @@
 #if !os(Windows)
-    public import Either_Primitives
+    public import Either
     public import Async
 
     extension Event {

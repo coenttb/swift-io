@@ -3,16 +3,16 @@
     import Kernel_Completion
     import Executors
     import Synchronizer_Blocking
-    import Memory_Primitives
-    import Dictionary_Primitives
+    import Memory
+    import Dictionary
     import Hash_Indexed_Primitive
-    import Hash_Tagged_Primitives
+    import Hash_Tagged
     import Buffer_Primitive
     import Buffer_Linear_Primitive
-    import Buffer_Linear_Primitives
+    import Buffer_Linear
     import Storage_Primitive
-    import Storage_Contiguous_Primitives
-    import Memory_Heap_Primitives
+    import Storage_Contiguous
+    import Memory_Heap
     import Memory_Allocator_Primitive
 
     extension Completion {
@@ -59,7 +59,7 @@
 
     extension Completion.Actor {
 
-        private typealias Registry = Dictionary_Primitives.Dictionary<
+        private typealias Registry = Dictionary.Dictionary<
             Kernel.Completion.Token, Completion.Entry
         >
     }

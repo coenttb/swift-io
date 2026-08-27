@@ -1,6 +1,6 @@
 # swift-io
 
-![CI](https://github.com/swift-foundations/swift-io/actions/workflows/ci.yml/badge.svg) ![Development Status](https://img.shields.io/badge/status-active--development-blue.svg)
+![CI](https://github.com/swift-compositions/swift-io/actions/workflows/ci.yml/badge.svg) ![Development Status](https://img.shields.io/badge/status-active--development-blue.svg)
 
 A high-performance async I/O executor for Swift. Isolates blocking syscalls from Swift's cooperative thread pool with dedicated worker threads, bounded queues, and deterministic shutdown semantics.
 
@@ -84,7 +84,7 @@ Swift's cooperative thread pool is designed for quick, non-blocking work. When y
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/swift-foundations/swift-io.git", from: "0.2.0")
+    .package(url: "https://github.com/swift-compositions/swift-io.git", from: "0.2.0")
 ]
 ```
 
@@ -146,7 +146,7 @@ await pool.shutdown()
 
 ### Domain Facade Pattern
 
-For production use, wrap the pool in a domain-specific API (see [swift-file-system](https://github.com/swift-foundations/swift-file-system)):
+For production use, wrap the pool in a domain-specific API (see [swift-file-system](https://github.com/swift-compositions/swift-file-system)):
 
 ```swift
 public actor FileSystem {
@@ -224,7 +224,7 @@ IO.Lifecycle.Error<E>
 ├─────────────────────────────────────────────┤
 │           IO Blocking Threads                │  ← Thread pool + signal optimization
 ├─────────────────────────────────────────────┤
-│              IO Primitives                   │  ← Core types, platform abstraction
+│                    IO                        │  ← Core types, platform abstraction
 └─────────────────────────────────────────────┘
 ```
 
@@ -318,7 +318,7 @@ let pool = IO.Executor.Pool<FileHandle>(
 
 ## Platform Support
 
-CI targets macOS, Linux, and Windows; see the [workflow runs](https://github.com/swift-foundations/swift-io/actions/workflows/ci.yml) for current status.
+CI targets macOS, Linux, and Windows; see the [workflow runs](https://github.com/swift-compositions/swift-io/actions/workflows/ci.yml) for current status.
 
 | Platform | CI target | Notes |
 |----------|-----------|-------|
@@ -329,7 +329,7 @@ CI targets macOS, Linux, and Windows; see the [workflow runs](https://github.com
 
 ## Related Packages
 
-- [swift-file-system](https://github.com/swift-foundations/swift-file-system) - File system operations built on swift-io
+- [swift-file-system](https://github.com/swift-compositions/swift-file-system) - File system operations built on swift-io
 - [swift-time-standard](https://github.com/swift-standards/swift-time-standard) - Time types for deadlines
 
 ## Status & maintainer

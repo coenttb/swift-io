@@ -2,8 +2,8 @@
 
     public import IO
     public import Kernel
-    public import Memory_Primitives
-    public import Span_Raw_Primitives
+    public import Memory
+    public import Span_Raw
 
     extension Completion.Actor {
 

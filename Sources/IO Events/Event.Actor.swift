@@ -2,7 +2,7 @@
     @_spi(Syscall) import Kernel
     import Executors
     import Async
-    import Memory_Primitives
+    import Memory
 
     extension Event {
 

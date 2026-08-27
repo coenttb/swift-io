@@ -10,7 +10,7 @@
 
             case tooManyOpen
 
-            case platform(Error_Primitives.Error.Code)
+            case platform(Error.Error.Code)
 
             case kernel(Kernel.Completion.Error)
         }
@@ -27,7 +27,7 @@
         }
     }
 
-    extension Error_Primitives.Error {
+    extension Error.Error {
 
         public var completionFailure: Completion.Failure {
             .platform(self.code)

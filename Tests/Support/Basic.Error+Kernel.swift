@@ -4,7 +4,7 @@ extension Kernel.IO.Read.Error {
 
     @usableFromInline
     package var basicError: Basic.Error {
-        let brokenPipe: Error_Primitives.Error.Code
+        let brokenPipe: Error.Error.Code
         #if os(Windows)
             brokenPipe = .Windows.ERROR_BROKEN_PIPE
         #else
@@ -21,7 +21,7 @@ extension Kernel.IO.Write.Error {
 
     @usableFromInline
     package var basicError: Basic.Error {
-        let brokenPipe: Error_Primitives.Error.Code
+        let brokenPipe: Error.Error.Code
         #if os(Windows)
             brokenPipe = .Windows.ERROR_BROKEN_PIPE
         #else
